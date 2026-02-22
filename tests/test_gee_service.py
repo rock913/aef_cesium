@@ -216,6 +216,8 @@ class TestLayerLogicV6:
             mock_base_img = Mock()
             mock_classifier = Mock()
             mock_classified = Mock()
+            mock_mask = Mock()
+            mock_masked = Mock()
 
             mock_ee.ImageCollection.return_value = mock_embedding_collection
             mock_embedding_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
@@ -228,6 +230,10 @@ class TestLayerLogicV6:
             mock_ee.Classifier.load.return_value = mock_classifier
             mock_base_img.classify.return_value = mock_classified
 
+            # background masking: img.updateMask(img.neq(3))
+            mock_classified.neq.return_value = mock_mask
+            mock_classified.updateMask.return_value = mock_masked
+
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
             assert suffix == "ch5_audit_supervised"
@@ -235,10 +241,12 @@ class TestLayerLogicV6:
             assert vis_params.get("max") == 2
             assert isinstance(vis_params.get("palette"), list)
             assert len(vis_params["palette"]) == 3
-            assert result_image is mock_classified
+            assert result_image is mock_masked
 
             mock_ee.Classifier.load.assert_called_once()
             mock_base_img.classify.assert_called_once_with(mock_classifier)
+            mock_classified.neq.assert_called_once_with(3)
+            mock_classified.updateMask.assert_called_once_with(mock_mask)
 
     def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
         mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"

@@ -182,7 +182,7 @@ export function buildCommanderBrief(modeId, mission, stats) {
   } else if (modeId === 'ch5_coastline_audit') {
     operator = 'RF-Supervised(16-Dim) + Asset'
     brief = '面向“离任生态审计/自然岸线保有率”场景：以 AEF 16 维特征为输入，使用锚点多边形监督训练随机森林，并固化为 GEE Asset，生产推理毫秒级、语义稳定不漂移。'
-    mechanism = '监督分类（随机森林）：用多边形锚点采样 16 维特征，训练分类器并资产化；运行时直接 load 资产并 classify，避免每次视口变化重新训练导致的标签漂移。'
+    mechanism = '监督分类（随机森林）：用锚点区域限量采样 16 维特征，训练 4 类分类器并资产化；运行时直接 load 资产并 classify。第 3 类为“内陆背景”，渲染时自动透明化（mask），避免内陆被强行误判成“滩涂”。'
     legends = [
       { color: '#1A365D', label: '深蓝：水域（含长江口浑浊水）' },
       { color: '#F6C431', label: '金黄：自然滩涂/泥沙沉积带' },
@@ -194,6 +194,7 @@ export function buildCommanderBrief(modeId, mission, stats) {
     ]
     technicalInsights = [
       '[稳健推理] 分类器资产化后，语义绑定固定：蓝=水、黄=滩涂、红=围垦硬化，避免标签漂移与渲染闪烁。',
+      '[背景抑制] 引入“内陆背景类”并在渲染阶段透明化，有效抑制语义溢出（内陆大面积发黄）。',
       '[高并发] 运行期不再采样/训练，拖拽视口也不会触发云端重训，显著降低超时与成本。',
       '[审计输出] 可直接用于“自然岸线保有率”核算、红线预警与离任生态审计举证底图。',
     ]

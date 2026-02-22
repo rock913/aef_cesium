@@ -217,6 +217,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         #   0: water (blue)
         #   1: natural mudflat (gold)
         #   2: reclaimed/artificial hardening (red)
+        #   3: inland background (transparent/masked)
         base_img = _select_embedding_bands(filtered_col.mosaic(), emb_bands)
 
         # STRICT: production requires the supervised classifier asset to be configured and loadable.
@@ -229,6 +230,12 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
             img = base_img.classify(classifier)
         except Exception as e:
             raise RuntimeError(f"CH5 RF classifier failed to run classify(): {e}") from e
+
+        # Hide background pixels (class 3) to avoid semantic overflow over inland areas.
+        try:
+            img = img.updateMask(img.neq(3))
+        except Exception as e:
+            raise RuntimeError(f"CH5 RF classifier failed to apply background mask: {e}") from e
 
         suffix = "ch5_audit_supervised"
 

@@ -10,6 +10,7 @@ The backend can then load it via ee.Classifier.load(assetId) for millisecond inf
 Usage:
   python backend/ch5_rf_export.py --check
   python backend/ch5_rf_export.py --ensure
+    python backend/ch5_rf_export.py --delete --yes
 
 Environment:
   - CH5_RF_ASSET_ID: target Asset ID to load/export (preferred)
@@ -19,6 +20,7 @@ Environment:
 Notes:
   - "--ensure" submits an export task; it does NOT wait for completion.
   - Monitor tasks at https://code.earthengine.google.com/tasks
+    - "--delete" removes the classifier asset (useful for retraining). It requires --yes.
 """
 
 from __future__ import annotations
@@ -128,9 +130,15 @@ def _build_classifier_graph() -> Any:
     # "Image.reduceRegions: Computed value is too large".
     water_clear = ee.Geometry.Rectangle([122.35, 30.95, 122.45, 31.05])
     water_turbid = ee.Geometry.Rectangle([121.88, 31.38, 121.94, 31.44])
+    # Extreme-turbidity water near Yancheng radial sand ridges (still water).
+    water_turbid_yancheng = ee.Geometry.Rectangle([120.60, 33.60, 120.80, 33.80])
+
     mudflat = ee.Geometry.Rectangle([120.86, 33.46, 120.92, 33.52])
     urban = ee.Geometry.Rectangle([121.46, 31.16, 121.52, 31.22])
     reclamation = ee.Geometry.Rectangle([121.88, 30.88, 121.93, 30.93])
+
+    # Inland background (vegetation/farmland) - will be masked out at render time.
+    vegetation_inland = ee.Geometry.Rectangle([120.00, 33.20, 120.30, 33.50])
 
     def _sample_class(geom: Any, class_id: int, class_seed_offset: int) -> Any:
         return (
@@ -148,9 +156,11 @@ def _build_classifier_graph() -> Any:
     training_data = (
         _sample_class(water_clear, 0, 0)
         .merge(_sample_class(water_turbid, 0, 1))
-        .merge(_sample_class(mudflat, 1, 2))
-        .merge(_sample_class(urban, 2, 3))
-        .merge(_sample_class(reclamation, 2, 4))
+        .merge(_sample_class(water_turbid_yancheng, 0, 2))
+        .merge(_sample_class(mudflat, 1, 3))
+        .merge(_sample_class(urban, 2, 4))
+        .merge(_sample_class(reclamation, 2, 5))
+        .merge(_sample_class(vegetation_inland, 3, 6))
     )
 
     classifier = ee.Classifier.smileRandomForest(10).train(
@@ -190,11 +200,20 @@ def _submit_export(asset_id: str) -> str:
     return str(getattr(task, "id", "")) or "<unknown>"
 
 
+def _delete_asset(asset_id: str) -> None:
+    try:
+        ee.data.deleteAsset(asset_id)
+    except Exception as e:
+        raise RuntimeError(f"Failed to delete asset: {asset_id}. Error: {e}") from e
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export/ensure CH5 supervised RF classifier as a GEE Asset")
     parser.add_argument("--asset-id", default="", help="Override target asset id")
     parser.add_argument("--check", action="store_true", help="Only check whether the asset exists")
     parser.add_argument("--ensure", action="store_true", help="If missing, submit an export task")
+    parser.add_argument("--delete", action="store_true", help="Delete the target asset (for retraining); requires --yes")
+    parser.add_argument("--yes", action="store_true", help="Confirm destructive actions (used with --delete)")
 
     args = parser.parse_args()
 
@@ -210,6 +229,22 @@ def main() -> int:
         return 3
 
     exists = _asset_exists(asset_id)
+
+    if args.delete:
+        print(f"CH5_RF_ASSET_ID={asset_id}")
+        if not exists:
+            print("ℹ️  Asset does not exist; nothing to delete")
+            return 0
+        if not args.yes:
+            print("❌ Refusing to delete without --yes")
+            return 6
+        try:
+            _delete_asset(asset_id)
+            print(f"✅ Deleted asset: {asset_id}")
+            return 0
+        except Exception as e:
+            print(f"❌ Failed to delete asset: {e}")
+            return 7
     if args.check and not args.ensure:
         print(f"CH5_RF_ASSET_ID={asset_id}")
         print("✅ Asset exists" if exists else "❌ Asset missing")
