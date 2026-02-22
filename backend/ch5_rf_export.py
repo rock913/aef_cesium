@@ -116,28 +116,41 @@ def _build_classifier_graph() -> Any:
     emb_col = ee.ImageCollection("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL")
     emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
 
+    scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
+    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "600") or "600")
+    seed = int(os.getenv("CH5_RF_SEED", "42") or "42")
+
     # Use recent years for robustness (as per playbook)
     base_img = emb_col.filterDate("2023-01-01", "2025-01-01").mosaic().select(list(range(0, 16))).rename(emb_bands)
 
-    # Representative polygons (multi-pixel regions are more robust than points)
-    # Class 0: water
-    water_clear = ee.Feature(ee.Geometry.Rectangle([122.3, 30.8, 122.6, 31.2]), {"class": 0})
-    water_turbid = ee.Feature(ee.Geometry.Rectangle([121.8, 31.3, 122.0, 31.5]), {"class": 0})
+    # Representative polygons (keep them modest; we'll always sample a bounded number of pixels).
+    # Note: Using sampleRegions over large polygons can explode in size and fail with
+    # "Image.reduceRegions: Computed value is too large".
+    water_clear = ee.Geometry.Rectangle([122.35, 30.95, 122.45, 31.05])
+    water_turbid = ee.Geometry.Rectangle([121.88, 31.38, 121.94, 31.44])
+    mudflat = ee.Geometry.Rectangle([120.86, 33.46, 120.92, 33.52])
+    urban = ee.Geometry.Rectangle([121.46, 31.16, 121.52, 31.22])
+    reclamation = ee.Geometry.Rectangle([121.88, 30.88, 121.93, 30.93])
 
-    # Class 1: natural mudflat
-    mudflat = ee.Feature(ee.Geometry.Rectangle([120.8, 33.4, 121.0, 33.6]), {"class": 1})
+    def _sample_class(geom: Any, class_id: int, class_seed_offset: int) -> Any:
+        return (
+            base_img.sample(
+                region=geom,
+                scale=scale,
+                numPixels=points_per_class,
+                seed=seed + class_seed_offset,
+                geometries=False,
+                tileScale=4,
+            )
+            .map(lambda f: ee.Feature(f).set("class", class_id))
+        )
 
-    # Class 2: artificial hardening / reclamation
-    urban = ee.Feature(ee.Geometry.Rectangle([121.4, 31.1, 121.6, 31.3]), {"class": 2})
-    reclamation = ee.Feature(ee.Geometry.Rectangle([121.85, 30.85, 121.95, 30.95]), {"class": 2})
-
-    training_regions = ee.FeatureCollection([water_clear, water_turbid, mudflat, urban, reclamation])
-
-    training_data = base_img.sampleRegions(
-        collection=training_regions,
-        properties=["class"],
-        scale=30,
-        tileScale=4,
+    training_data = (
+        _sample_class(water_clear, 0, 0)
+        .merge(_sample_class(water_turbid, 0, 1))
+        .merge(_sample_class(mudflat, 1, 2))
+        .merge(_sample_class(urban, 2, 3))
+        .merge(_sample_class(reclamation, 2, 4))
     )
 
     classifier = ee.Classifier.smileRandomForest(10).train(
