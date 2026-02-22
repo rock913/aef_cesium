@@ -201,142 +201,48 @@ class TestLayerLogicV6:
             assert "region" in kwargs
             assert kwargs["region"] is mock_geom
 
-    def test_get_layer_logic_ch5_coastline_audit_hyperplane_mapping(self, gee_service_module):
-        mode = "ch5_coastline_audit 海岸线红线审计 (零样本超平面映射)"
+    def test_get_layer_logic_ch5_coastline_audit_kmeans_legacy(self, gee_service_module):
+        mode = "ch5_coastline_audit 海岸线红线审计 (KMeans聚类)"
         mock_region = Mock()
 
         with patch.object(gee_service_module, "ee") as mock_ee:
             mock_embedding_collection = Mock()
-            mock_mosaic = Mock()
             mock_filtered = Mock()
-            mock_raw = Mock()
+            mock_mosaic = Mock()
+            mock_selected = Mock()
+            mock_base = Mock()
+            mock_training = Mock()
+            mock_clusterer = Mock()
+            mock_clustered = Mock()
 
-            mock_a00 = Mock()
-            mock_a02 = Mock()
-
-            mask_a02_gt_012 = Mock()
-            mask_a02_gt_002 = Mock()
-            mask_a02_lte_012 = Mock()
-            mask_a00_lt_005 = Mock()
-            mask_a00_lt_010 = Mock()
-            mask_water = Mock()
-            mask_water_a = Mock()
-            mask_mud_a = Mock()
-            mask_mud_b = Mock()
-            mask_mud_c = Mock()
-            mask_mud = Mock()
-            mask_built = Mock()
-            mask_built_not = Mock()
-            mask_water_not = Mock()
-            mask_mud_not = Mock()
-
-            mask_valid = Mock()
-            mask_fb_a = Mock()
-            mask_fb_b = Mock()
-            fallback_mask = Mock()
-
-            cls0 = Mock()
-            cls1 = Mock()
-            cls2 = Mock()
-            cls3 = Mock()
-            cls4 = Mock()
-            mask_eq0 = Mock()
-            mask_gt0 = Mock()
-            final_img = Mock()
-            masked_img = Mock()
-
-            # get_layer_logic calls ee.ImageCollection once (embedding dataset)
             mock_ee.ImageCollection.return_value = mock_embedding_collection
             mock_embedding_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
             mock_filtered.mosaic.return_value = mock_mosaic
 
-            # raw = filtered_col.mosaic().select([0, 2]).rename(["A00", "A02"])
-            mock_mosaic.select.return_value.rename.return_value = mock_raw
-            # valid = raw.mask().reduce(ee.Reducer.min())
-            mock_raw.mask.return_value.reduce.return_value = mask_valid
+            # base = _select_embedding_bands(mosaic, ["A00","A02"]).unitScale(-0.2,0.2)
+            mock_mosaic.select.return_value.rename.return_value = mock_selected
+            mock_selected.unitScale.return_value = mock_base
 
-            def _select_side_effect(bands):
-                if bands == ["A00"]:
-                    return mock_a00
-                if bands == ["A02"]:
-                    return mock_a02
-                raise AssertionError(f"Unexpected select bands: {bands}")
+            # training = base.sample(region=training_region, ...)
+            mock_base.sample.return_value = mock_training
+            mock_ee.Geometry.Rectangle.return_value = Mock()
 
-            mock_raw.select.side_effect = _select_side_effect
+            mock_ee.Clusterer.wekaKMeans.return_value = mock_clusterer
+            mock_clusterer.train.return_value = mock_clusterer
+            mock_base.cluster.return_value = mock_clustered
 
-            # Hyperplane rules (A00/A02 thresholds)
-            def _a02_gt_side_effect(threshold):
-                if threshold == 0.12:
-                    return mask_a02_gt_012
-                if threshold == 0.02:
-                    # Used both by mudflat rule and by coast_zone mask.
-                    return mask_a02_gt_002
-                raise AssertionError(f"Unexpected A02.gt threshold: {threshold}")
+            result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
-            mock_a02.gt.side_effect = _a02_gt_side_effect
-            mock_a02.lte.return_value = mask_a02_lte_012
-            mock_a00.lt.side_effect = [mask_a00_lt_005, mask_a00_lt_010]
-            mock_a00.gt.return_value = mask_built
-
-            # built_not
-            mask_built.Not.return_value = mask_built_not
-
-            # water_mask = a02.gt(0.12).And(a00.lt(0.05)).And(built_not)
-            mask_a02_gt_012.And.return_value = mask_water_a
-            mask_water_a.And.return_value = mask_water
-            mask_water.Not.return_value = mask_water_not
-
-            mask_a02_gt_002.And.return_value = mask_mud_a
-            # mudflat_mask = gt(0.02).And(lte(0.12)).And(a00.lt(0.10)).And(built_not).And(water_not)
-            mask_mud_a.And.return_value = mask_mud_b
-            mask_mud_b.And.return_value = mask_mud_c
-            mask_mud_c.And.return_value = mask_mud
-            mask_mud.Not.return_value = mask_mud_not
-
-            # where-based class composition
-            with patch.object(gee_service_module, "_pyramid_safe_constant", return_value=cls0) as mock_const:
-                cls0.where.return_value = cls1
-                cls1.where.return_value = cls2
-
-                # Masking: updateMask(valid.And(coast_zone)).selfMask() removes zeros as true transparency.
-                # coast_zone reuses a02.gt(0.02)
-                mask_final = Mock()
-                mask_valid.And.return_value = mask_final
-                cls2.updateMask.return_value = masked_img
-                masked_img.selfMask.return_value = final_img
-
-                result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
-
-            assert mock_const.call_count == 1
-
-            # Result
-
-            assert suffix == "ch5_audit_hyperplane"
-            assert vis_params.get("min") == 1
-            assert vis_params.get("max") == 3
+            assert suffix == "ch5_audit"
+            assert vis_params.get("min") == 0
+            assert vis_params.get("max") == 2
             assert isinstance(vis_params.get("palette"), list)
             assert len(vis_params["palette"]) == 3
-            assert result_image is final_img
+            assert result_image is mock_clustered
 
-            # Ensure deterministic rule path: no sampling/clustering.
-            mock_ee.Clusterer.wekaKMeans.assert_not_called()
-
-            # Threshold sanity
-            mock_a02.gt.assert_any_call(0.12)
-            mock_a02.gt.assert_any_call(0.02)
-            mock_a02.lte.assert_called_once_with(0.12)
-            mock_a00.lt.assert_any_call(0.05)
-            mock_a00.lt.assert_any_call(0.10)
-            mock_a00.gt.assert_called_once_with(0.15)
-
-            # Category masks applied
-            # Ensure we did not build a category layer ImageCollection
-            mock_ee.Image.assert_not_called()
-
-            mask_valid.And.assert_called_once_with(mask_a02_gt_002)
-            cls2.updateMask.assert_called_once_with(mask_final)
-
-            assert mock_ee.ImageCollection.call_count == 1
+            mock_ee.Geometry.Rectangle.assert_called_once()
+            mock_base.sample.assert_called_once()
+            mock_ee.Clusterer.wekaKMeans.assert_called_once_with(3)
 
     def test_get_layer_logic_ch6_water_pulse_year_diff(self, gee_service_module):
         mode = "ch6_water_pulse 水网脉动监测 (维差分)"

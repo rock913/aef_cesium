@@ -172,61 +172,28 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        # Chapter 5: Coastline redline audit (deterministic hyperplane mapping).
-        # Motivation: KMeans suffers from label switching and underfitting when transferring
-        # from Yancheng to highly complex urban areas (e.g., Shanghai). This branch uses
-        # fixed mathematical rules on A00/A02 plus priority composition.
+        # Chapter 5: Coastline redline audit (legacy KMeans clustering).
+        # Guardrail: use a bounded training region to avoid GEE timeouts.
+        # NOTE: Use a fixed rectangle near Yancheng coast as the training seed.
+        training_region = ee.Geometry.Rectangle([119.8, 33.1, 121.2, 33.7])
 
-        # IMPORTANT: do NOT unitScale() here.
-        # The embedding bands are already in a stable physical range (typically around -1..1).
-        # unitScale() would shift 0 -> 0.5 and silently break hard-coded thresholds,
-        # causing near-all pixels to be classified as "built" (blue/white block artifacts).
-        raw = _select_embedding_bands(filtered_col.mosaic(), ["A00", "A02"])
-        valid = raw.mask().reduce(ee.Reducer.min())
-        a00 = raw.select(["A00"])  # manmade/hardened
-        a02 = raw.select(["A02"])  # water/moisture
-
-        # Core masks
-        built_mask = a00.gt(0.15)
-        built_not = built_mask.Not()
-
-        # Water (value=1): strong moisture but weak manmade.
-        water_mask = a02.gt(0.12).And(a00.lt(0.05)).And(built_not)
-        water_not = water_mask.Not()
-
-        # Mudflat / intertidal (value=3)
-        mudflat_mask = a02.gt(0.02).And(a02.lte(0.12)).And(a00.lt(0.10)).And(built_not).And(water_not)
-
-        # Base class image that inherits projection/pyramids AND mask.
-        cls = _pyramid_safe_constant(a00, 0)
-
-        # Composition via where() preserves sparsity/masks more reliably in practice.
-        # Priority: water > mudflat.
-        # NOTE: We intentionally do NOT render the built-up class as a visible category.
-        # In practice it dominates the viewport (especially inland) and looks like a solid
-        # overlay/"white film" when stacked in Cesium. Leaving built pixels as 0 lets
-        # selfMask() make them truly transparent.
-        cls = cls.where(mudflat_mask, 3)
-        cls = cls.where(water_mask, 1)
-
-        # Constrain to a "coastal/moisture" zone so inland built-up areas do not dominate the view.
-        # This reduces the perceived "solid overlay" at macro zooms and better matches the
-        # narrative goal (coastline redline audit).
-        coast_zone = a02.gt(0.02)
-
-        # Remove background zeros and ensure true transparency (no clamp-to-min artifacts).
-        # selfMask() will mask out all <=0 values so they become real alpha=0 pixels in PNG.
-        img = cls.updateMask(valid.And(coast_zone)).selfMask()
-
-        # Fixed value→color mapping: 1=water(red), 2=built(blue), 3=mudflat(yellow)
+        base = _select_embedding_bands(filtered_col.mosaic(), ["A00", "A02"]).unitScale(-0.2, 0.2)
+        training = base.sample(
+            region=training_region,
+            scale=60,
+            numPixels=4000,
+            seed=19,
+            geometries=False,
+        )
+        clusterer = ee.Clusterer.wekaKMeans(3).train(training)
+        clustered = base.cluster(clusterer)
+        img = clustered
         vis = {
-            "min": 1,
-            "max": 3,
-            "palette": ["E23D28", "0B1B36", "F6C431"],
+            "min": 0,
+            "max": 2,
+            "palette": ["0B1B36", "E23D28", "F6C431"],
         }
-
-        # New suffix to prevent cache collisions with the legacy kmeans-based asset.
-        suffix = "ch5_audit_hyperplane"
+        suffix = "ch5_audit"
 
     elif ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         # Chapter 6: Poyang water pulse (dimension delta between years).
@@ -323,12 +290,12 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
     if ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
         return (
             {
-                "min": 1,
-                "max": 3,
-                "palette": ["E23D28", "0B1B36", "F6C431"],
+                "min": 0,
+                "max": 2,
+                "palette": ["0B1B36", "E23D28", "F6C431"],
                 "format": "png",
             },
-            "ch5_audit_hyperplane",
+            "ch5_audit",
         )
     if ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         return (
