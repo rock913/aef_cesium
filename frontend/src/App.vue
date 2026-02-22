@@ -29,10 +29,10 @@
     <transition name="fade-up">
       <div v-if="appState === 'standby'" class="lobby">
         <div class="lobby-hero">
-          <div class="hero-title">ONE EARTH</div>
-          <div class="subtitle">PLANETARY OPERATING SYSTEM · UNIFIED EARTH REPRESENTATION</div>
+          <div class="hero-title">ALPHA EARTH</div>
+          <div class="subtitle">场景验证系统</div>
           <div class="lobby-hint">
-            OneEarth 行星级操作系统：点击任务包，智能体将自动锁定目标并展开研判。
+            点击任务包，智能体将自动锁定目标并展开研判。
           </div>
         </div>
 
@@ -48,12 +48,12 @@
               @click="lockMission(m)"
               :disabled="!viewerReady"
             >
-              <div class="mission-card-title">{{ m.title }}</div>
-              <div class="mission-card-meta">
-                <span class="tag">{{ m.name }}</span>
-                <span class="tag secondary">{{ m.formula }}</span>
+              <div class="mission-card-top">
+                <span class="tag">{{ getChapterCode(m.id) || m.name }}</span>
+                <span class="tag secondary">{{ locations?.[m.location]?.name || m.location }}</span>
+                <span v-if="m.formula" class="tag tertiary formula">{{ m.formula }}</span>
               </div>
-              <div class="mission-card-desc">{{ m.narrative }}</div>
+              <div class="mission-card-title">{{ m.title }}</div>
               <div class="mission-card-foot">
                 <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
                 <span class="foot-text">
@@ -76,7 +76,7 @@
       <div v-if="appState === 'analyzing'" class="ai-panel" ref="aiPanelEl">
         <div class="ai-header">
           <div class="ai-title-row">
-            <div class="ai-title">ONE EARTH <span>INTEL</span></div>
+            <div class="ai-title">ALPHA EARTH <span>INTEL</span></div>
             <div class="ai-actions">
               <button class="ai-btn" @click="toggleAILayer" :disabled="!viewerReady" title="开关 AI 叠加图层（不重新加载瓦片）">
                 AI Layer: {{ aiLayerVisible ? 'ON' : 'OFF' }}
@@ -112,12 +112,48 @@
         </div>
 
         <div class="ai-body">
-          <div class="ai-section-title">AI 思考输出（演示版流式）</div>
-          <pre class="ai-console">{{ analysisText }}</pre>
+          <div class="commander-panel">
+            <div class="ai-section-title">指挥官面板</div>
 
-          <div v-if="reportText" class="ai-report">
-            <div class="ai-section-title">决策简报</div>
-            <pre class="ai-report-box">{{ reportText }}</pre>
+            <div class="cmd-block">
+              <div class="cmd-label">业务简报（Brief）</div>
+              <div class="cmd-text">{{ commanderBrief?.brief || '—' }}</div>
+            </div>
+
+            <div class="cmd-block">
+              <div class="cmd-label">是什么（机理一句话）</div>
+              <div class="cmd-text">{{ commanderBrief?.mechanism || '—' }}</div>
+            </div>
+
+            <div v-if="commanderBrief?.legends?.length" class="cmd-block">
+              <div class="cmd-label">在哪看（图例）</div>
+              <div class="cmd-legends">
+                <div v-for="(l, idx) in commanderBrief.legends" :key="idx" class="cmd-legend">
+                  <span class="cmd-swatch" :style="{ background: l.color }"></span>
+                  <span class="cmd-legend-label">{{ l.label }}</span>
+                </div>
+              </div>
+              <div v-if="legendHint" class="cmd-hint">{{ legendHint }}</div>
+            </div>
+
+            <div class="cmd-block">
+              <div class="cmd-label">怎么办（1–2 条洞察）</div>
+              <pre class="cmd-insights">{{ insightsText || '—' }}</pre>
+            </div>
+
+            <details class="cmd-details">
+              <summary>展开完整输出（技术版）</summary>
+              <div class="ai-section-title" style="margin-top: 12px;">技术版输出（结构化）</div>
+              <pre class="ai-report-box">{{ commanderBrief?.technical || '—' }}</pre>
+
+              <div class="ai-section-title" style="margin-top: 12px;">AI 思考输出（演示版流式）</div>
+              <pre class="ai-console">{{ analysisText }}</pre>
+
+              <div v-if="reportText" class="ai-report">
+                <div class="ai-section-title">决策简报</div>
+                <pre class="ai-report-box">{{ reportText }}</pre>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -141,6 +177,12 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
+import {
+  buildCommanderBrief,
+  buildLegendHint,
+  extractActionInsightsFromReport,
+  getChapterCode,
+} from './utils/missionBrief.js'
 
 export default {
   name: 'App',
@@ -166,6 +208,15 @@ export default {
     const perfStats = ref(null)
     const zonalStats = ref(null)
     const reportText = ref('')
+
+    // Commander panel (leader-friendly)
+    const commanderBrief = ref(null) // { mechanism, legends, insights }
+    const insightsText = ref('')
+    let insightsTimer = null
+
+    const legendHint = computed(() => {
+      return buildLegendHint(commanderBrief.value?.legends)
+    })
 
     // Silent prefetch state
     const prefetchState = ref({}) // { [missionId]: { done: bool, ok: bool, ms: number } }
@@ -257,6 +308,7 @@ export default {
 
     onBeforeUnmount(() => {
       _stopTypewriter()
+      _stopInsightsTypewriter()
       _removeSplitDragListeners()
       try {
         window.removeEventListener('resize', _onResize)
@@ -303,6 +355,21 @@ export default {
       return url
     }
 
+    async function ensureBasemapForLocation(locationCode) {
+      if (!viewerReady.value || !cesiumViewer.value) return
+      if (!locationCode) return
+
+      try {
+        const resp = await apiService.getSentinel2Layer(locationCode)
+        const url = normalizeTileUrl(resp?.tile_url)
+        if (url) {
+          cesiumViewer.value?.loadBasemapLayer?.(url, 1.0)
+        }
+      } catch (_) {
+        // Best-effort only. If Sentinel-2 fails, Ion/OSM/Grid remains underneath.
+      }
+    }
+
     function lockMission(mission) {
       if (!viewerReady.value) return
       selectedMissionId.value = mission.id
@@ -318,6 +385,9 @@ export default {
       reportText.value = ''
       analysisText.value = ''
       _stopTypewriter()
+      commanderBrief.value = null
+      insightsText.value = ''
+      _stopInsightsTypewriter()
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -375,6 +445,9 @@ export default {
       reportText.value = ''
       analysisText.value = ''
       _stopTypewriter()
+      commanderBrief.value = null
+      insightsText.value = ''
+      _stopInsightsTypewriter()
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -421,6 +494,31 @@ export default {
       }, Math.max(8, speedMs))
     }
 
+    function _stopInsightsTypewriter() {
+      if (insightsTimer) {
+        clearInterval(insightsTimer)
+        insightsTimer = null
+      }
+    }
+
+    function _typewriterSetInsights(text, speedMs = 16, tokenSnapshot = runToken) {
+      _stopInsightsTypewriter()
+      insightsText.value = ''
+      let idx = 0
+      insightsTimer = setInterval(() => {
+        if (tokenSnapshot !== runToken) {
+          _stopInsightsTypewriter()
+          return
+        }
+        if (idx >= text.length) {
+          _stopInsightsTypewriter()
+          return
+        }
+        insightsText.value += text[idx]
+        idx += 1
+      }, Math.max(10, speedMs))
+    }
+
     function _renderAnalysisSections({ mission, modeName, stats }) {
       const total = stats?.total_area_km2
       const anomaly = stats?.anomaly_area_km2
@@ -463,7 +561,7 @@ export default {
         `- 建议将热点边界与统计结果用于对外沟通与跨部门复核，避免把季节/云影误判为成果或风险。\n`
 
       return (
-        `ONEEARTH/AGENT v6 :: Mission Accepted\n` +
+        `AEF/AGENT v6 :: Mission Accepted\n` +
         `----------------------------------------\n\n` +
         observation + algorithm + reasoning + action + consensus
       )
@@ -558,11 +656,21 @@ export default {
       const startTs = Date.now()
 
       try {
+        // Always try to keep a real basemap under the AI overlay.
+        // Do not block the AI layer on basemap readiness.
+        try {
+          ensureBasemapForLocation(selectedLocation.value)
+        } catch (_) {
+          // ignore
+        }
+
         const cachedLayer = prefetchedLayers.value?.[mission.id]
         const layerData = cachedLayer || (await apiService.getLayer(modeId, selectedLocation.value))
         if (myToken !== runToken) return
         const url = normalizeTileUrl(layerData.tile_url)
-        cesiumViewer.value.loadAILayer(url, 0.88, { fadeIn: true })
+        const hintedOpacity = Number(layerData?.render_hints?.ai_opacity)
+        const opacity = Number.isFinite(hintedOpacity) ? hintedOpacity : 0.88
+        cesiumViewer.value.loadAILayer(url, opacity, { fadeIn: true })
         try {
           cesiumViewer.value?.setAILayerVisible?.(aiLayerVisible.value)
         } catch (_) {
@@ -584,7 +692,7 @@ export default {
 
         // Show a stable placeholder to avoid the console "restarting" multiple times.
         analysisText.value =
-          `ONEEARTH/AGENT v6 :: Mission Accepted\n` +
+          `AEF/AGENT v6 :: Mission Accepted\n` +
           `----------------------------------------\n\n` +
           `正在生成智能体分析…（将基于统计指标输出 Observation/Reasoning/Plan/Consensus）\n`
 
@@ -595,6 +703,24 @@ export default {
           zonalStats.value = statsResp?.stats || null
         } catch (e) {
           zonalStats.value = null
+        }
+
+        // Commander brief: build after stats are available (or null) and stream 1–2 insights.
+        try {
+          const brief = buildCommanderBrief(modeId, mission, zonalStats.value || null)
+          commanderBrief.value = brief
+          const insights = Array.isArray(brief?.insights) ? brief.insights.slice(0, 2) : []
+          const text = insights.length ? insights.map((s) => `- ${s}`).join('\n') : ''
+          if (text) {
+            _typewriterSetInsights(text, 14, myToken)
+          } else {
+            insightsText.value = ''
+            _stopInsightsTypewriter()
+          }
+        } catch (_) {
+          commanderBrief.value = null
+          insightsText.value = ''
+          _stopInsightsTypewriter()
         }
 
         // Render analysis ONCE (LLM if available, else deterministic local fallback).
@@ -626,6 +752,17 @@ export default {
             const reportResp = await apiService.getReport(mission.id, zonalStats.value)
             if (myToken !== runToken) return
             reportText.value = reportResp?.report || ''
+
+            // Prefer report-derived actions (leadership view), fallback remains the brief.
+            try {
+              const actionItems = extractActionInsightsFromReport(reportText.value, 2)
+              if (actionItems?.length) {
+                const text = actionItems.map((s) => `- ${s}`).join('\n')
+                _typewriterSetInsights(text, 14, myToken)
+              }
+            } catch (_) {
+              // ignore
+            }
           } else {
             reportText.value = ''
           }
@@ -751,6 +888,7 @@ export default {
       locations,
       modes,
       missions,
+      getChapterCode,
       initialLocation,
       loading,
       viewerReady,
@@ -766,6 +904,9 @@ export default {
       zonalStats,
       reportText,
       analysisText,
+      commanderBrief,
+      insightsText,
+      legendHint,
       prefetchState,
       aiLayerVisible,
       holdingCompare,
@@ -897,7 +1038,7 @@ export default {
 }
 
 .mission-card {
-  padding: 16px 14px 14px;
+  padding: 12px 12px 10px;
   background: rgba(0, 245, 255, 0.08);
   border: 1px solid rgba(0, 245, 255, 0.25);
   border-radius: 10px;
@@ -910,8 +1051,8 @@ export default {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 8px;
-  min-height: 190px;
+  gap: 6px;
+  min-height: 128px;
 }
 
 .mission-card:disabled {
@@ -949,6 +1090,22 @@ export default {
   color: rgba(0, 245, 255, 0.92);
   border-color: rgba(0, 245, 255, 0.22);
   background: rgba(0, 245, 255, 0.08);
+}
+
+.tag.tertiary {
+  color: rgba(255, 255, 255, 0.88);
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tag.formula {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 800;
+  letter-spacing: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mission-card-desc {
@@ -1202,6 +1359,99 @@ export default {
 .ai-body {
   padding: 14px 16px;
   overflow: auto;
+}
+
+.commander-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cmd-block {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.cmd-label {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.62);
+  margin-bottom: 8px;
+}
+
+.cmd-text {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.90);
+}
+
+.cmd-legends {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.cmd-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cmd-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25) inset;
+}
+
+.cmd-legend-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.cmd-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.5;
+  color: rgba(0, 245, 255, 0.80);
+  letter-spacing: 0.2px;
+}
+
+.cmd-insights {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.88);
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px dashed rgba(0, 245, 255, 0.14);
+  margin: 0;
+}
+
+.cmd-details {
+  margin-top: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 245, 255, 0.10);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.cmd-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(0, 245, 255, 0.85);
+  letter-spacing: 0.4px;
 }
 
 .ai-section-title {

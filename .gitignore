@@ -4,13 +4,20 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
+venv/
 backend/venv/
 backend/.venv/
 *.egg-info/
+*.egg
+
+# Local copies / archives
+old_version/
 
 # Environment variables (敏感信息)
 .env
-.env.local
+.env.*
+!.env.example
 
 # Logs
 logs/
@@ -36,7 +43,11 @@ Thumbs.db
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
 
 # Cesium
 frontend/.cesium/

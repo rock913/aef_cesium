@@ -160,7 +160,8 @@ class TestGEEReprojection:
         col = ee.ImageCollection('GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL')
         viewport = ee.Geometry.Point([115.98, 39.05]).buffer(20000)
         
-        img = col.filterBounds(viewport).mosaic().select(['A00', 'A01', 'A02'])
+        # Select by index to avoid band-name mismatches ('A00'.. vs '0'..).
+        img = col.filterBounds(viewport).mosaic().select([0, 1, 2]).rename(["A00", "A01", "A02"])
         
         # 重投影
         web_mercator = ee.Projection('EPSG:3857')

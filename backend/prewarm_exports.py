@@ -1,4 +1,4 @@
-"""Prewarm export submitter for AlphaEarth / OneEarth.
+"""Prewarm export submitter for Alpha Earth Foundation (AEF).
 
 Run this the night before a demo to solidify heavy GEE computations into Assets.
 It submits `/api/cache/export` for the configured mission set.

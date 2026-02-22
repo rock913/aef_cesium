@@ -1,0 +1,19 @@
+[Unit]
+Description=OneEarth V6 Backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/oneearth/cesium_app_v6
+# Optional: set ENV_FILE to pin config
+Environment=ONEEARTH_PROFILE=v6
+Environment=ENV_FILE=/opt/oneearth/cesium_app_v6/.env.v6
+ExecStart=/bin/bash -lc '/opt/oneearth/cesium_app_v6/run_backend.sh'
+Restart=always
+RestartSec=2
+# If you expect high tile traffic, consider raising file descriptor limits.
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -60,3 +60,38 @@ def test_env_file_override_is_honored(tmp_path: Path):
     )
     assert f"ENV_PATH={env_file}" in out_frontend
     assert "FRONTEND_PORT=9998" in out_frontend
+
+
+def test_v6_profile_forces_default_ports_on_dotenv_fallback(tmp_path: Path):
+    """Regression: avoid accidental v5 port leakage from a generic .env.
+
+    This situation commonly happens on servers that already have a v5 `.env`.
+    Users then open :8504/:8505 but the scripts started on :8502/:8503, and a
+    different service (often nginx) responds with 502.
+    """
+
+    dotenv_path = REPO_ROOT / ".env"
+    had_existing = dotenv_path.exists()
+    old_content = dotenv_path.read_text(encoding="utf-8") if had_existing else ""
+
+    try:
+        dotenv_path.write_text(
+            "API_PORT=8503\nFRONTEND_PORT=8502\nGEE_USER_PATH=users/example/aef_demo\n",
+            encoding="utf-8",
+        )
+
+        out_backend = _run("run_backend.sh", env={"ONEEARTH_PROFILE": "v6"})
+        assert "ENV_SOURCE_KIND=fallback" in out_backend
+        assert "API_PORT=8505" in out_backend
+
+        out_frontend = _run("run_frontend.sh", env={"ONEEARTH_PROFILE": "v6"})
+        assert "ENV_SOURCE_KIND=fallback" in out_frontend
+        assert "FRONTEND_PORT=8504" in out_frontend
+    finally:
+        if had_existing:
+            dotenv_path.write_text(old_content, encoding="utf-8")
+        else:
+            try:
+                dotenv_path.unlink()
+            except FileNotFoundError:
+                pass

@@ -1,0 +1,19 @@
+[Unit]
+Description=OneEarth V6 Single Process (Serve frontend/dist + API on :8504)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/oneearth/cesium_app_v6
+Environment=ONEEARTH_PROFILE=v6
+Environment=ENV_FILE=/opt/oneearth/cesium_app_v6/.env.v6
+# Default: 1 worker for low memory usage
+Environment=UVICORN_WORKERS=1
+ExecStart=/bin/bash -lc '/opt/oneearth/cesium_app_v6/run_prod_single.sh'
+Restart=always
+RestartSec=2
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

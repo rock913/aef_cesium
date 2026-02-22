@@ -49,6 +49,16 @@ export const apiService = {
   },
 
   /**
+   * 获取 Sentinel-2 真彩底图 Tile URL（用于“永不白屏”的底图兜底）
+   */
+  async getSentinel2Layer(location) {
+    const { data } = await api.get('/api/sentinel2', {
+      params: { location }
+    })
+    return data
+  },
+
+  /**
    * 动态统计：将 mockStats 替换为云端 reduceRegion 统计
    */
   async getStats(mode, location, options = {}) {

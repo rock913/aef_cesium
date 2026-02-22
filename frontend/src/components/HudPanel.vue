@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="hud-header">
       <h1 class="hud-title">
-        ONE EARTH <span class="accent">COMMAND</span>
+        ALPHA EARTH <span class="accent">FOUNDATION</span>
       </h1>
       <div class="hud-subtitle">
         {{ currentLocation?.name || '加载中...' }} /// 

@@ -36,6 +36,9 @@ export default {
     let viewer = null
     let currentAILayer = null
     let currentAIProviderUnsub = null
+    let currentBasemapLayer = null
+    let currentBasemapProviderUnsub = null
+    let hiddenBaseLayers = []
     let tileLoadUnsub = null
     let ionBaseProviderUnsub = null
     let rotationTick = null
@@ -53,6 +56,7 @@ export default {
       if (viewer) {
         if (tileLoadUnsub) tileLoadUnsub()
         if (currentAIProviderUnsub) currentAIProviderUnsub()
+        if (currentBasemapProviderUnsub) currentBasemapProviderUnsub()
         if (ionBaseProviderUnsub) ionBaseProviderUnsub()
         if (rotationTick) {
           try {
@@ -119,6 +123,40 @@ export default {
           requestRenderMode: false,
           maximumRenderTimeChange: Infinity
         })
+
+        // Cesium can otherwise fire a large burst of parallel tile requests while
+        // zooming/dragging, which is a common trigger for intermittent proxy-level
+        // 502/504 in real remote deployments.
+        try {
+          const maxPerServer = Number(import.meta.env.VITE_CESIUM_MAX_REQUESTS_PER_SERVER || 8)
+          const maxTotal = Number(import.meta.env.VITE_CESIUM_MAX_REQUESTS_TOTAL || 64)
+          if (Cesium?.RequestScheduler) {
+            Cesium.RequestScheduler.throttleRequests = true
+            if (Number.isFinite(maxPerServer) && maxPerServer > 0) {
+              Cesium.RequestScheduler.maximumRequestsPerServer = maxPerServer
+            }
+            if (Number.isFinite(maxTotal) && maxTotal > 0) {
+              Cesium.RequestScheduler.maximumRequests = maxTotal
+            }
+          }
+        } catch (_) {
+          // ignore
+        }
+
+        // If we don't have an Ion token, the grid is only a last-resort visual fallback.
+        // Add a real-world basemap (OSM) above it so users never see a blank/white globe.
+        try {
+          if (!hasIonToken) {
+            const osmProvider = new Cesium.OpenStreetMapImageryProvider({
+              // Use default OSM tile endpoint; keep it explicit for clarity.
+              url: 'https://a.tile.openstreetmap.org/'
+            })
+            const osmLayer = viewer.imageryLayers.addImageryProvider(osmProvider, 0)
+            osmLayer.alpha = 1.0
+          }
+        } catch (_) {
+          // ignore
+        }
         
         // 光照：演示/开发阶段默认关闭，避免“黑夜=看不见地球”的经典坑
         viewer.scene.globe.enableLighting = (import.meta.env.VITE_ENABLE_LIGHTING === '1')
@@ -237,6 +275,149 @@ export default {
       } catch (error) {
         console.error('Cesium初始化失败:', error)
         loadingText.value = '初始化失败: ' + error.message
+      }
+    }
+
+    function _restoreHiddenBaseLayers() {
+      if (!viewer) return
+      if (!hiddenBaseLayers || !hiddenBaseLayers.length) return
+      try {
+        hiddenBaseLayers.forEach((layer) => {
+          try {
+            layer.show = true
+          } catch (_) {
+            // ignore
+          }
+        })
+      } finally {
+        hiddenBaseLayers = []
+      }
+    }
+
+    function _hideNonManagedBaseLayers() {
+      if (!viewer) return
+      hiddenBaseLayers = []
+      const layers = viewer.imageryLayers
+      const n = layers.length
+      for (let i = 0; i < n; i++) {
+        const layer = layers.get(i)
+        if (!layer) continue
+        if (layer === currentBasemapLayer) continue
+        if (layer === currentAILayer) continue
+        // Hide anything else (Ion default, OSM fallback, grid, etc) so the managed basemap becomes visible.
+        try {
+          if (layer.show !== false) {
+            layer.show = false
+            hiddenBaseLayers.push(layer)
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+
+    function _getBasemapInsertIndex() {
+      if (!viewer) return 0
+      const layers = viewer.imageryLayers
+      const n = layers.length
+
+      // Insert basemap ABOVE any default base layers (Ion/OSM/Grid), but keep it
+      // BELOW the AI overlay layer (so AI always stays on top).
+      if (currentAILayer) {
+        try {
+          const aiIndex = layers.indexOf(currentAILayer)
+          if (typeof aiIndex === 'number' && aiIndex >= 0) return aiIndex
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      return n
+    }
+
+    /**
+     * 加载/替换底图图层（推荐：Sentinel-2 真彩底图）
+     * - 始终插入到 imageryLayers 的 index=0，确保 split-compare 左侧对比稳定
+     * - 若底图瓦片偶发失败（后端会返回透明 PNG），仍可透出更底层的 basemap（Ion/OSM/Grid）
+     */
+    function loadBasemapLayer(tileUrl, opacity = 1.0) {
+      if (!viewer) return
+      if (!tileUrl) return
+
+      if (currentBasemapLayer) {
+        try {
+          viewer.imageryLayers.remove(currentBasemapLayer)
+        } catch (_) {
+          // ignore
+        }
+        currentBasemapLayer = null
+      }
+      if (currentBasemapProviderUnsub) {
+        currentBasemapProviderUnsub()
+        currentBasemapProviderUnsub = null
+      }
+
+      const provider = new Cesium.UrlTemplateImageryProvider({
+        url: tileUrl,
+        tileWidth: 256,
+        tileHeight: 256,
+        minimumLevel: 0,
+        tileDiscardPolicy: new Cesium.NeverTileDiscardPolicy(),
+        maximumLevel: 18
+      })
+
+      const onProviderError = (tileError) => {
+        emit('imagery-error', {
+          layer: 'basemap',
+          ts: Date.now(),
+          message: tileError?.message || String(tileError),
+          x: tileError?.x,
+          y: tileError?.y,
+          level: tileError?.level,
+          timesRetried: tileError?.timesRetried
+        })
+
+        // If the basemap is genuinely failing (HTTP errors), drop it immediately.
+        // We intentionally keep Ion/OSM/Grid layers underneath, so users never see
+        // a blank globe even when Sentinel-2 is slow or fails.
+        try {
+          clearBasemapLayer()
+        } catch (_) {
+          // ignore
+        }
+      }
+      try {
+        provider.errorEvent.addEventListener(onProviderError)
+        currentBasemapProviderUnsub = () => {
+          try {
+            provider.errorEvent.removeEventListener(onProviderError)
+          } catch (_) {
+            // ignore
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      // Insert above the underlying basemap, but below the AI overlay.
+      const insertIndex = _getBasemapInsertIndex()
+      currentBasemapLayer = viewer.imageryLayers.addImageryProvider(provider, insertIndex)
+      currentBasemapLayer.alpha = Math.max(0.0, Math.min(1.0, Number(opacity) || 1.0))
+    }
+
+    function clearBasemapLayer() {
+      if (!viewer) return
+      if (currentBasemapLayer) {
+        try {
+          viewer.imageryLayers.remove(currentBasemapLayer)
+        } catch (_) {
+          // ignore
+        }
+        currentBasemapLayer = null
+      }
+      if (currentBasemapProviderUnsub) {
+        currentBasemapProviderUnsub()
+        currentBasemapProviderUnsub = null
       }
     }
 
@@ -379,7 +560,7 @@ export default {
     function enableSplitCompare(enabled, position = 0.5) {
       if (!viewer) return
 
-      const baseLayer = viewer.imageryLayers.get(0)
+      const baseLayer = currentBasemapLayer || viewer.imageryLayers.get(0)
       const splitPos = Math.min(0.98, Math.max(0.02, Number(position) || 0.5))
 
       if (enabled) {
@@ -507,6 +688,8 @@ export default {
       loadingText,
       loadAILayer,
       clearAILayer,
+      loadBasemapLayer,
+      clearBasemapLayer,
       setAILayerVisible,
       enableSplitCompare,
       setSplitPosition,

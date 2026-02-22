@@ -52,7 +52,7 @@ def _build_agent_analysis_prompt(mission: Dict[str, Any], stats: Dict[str, Any])
     pct = stats.get("anomaly_pct")
 
     return (
-        "你是一名‘OneEarth 行星级指挥舱’的空间情报分析智能体。\n"
+        "你是一名‘Alpha Earth Foundation 场景验证系统’的空间情报分析智能体。\n"
         "请根据任务信息与统计指标，生成一段可直接展示在前端控制台的分析文本。\n"
         "要求：\n"
         "1) 中文输出；用四段结构化小节输出：\n"

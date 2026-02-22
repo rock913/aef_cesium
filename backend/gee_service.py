@@ -7,6 +7,46 @@ import os
 from typing import Dict, Tuple, Any
 
 
+def _embedding_band_index(a_band: str) -> int:
+    """Return embedding band index for an alias like 'A00'..'A63'."""
+
+    name = str(a_band)
+    if not (len(name) == 3 and name[0] == "A" and name[1:].isdigit()):
+        raise ValueError(f"Invalid embedding band alias: {a_band!r}")
+    idx = int(name[1:])
+    if idx < 0 or idx > 63:
+        raise ValueError(f"Embedding band index out of range: {a_band!r}")
+    return idx
+
+
+def _select_embedding_bands(image: Any, a_bands: list[str], *, rename_to: list[str] | None = None) -> Any:
+    """Select embedding dimensions reliably.
+
+    Some GEE datasets expose embedding dimensions with numeric band names ('0'..'63'),
+    while our UI/docs use semantic aliases ('A00'..'A63'). Selecting by *index* avoids
+    band-name mismatch failures and we then rename to the requested aliases.
+    """
+
+    if not a_bands:
+        raise ValueError("a_bands must be non-empty")
+    indices = [_embedding_band_index(band) for band in a_bands]
+    out_names = rename_to if rename_to is not None else a_bands
+    return image.select(indices).rename(out_names)
+
+
+def _pyramid_safe_constant(reference_image: Any, value: int | float) -> Any:
+    """Create a constant-valued image that inherits projection/pyramids.
+
+    IMPORTANT: Avoid using ee.Image(constant) as the base for large-area per-pixel
+    operations (e.g. .where/.mosaic over 10m data). Constant images have no
+    intrinsic pyramid/projection metadata, which can trigger expensive reprojection
+    at low zoom levels ("image pyramid collapse").
+    """
+
+    # reference_image.multiply(0) preserves scale/projection; add(value) makes it constant.
+    return reference_image.multiply(0).add(value)
+
+
 def compute_zonal_stats(
     image: Any,
     region: Any,
@@ -79,25 +119,42 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
     # The dataset is 64-D (A00..A63); using a subset keeps cloud costs bounded.
     emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
 
-    # Core fix: Earth Engine stores imagery in large tiles; using .first() may return just
-    # the first intersecting source tile, rendering as a single square. Use
-    # filterBounds(region).mosaic() to stitch all intersecting pieces into one image.
-    filtered_col = emb_col.filterBounds(region).filterDate('2023-01-01', '2025-01-01')
+    # IMPORTANT performance guard:
+    # - Keep `.mosaic()` (not `.first()`) to avoid the "single square tile" artifact when the
+    #   ImageCollection is internally sharded.
+    # - Avoid wide multi-year windows for per-tile rendering; they can inflate the compute graph
+    #   at low zoom levels.
+    # - DO use `.filterBounds(region)` when combining global ImageCollections with `.mosaic()`.
+    #   Without it, GEE may need to scan global metadata before producing a tile at macro zooms,
+    #   causing 504/502 storms. Our `region` already has a large buffer.
+    filtered_col = emb_col.filterDate('2024-01-01', '2024-12-31').filterBounds(region)
 
     # --- V6 modes ---
     if ("ch1_yuhang_faceid" in mode_s) or ("城市基因突变" in mode_s) or ("欧氏距离" in mode_s):
         # Chapter 1: Euclidean distance between 2017 and 2024 embedding vectors.
-        emb17 = emb_col.filterBounds(region).filterDate('2017-01-01', '2017-12-31').mosaic().select(emb_bands)
-        emb24 = emb_col.filterBounds(region).filterDate('2024-01-01', '2024-12-31').mosaic().select(emb_bands)
+        emb17 = _select_embedding_bands(
+            emb_col.filterDate("2017-01-01", "2017-12-31").filterBounds(region).mosaic(),
+            emb_bands,
+        )
+        emb24 = _select_embedding_bands(
+            emb_col.filterDate("2024-01-01", "2024-12-31").filterBounds(region).mosaic(),
+            emb_bands,
+        )
         dist = emb17.subtract(emb24).pow(2).reduce(ee.Reducer.sum()).sqrt()
         img = dist.updateMask(dist.gt(0.16))
-        vis = {'min': 0.16, 'max': 0.45, 'palette': ['330000', 'FF0000', 'FFAA00', 'FFFFFF']}
+        vis = {"min": 0.16, "max": 0.45, "palette": ["330000", "FF0000", "FFAA00", "FFE3C2"]}
         suffix = "ch1_faceid"
 
     elif ("ch2_maowusu_shield" in mode_s) or ("大国生态护盾" in mode_s) or ("余弦相似度" in mode_s):
         # Chapter 2: Cosine similarity (direction-only) to reduce seasonal amplitude noise.
-        emb19 = emb_col.filterBounds(region).filterDate('2019-01-01', '2019-12-31').mosaic().select(emb_bands)
-        emb24 = emb_col.filterBounds(region).filterDate('2024-01-01', '2024-12-31').mosaic().select(emb_bands)
+        emb19 = _select_embedding_bands(
+            emb_col.filterDate("2019-01-01", "2019-12-31").filterBounds(region).mosaic(),
+            emb_bands,
+        )
+        emb24 = _select_embedding_bands(
+            emb_col.filterDate("2024-01-01", "2024-12-31").filterBounds(region).mosaic(),
+            emb_bands,
+        )
 
         dot = emb19.multiply(emb24).reduce(ee.Reducer.sum())
         n19 = emb19.pow(2).reduce(ee.Reducer.sum()).sqrt()
@@ -112,49 +169,85 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
 
     elif ("ch3_zhoukou_pulse" in mode_s) or ("粮仓脉搏" in mode_s) or ("特定维度反演" in mode_s):
         # Chapter 3: Specific dimension inversion/extraction (interpretable intensity field).
-        img = filtered_col.mosaic().select(['A02']).rename(['pulse']).unitScale(-0.2, 0.2)
-        img = img.updateMask(img.gt(0.55))
-        vis = {'min': 0.55, 'max': 0.9, 'palette': ['001018', '00A3FF', '00F5FF', 'FFFFFF']}
+        # Use the raw embedding value (no unitScale) to avoid saturation artifacts.
+        # unitScale(-0.2, 0.2) can over-stretch small differences so many pixels clamp
+        # to the palette max (often perceived as "white film").
+        img = _select_embedding_bands(filtered_col.mosaic(), ["A02"], rename_to=["pulse"])
+
+        # Keep only strong positive signals and ensure true alpha=0 transparency elsewhere.
+        img = img.updateMask(img.gt(0.02)).selfMask()
+
+        # Avoid pure white as the palette max; saturated areas should not look like haze.
+        vis = {"min": 0.02, "max": 0.12, "palette": ["001018", "00A3FF", "00F5FF", "BDF3FF"]}
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        # Chapter 5: Coastline redline audit (semi-supervised clustering).
-        # Guardrail: use a bounded training region to avoid GEE timeouts.
-        # NOTE: Use a fixed rectangle near Yancheng coast as the training seed.
-        training_region = ee.Geometry.Rectangle([119.8, 33.1, 121.2, 33.7])
+        # Chapter 5: Coastline redline audit (deterministic hyperplane mapping).
+        # Motivation: KMeans suffers from label switching and underfitting when transferring
+        # from Yancheng to highly complex urban areas (e.g., Shanghai). This branch uses
+        # fixed mathematical rules on A00/A02 plus priority composition.
 
-        base = filtered_col.mosaic().select(["A00", "A02"]).unitScale(-0.2, 0.2)
-        training = base.sample(
-            region=training_region,
-            scale=60,
-            numPixels=4000,
-            seed=19,
-            geometries=False,
-        )
-        clusterer = ee.Clusterer.wekaKMeans(3).train(training)
-        clustered = base.cluster(clusterer)
-        img = clustered
+        # IMPORTANT: do NOT unitScale() here.
+        # The embedding bands are already in a stable physical range (typically around -1..1).
+        # unitScale() would shift 0 -> 0.5 and silently break hard-coded thresholds,
+        # causing near-all pixels to be classified as "built" (blue/white block artifacts).
+        raw = _select_embedding_bands(filtered_col.mosaic(), ["A00", "A02"])
+        valid = raw.mask().reduce(ee.Reducer.min())
+        a00 = raw.select(["A00"])  # manmade/hardened
+        a02 = raw.select(["A02"])  # water/moisture
+
+        # Core masks
+        built_mask = a00.gt(0.15)
+        built_not = built_mask.Not()
+
+        # Water (value=1): strong moisture but weak manmade.
+        water_mask = a02.gt(0.12).And(a00.lt(0.05)).And(built_not)
+        water_not = water_mask.Not()
+
+        # Mudflat / intertidal (value=3)
+        mudflat_mask = a02.gt(0.02).And(a02.lte(0.12)).And(a00.lt(0.10)).And(built_not).And(water_not)
+
+        # Base class image that inherits projection/pyramids AND mask.
+        cls = _pyramid_safe_constant(a00, 0)
+
+        # Composition via where() preserves sparsity/masks more reliably in practice.
+        # Priority: water > mudflat.
+        # NOTE: We intentionally do NOT render the built-up class as a visible category.
+        # In practice it dominates the viewport (especially inland) and looks like a solid
+        # overlay/"white film" when stacked in Cesium. Leaving built pixels as 0 lets
+        # selfMask() make them truly transparent.
+        cls = cls.where(mudflat_mask, 3)
+        cls = cls.where(water_mask, 1)
+
+        # Constrain to a "coastal/moisture" zone so inland built-up areas do not dominate the view.
+        # This reduces the perceived "solid overlay" at macro zooms and better matches the
+        # narrative goal (coastline redline audit).
+        coast_zone = a02.gt(0.02)
+
+        # Remove background zeros and ensure true transparency (no clamp-to-min artifacts).
+        # selfMask() will mask out all <=0 values so they become real alpha=0 pixels in PNG.
+        img = cls.updateMask(valid.And(coast_zone)).selfMask()
+
+        # Fixed value→color mapping: 1=water(red), 2=built(blue), 3=mudflat(yellow)
         vis = {
-            "min": 0,
-            "max": 2,
-            "palette": ["0B1B36", "E23D28", "F6C431"],
+            "min": 1,
+            "max": 3,
+            "palette": ["E23D28", "0B1B36", "F6C431"],
         }
-        suffix = "ch5_audit"
+
+        # New suffix to prevent cache collisions with the legacy kmeans-based asset.
+        suffix = "ch5_audit_hyperplane"
 
     elif ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         # Chapter 6: Poyang water pulse (dimension delta between years).
         water_2022 = (
-            emb_col.filterBounds(region)
-            .filterDate("2022-01-01", "2022-12-31")
-            .mosaic()
-            .select(["A02"])
+            emb_col.filterDate("2022-01-01", "2022-12-31").filterBounds(region).mosaic()
         )
+        water_2022 = _select_embedding_bands(water_2022, ["A02"])
         water_2024 = (
-            emb_col.filterBounds(region)
-            .filterDate("2024-01-01", "2024-12-31")
-            .mosaic()
-            .select(["A02"])
+            emb_col.filterDate("2024-01-01", "2024-12-31").filterBounds(region).mosaic()
         )
+        water_2024 = _select_embedding_bands(water_2024, ["A02"])
         diff = water_2024.subtract(water_2022)
         diff = diff.updateMask(diff.abs().gt(0.10))
         img = diff
@@ -171,7 +264,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         # (Do NOT train on the full viewport.)
         training_region = ee.Geometry.Rectangle([-56.5, -12.5, -53.5, -9.5])
 
-        base = filtered_col.mosaic().select([f"A{idx:02d}" for idx in range(0, 8)])
+        base = _select_embedding_bands(filtered_col.mosaic(), [f"A{idx:02d}" for idx in range(0, 8)])
         training = base.sample(
             region=training_region,
             scale=60,
@@ -192,8 +285,73 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
     # 🔧 修复：不裁剪图像到region，保持全球范围
     # 原因：clip()后的小范围图像在某些zoom level下可能没有瓦片
     # Cesium会根据视口自动加载需要的瓦片范围
-    # 注意：filterBounds仍然用于选择正确的时间/空间数据
+    # 注意：tile 渲染阶段不再使用 filterBounds；空间裁剪由 EE tile engine 按需处理。
     return img, vis, suffix
+
+
+def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
+    """Return (vis_params, suffix) for a V6 mode without running heavy EE operations.
+
+    This is used to avoid expensive `get_layer_logic()` computation when an exported
+    Asset already exists.
+    """
+    mode_s = str(mode or "")
+
+    if ("ch1_yuhang_faceid" in mode_s) or ("城市基因突变" in mode_s) or ("欧氏距离" in mode_s):
+        return (
+            {
+                "min": 0.16,
+                "max": 0.45,
+                "palette": ["330000", "FF0000", "FFAA00", "FFE3C2"],
+                # Preserve alpha for masked pixels when stacking in Cesium.
+                "format": "png",
+            },
+            "ch1_faceid",
+        )
+    if ("ch2_maowusu_shield" in mode_s) or ("大国生态护盾" in mode_s) or ("余弦相似度" in mode_s):
+        return (
+            {
+                "min": 0.06,
+                "max": 0.22,
+                "palette": ["00110A", "00AA66", "FFCC00", "FF3300"],
+                "format": "png",
+            },
+            "ch2_shield",
+        )
+    if ("ch3_zhoukou_pulse" in mode_s) or ("粮仓脉搏" in mode_s) or ("特定维度反演" in mode_s):
+        return (
+            {
+                "min": 0.02,
+                "max": 0.12,
+                "palette": ["001018", "00A3FF", "00F5FF", "BDF3FF"],
+                "format": "png",
+            },
+            "ch3_pulse",
+        )
+    if ("ch4_amazon_zeroshot" in mode_s) or ("零样本" in mode_s):
+        return ({"forceRgbOutput": True, "format": "png"}, "ch4_zeroshot")
+    if ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
+        return (
+            {
+                "min": 1,
+                "max": 3,
+                "palette": ["E23D28", "0B1B36", "F6C431"],
+                "format": "png",
+            },
+            "ch5_audit_hyperplane",
+        )
+    if ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
+        return (
+            {
+                "min": -0.20,
+                "max": 0.20,
+                "palette": ["1E4AFF", "000000", "FF5A36"],
+                "format": "png",
+            },
+            "ch6_water",
+        )
+
+    raise ValueError(f"Unknown mode: {mode}")
 
 
 def generate_asset_id(loc_code: str, suffix: str, gee_user_path: str) -> str:
@@ -229,15 +387,17 @@ def smart_load(
     Returns:
         (图层, 视觉参数, 状态HTML, 是否缓存命中, Asset ID, 原始计算图层)
     """
-    # 1. 获取计算逻辑
-    computed_img, vis_params, suffix = get_layer_logic(mode, region)
-    
-    # 2. 构建 Asset ID
+    # 1) Derive metadata without heavy EE work.
+    #    This lets us check for an existing exported Asset first.
+    vis_params, suffix = get_mode_vis_and_suffix(mode)
+
+    # 2) Build Asset ID
     asset_id = generate_asset_id(loc_code, suffix, gee_user_path)
     
     status_html = ""
     final_layer = None
     is_cached = False
+    raw_img = None
     
     try:
         # 尝试加载 Asset
@@ -246,12 +406,14 @@ def smart_load(
         status_html = "<span class='status-badge status-cached'>🚀 极速缓存 (Asset)</span>"
         is_cached = True
     except Exception:
-        # Asset 不存在，使用实时计算
+        # Asset 不存在，使用实时计算（可能较慢）
+        computed_img, _computed_vis, _computed_suffix = get_layer_logic(mode, region)
+        raw_img = computed_img
         final_layer = computed_img
         status_html = "<span class='status-badge status-live'>⚡ 实时计算 (Cloud)</span>"
         is_cached = False
-        
-    return final_layer, vis_params, status_html, is_cached, asset_id, computed_img
+
+    return final_layer, vis_params, status_html, is_cached, asset_id, raw_img
 
 
 def get_tile_url(image: Any, vis_params: Dict) -> str:
@@ -265,10 +427,24 @@ def get_tile_url(image: Any, vis_params: Dict) -> str:
     Returns:
         XYZ Tile URL (包含 {z}/{x}/{y} 占位符)
     """
-    # 🔧 修复：GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL数据已经是Web友好的
+    # 🔧 Fix: Force PNG tiles to preserve transparency.
+    #
+    # Symptom (frontend): semi-transparent white overlay when stacking AI layers.
+    # Root cause: upstream GEE tile responses can default to JPEG, which has no alpha
+    # channel. When an ee.Image has masked pixels, JPEG encoding turns the background
+    # into a solid color (often white). Cesium then blends that "white background" at
+    # the imagery layer alpha, showing as a white haze.
+    #
+    # For EE map tiles, `format='png'` keeps alpha from the image mask.
+    vis = dict(vis_params or {})
+    fmt = str(vis.get("format") or "").strip().lower()
+    # Default to PNG when not specified. Do NOT override an explicit JPEG choice
+    # (e.g. for true-color Sentinel-2 where alpha is unnecessary).
+    if fmt == "":
+        vis["format"] = "png"
+
     # 无需重投影，直接生成MapID即可获得有效的瓦片
-    # 原始投影(EPSG:32645 UTC45N)已被GEE正确处理
-    map_id = image.getMapId(vis_params)
+    map_id = image.getMapId(vis)
     tile_url = map_id['tile_fetcher'].url_format
     return tile_url
 

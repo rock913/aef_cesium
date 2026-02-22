@@ -4,7 +4,7 @@
 
 ```bash
 # 首次使用：配置环境变量
-cd /path/to/oneearth/cesium_app
+cd /path/to/alphaearth/cesium_app
 ./setup_env.sh  # 交互式配置
 
 # 或手动创建 .env
@@ -15,7 +15,7 @@ vim .env
 ./start.sh
 ```
 
-访问: `http://127.0.0.1:8502`
+访问: `http://127.0.0.1:8504`
 
 ## ⚙️ 环境配置
 
@@ -49,9 +49,32 @@ GEE_USER_PATH=users/your_username/aef_demo
 ./start.sh
 
 # 分别启动
-./run_backend.sh    # 后端 (8503)
-./run_frontend.sh   # 前端 (8502)
+./run_backend.sh    # 后端 (8505)
+./run_frontend.sh   # 前端 (8504)
 ```
+
+## 🧯 线上部署：避免 502（运维/保活问题）
+
+如果你看到 `GET /__cesium/.../*.css 502 (Bad Gateway)` 或者连 `/` 首页都 502，这说明 **8504 端口背后的上游进程不存在/不可达**（nginx upstream 断了、node/uvicorn 进程挂了、端口映射错了、OOM 杀进程等）。
+
+两种稳定方案：
+
+### 方案 A（最省心）：单进程服务（FastAPI 托管前端 dist + /api）
+
+- 命令：`./run_prod_single.sh`
+- 访问：`http://<server-ip>:8504/`
+- 特点：不依赖 Vite dev/preview；`/__cesium/*` 静态资源由 FastAPI 直接返回，避免“上游丢失导致全站 502”。
+
+### 方案 B：nginx 静态托管 + 反代 /api
+
+- 构建前端：在 `frontend/` 下执行 `npm run build`，把 `frontend/dist` 拷贝到服务器目录（例如 `/opt/oneearth/frontend/dist`）
+- nginx 示例配置：`deploy/nginx/oneearth_v6_8504.conf`
+- 特点：静态资源完全不依赖任何上游进程；只有 `/api/*` 走反代到后端（8505）。
+
+### systemd 保活（可选但推荐）
+
+- 单进程 unit：`deploy/systemd/oneearth-v6-single.service`
+- 仅后端 unit：`deploy/systemd/oneearth-v6-backend.service`
 
 ### 停止服务
 ```bash
@@ -64,7 +87,7 @@ kill $(cat logs/backend.pid logs/frontend.pid)
 
 ### 运行测试
 ```bash
-cd /path/to/oneearth
+cd /path/to/alphaearth
 pytest cesium_app/tests/ -v
 ```
 
@@ -107,8 +130,8 @@ EE_PRIVATE_KEY_FILE=/path/to/key.json              # 可选
 
 # 服务器配置
 API_HOST=127.0.0.1
-API_PORT=8503
-FRONTEND_PORT=8502
+API_PORT=8505
+FRONTEND_PORT=8504
 
 # Cesium 配置
 VITE_CESIUM_TOKEN=your_token  # 可选

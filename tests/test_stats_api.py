@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import types
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,11 +22,18 @@ def client() -> TestClient:
     backend_path = Path(__file__).parent.parent / "backend"
     sys.path.insert(0, str(backend_path))
 
-    from main import app  # noqa: WPS433
-    import main as main_module
+    # Keep unit tests offline/fast.
+    if "ee" not in sys.modules:
+        fake_ee = types.ModuleType("ee")
+        fake_ee.Geometry = types.SimpleNamespace(Point=lambda *a, **k: None)
+        sys.modules["ee"] = fake_ee
 
+    sys.modules.pop("main", None)
+
+    import main as main_module  # noqa: WPS433
+    main_module.init_earth_engine = lambda: None
     main_module.gee_initialized = True
-    return TestClient(app)
+    return TestClient(main_module.app)
 
 
 class TestStatsEndpoint:

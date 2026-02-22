@@ -76,13 +76,13 @@ class Settings(BaseModel):
     # V6.6 标志性事件坐标库
     locations: dict = {
         # 主案例 1：余杭（以之江实验室为中心坐标）
-        "yuhang": {"coords": [30.271092, 119.965127, 13], "name": "杭州 · 余杭", "code": "yuhang"},
+        "yuhang": {"coords": [30.26879, 119.92284, 13], "name": "杭州 · 余杭", "code": "yuhang"},
         # 主案例 2：毛乌素（生态护盾）
         "maowusu": {"coords": [38.85, 109.98, 8], "name": "陕西 · 毛乌素", "code": "maowusu"},
         # 主案例 3：周口（粮仓脉搏）
         "zhoukou": {"coords": [33.62, 114.65, 10], "name": "河南 · 周口", "code": "zhoukou"},
         # 主案例 4：亚马逊（全球共识）
-        "amazon": {"coords": [-11.00, -55.00, 10], "name": "巴西 · 亚马逊", "code": "amazon"},
+        "amazon": {"coords": [-10.04485, -55.42936, 10], "name": "巴西 · 亚马逊", "code": "amazon"},
         # 主案例 5：盐城（海岸线红线）
         "yancheng": {"coords": [33.38, 120.50, 10], "name": "江苏 · 盐城", "code": "yancheng"},
         # 主案例 6：鄱阳湖（水网脉动）
@@ -95,7 +95,7 @@ class Settings(BaseModel):
         "ch2_maowusu_shield": "ch2_maowusu_shield 大国生态护盾 (余弦相似度)",
         "ch3_zhoukou_pulse": "ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)",
         "ch4_amazon_zeroshot": "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)",
-        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (半监督聚类)",
+        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (零样本超平面映射)",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
     }
 
@@ -110,7 +110,7 @@ class Settings(BaseModel):
             "api_mode": "ch1_yuhang_faceid",
             "formula": "EuclideanDistance(V_2017, V_2024)",
             "narrative": "中国数字经济的心脏地带，7年间从城郊荒地变为高新产业矩阵。AEF 以欧氏距离锁定大尺度‘基因重写’，作为客观的城建审计证据锚点。",
-            "camera": {"lat": 30.271092, "lon": 119.965127, "height": 16000, "duration_s": 3.8},
+            "camera": {"lat": 30.26879, "lon": 119.92284, "height": 16000, "duration_s": 3.8},
         },
         {
             "id": "ch2_maowusu",
@@ -139,8 +139,8 @@ class Settings(BaseModel):
             "location": "amazon",
             "api_mode": "ch4_amazon_zeroshot",
             "formula": "ZeroShotKMeans(k=6)",
-            "narrative": "不给 AI 任何南美地理先验，直接一键聚类：自动切分‘原始林/新生砍伐区/河流’等结构单元，证明 OneEarth 具备全球即插即用的通用智能能力。",
-            "camera": {"lat": -11.00, "lon": -55.00, "height": 90000, "duration_s": 4.0},
+            "narrative": "不给 AI 任何南美地理先验，直接一键聚类：自动切分‘原始林/新生砍伐区/河流’等结构单元，证明 Alpha Earth Foundation 具备全球即插即用的通用智能能力。",
+            "camera": {"lat": -10.04485, "lon": -55.42936, "height": 90000, "duration_s": 4.0},
         },
         {
             "id": "ch5_yancheng",
@@ -148,8 +148,8 @@ class Settings(BaseModel):
             "title": "江苏盐城 · 海岸线红线审计 (2023-2024)",
             "location": "yancheng",
             "api_mode": "ch5_coastline_audit",
-            "formula": "KMeans(A00,A02,k=3)",
-            "narrative": "以 AEF 低维语义特征（A00/A02）进行半监督聚类，快速勾勒海岸线结构与潜在越界占用带；为红线核查提供‘先筛后核’的审计底图。",
+            "formula": "ZeroShotHyperplane(A00,A02) + PriorityMosaic",
+            "narrative": "弃用 KMeans 以消除跨区域标签漂移：用 A00(人造物) 与 A02(水/湿度) 的固定阈值超平面规则，稳定区分建筑硬化带/水体/滩涂，并以优先级合成让建筑压制水体假信号；为红线核查提供可迁移的审计底图。",
             "camera": {"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0},
         },
         {

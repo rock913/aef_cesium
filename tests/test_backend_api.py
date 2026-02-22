@@ -15,15 +15,26 @@ def test_client():
     # 添加 backend 目录到 Python 路径
     import sys
     from pathlib import Path
+    import types
     backend_path = Path(__file__).parent.parent / "backend"
     sys.path.insert(0, str(backend_path))
+
+    # Unit tests should not import the real Earth Engine SDK.
+    # Importing `ee` is slow and may attempt credential discovery.
+    sys.modules.setdefault("ee", types.ModuleType("ee"))
+
+    # IMPORTANT: other workspaces in this environment also have a top-level `main.py`.
+    # Pytest runs in a single interpreter; if some other test imported `main` earlier,
+    # Python will reuse that module and ignore our sys.path insertion.
+    # Clear it to guarantee we import the intended backend/main.py for this repo.
+    sys.modules.pop("main", None)
     
     # 延迟导入以避免 GEE 初始化
-    from main import app
     import main as main_module
-    # 模拟 GEE 已初始化
+    # Avoid real EE init during FastAPI startup.
+    main_module.init_earth_engine = lambda: None
     main_module.gee_initialized = True
-    return TestClient(app)
+    return TestClient(main_module.app)
 
 
 class TestHealthEndpoint:
@@ -124,6 +135,33 @@ class TestLayerEndpoint:
         assert data["is_cached"] is True
         assert "asset_id" in data
         assert "vis_params" in data
+
+    @patch('main.ee.Geometry.Point')
+    @patch('main.smart_load')
+    @patch('main.get_tile_url')
+    def test_get_layer_uses_template_cache_for_repeat_calls(self, mock_get_tile, mock_smart_load, mock_point, test_client):
+        """相同 mode/location 重复请求时应复用 upstream tile template，避免重复 getMapId 调用。"""
+        mock_viewport = Mock()
+        mock_point.return_value.buffer.return_value = mock_viewport
+
+        mock_image = Mock()
+        mock_smart_load.return_value = (
+            mock_image,
+            {'min': 0, 'max': 1},
+            "cached",
+            True,
+            "asset_id_fixed",
+            None,
+        )
+        mock_get_tile.return_value = "https://earthengine.googleapis.com/v1/{z}/{x}/{y}"
+
+        r1 = test_client.get("/api/layers?mode=ch1_yuhang_faceid&location=yuhang")
+        assert r1.status_code == 200
+        r2 = test_client.get("/api/layers?mode=ch1_yuhang_faceid&location=yuhang")
+        assert r2.status_code == 200
+
+        # Only the first call should consult get_tile_url()
+        assert mock_get_tile.call_count == 1
     
     def test_get_layer_missing_params(self, test_client):
         """测试缺少必需参数"""
@@ -259,6 +297,168 @@ class TestTileProxyEndpoint:
     @patch("main.ee.Geometry.Point")
     @patch("main.smart_load")
     @patch("main.get_tile_url")
+    def test_tile_proxy_upstream_5xx_returns_blank_png(self, mock_get_tile, mock_smart_load, mock_point, test_client):
+        """上游 5xx/429 等瞬态错误时，返回可用 PNG(200) 以避免 Cesium 报错风暴。"""
+        mock_viewport = Mock()
+        mock_point.return_value.buffer.return_value = mock_viewport
+
+        mock_image = Mock()
+        mock_smart_load.return_value = (
+            mock_image,
+            {"min": 0, "max": 1},
+            "cached",
+            True,
+            "asset_id",
+            mock_image,
+        )
+        mock_get_tile.return_value = "https://earthengine.googleapis.com/v1/tiles/{z}/{x}/{y}"
+
+        layer_resp = test_client.get("/api/layers?mode=ch2_maowusu_shield&location=maowusu")
+        assert layer_resp.status_code == 200
+        tile_url = layer_resp.json()["tile_url"]
+        m = re.search(r"/api/tiles/(?P<tile_id>[0-9a-f]{24})/\{z\}/\{x\}/(\{y\}|\{reverseY\})$", tile_url)
+        assert m
+        tile_id = m.group("tile_id")
+
+        upstream_resp = httpx.Response(
+            status_code=502,
+            headers={"Content-Type": "text/plain"},
+            content=b"Bad Gateway",
+        )
+
+        with patch("main.http_client", new=Mock(get=AsyncMock(return_value=upstream_resp))):
+            tile_resp = test_client.get(f"/api/tiles/{tile_id}/10/855/408")
+
+        assert tile_resp.status_code == 200
+        assert tile_resp.headers.get("content-type", "").startswith("image/png")
+        assert tile_resp.content.startswith(b"\x89PNG")
+
+    @patch("main.ee.Geometry.Point")
+    @patch("main.smart_load")
+    @patch("main.get_tile_url")
+    def test_tile_proxy_fallback_error_propagates_upstream_5xx(self, mock_get_tile, mock_smart_load, mock_point, test_client):
+        """当 fallback=error 时，后端应返回非 200 以便前端触发底图兜底。"""
+        mock_viewport = Mock()
+        mock_point.return_value.buffer.return_value = mock_viewport
+
+        mock_image = Mock()
+        mock_smart_load.return_value = (
+            mock_image,
+            {"min": 0, "max": 1},
+            "cached",
+            True,
+            "asset_id",
+            mock_image,
+        )
+        mock_get_tile.return_value = "https://earthengine.googleapis.com/v1/tiles/{z}/{x}/{y}"
+
+        layer_resp = test_client.get("/api/layers?mode=ch2_maowusu_shield&location=maowusu")
+        assert layer_resp.status_code == 200
+        tile_url = layer_resp.json()["tile_url"]
+        m = re.search(r"/api/tiles/(?P<tile_id>[0-9a-f]{24})/\{z\}/\{x\}/(\{y\}|\{reverseY\})$", tile_url)
+        assert m
+        tile_id = m.group("tile_id")
+
+        upstream_resp = httpx.Response(
+            status_code=502,
+            headers={"Content-Type": "text/plain"},
+            content=b"Bad Gateway",
+        )
+
+        with patch("main.http_client", new=Mock(get=AsyncMock(return_value=upstream_resp))):
+            tile_resp = test_client.get(
+                f"/api/tiles/{tile_id}/10/855/408",
+                params={"fallback": "error"},
+            )
+
+        assert tile_resp.status_code == 502
+        payload = tile_resp.json()
+        assert payload.get("detail", {}).get("error") == "tile_proxy_failed"
+
+    @patch("main.ee.Geometry.Point")
+    @patch("main.smart_load")
+    @patch("main.get_tile_url")
+    def test_tile_proxy_fallback_error_propagates_upstream_400_as_404(self, mock_get_tile, mock_smart_load, mock_point, test_client):
+        """当 fallback=error 且上游 400/404（无数据）时，返回 404 以触发前端兜底。"""
+        mock_viewport = Mock()
+        mock_point.return_value.buffer.return_value = mock_viewport
+
+        mock_image = Mock()
+        mock_smart_load.return_value = (
+            mock_image,
+            {"min": 0, "max": 1},
+            "cached",
+            True,
+            "asset_id",
+            mock_image,
+        )
+        mock_get_tile.return_value = "https://earthengine.googleapis.com/v1/tiles/{z}/{x}/{y}"
+
+        layer_resp = test_client.get("/api/layers?mode=ch2_maowusu_shield&location=maowusu")
+        assert layer_resp.status_code == 200
+        tile_url = layer_resp.json()["tile_url"]
+        m = re.search(r"/api/tiles/(?P<tile_id>[0-9a-f]{24})/\{z\}/\{x\}/(\{y\}|\{reverseY\})$", tile_url)
+        assert m
+        tile_id = m.group("tile_id")
+
+        upstream_resp = httpx.Response(
+            status_code=400,
+            headers={"Content-Type": "application/json"},
+            content=b"{\"error\":\"Bad Request\"}",
+        )
+
+        with patch("main.http_client", new=Mock(get=AsyncMock(return_value=upstream_resp))):
+            tile_resp = test_client.get(
+                f"/api/tiles/{tile_id}/0/0/0",
+                params={"fallback": "error"},
+            )
+
+        assert tile_resp.status_code == 404
+        payload = tile_resp.json()
+        assert payload.get("detail", {}).get("error") == "tile_proxy_failed"
+
+    @patch("main.ee.Geometry.Point")
+    @patch("main.smart_load")
+    @patch("main.get_tile_url")
+    def test_tile_proxy_fallback_error_timeout_returns_504(self, mock_get_tile, mock_smart_load, mock_point, test_client):
+        """当 fallback=error 且上游超时，返回 504 便于前端快速切换底图。"""
+        mock_viewport = Mock()
+        mock_point.return_value.buffer.return_value = mock_viewport
+
+        mock_image = Mock()
+        mock_smart_load.return_value = (
+            mock_image,
+            {"min": 0, "max": 1},
+            "cached",
+            True,
+            "asset_id",
+            mock_image,
+        )
+        mock_get_tile.return_value = "https://earthengine.googleapis.com/v1/tiles/{z}/{x}/{y}"
+
+        layer_resp = test_client.get("/api/layers?mode=ch2_maowusu_shield&location=maowusu")
+        assert layer_resp.status_code == 200
+        tile_url = layer_resp.json()["tile_url"]
+        m = re.search(r"/api/tiles/(?P<tile_id>[0-9a-f]{24})/\{z\}/\{x\}/(\{y\}|\{reverseY\})$", tile_url)
+        assert m
+        tile_id = m.group("tile_id")
+
+        async def _raise_timeout(*_args, **_kwargs):
+            raise httpx.TimeoutException("timeout")
+
+        with patch("main.http_client", new=Mock(get=AsyncMock(side_effect=_raise_timeout))):
+            tile_resp = test_client.get(
+                f"/api/tiles/{tile_id}/10/855/408",
+                params={"fallback": "error"},
+            )
+
+        assert tile_resp.status_code == 504
+        payload = tile_resp.json()
+        assert payload.get("detail", {}).get("error") == "tile_proxy_failed"
+
+    @patch("main.ee.Geometry.Point")
+    @patch("main.smart_load")
+    @patch("main.get_tile_url")
     def test_tile_proxy_uses_lru_cache_for_same_tile(self, mock_get_tile, mock_smart_load, mock_point, test_client):
         """同一瓦片被请求多次时应命中内存缓存，避免重复上游请求。"""
         import main as main_module
@@ -299,6 +499,7 @@ class TestTileProxyEndpoint:
             # Ensure cache is empty for deterministic behavior
             try:
                 main_module._tile_cache.clear()
+                main_module._tile_cache_total_bytes = 0
             except Exception:
                 pass
             # Same tile twice
@@ -310,6 +511,55 @@ class TestTileProxyEndpoint:
         assert r1.content.startswith(b"\x89PNG")
         assert r2.content == r1.content
         assert mock_get.await_count == 1
+
+    def test_tile_proxy_unknown_tile_id_returns_blank_png_by_default(self, test_client):
+        """旧 tile_id（重启/轮转导致 registry 丢失）默认应返回透明 PNG(200) 避免前端报错风暴。"""
+        resp = test_client.get("/api/tiles/ffffffffffffffffffffffff/10/1/2")
+        assert resp.status_code == 200
+        assert resp.headers.get("content-type", "").startswith("image/png")
+        assert resp.content.startswith(b"\x89PNG")
+
+    def test_tile_proxy_unknown_tile_id_fallback_error_returns_404(self, test_client):
+        """底图请求使用 fallback=error 时，未知 tile_id 必须返回 404 触发前端兜底。"""
+        resp = test_client.get(
+            "/api/tiles/ffffffffffffffffffffffff/10/1/2",
+            params={"fallback": "error"},
+        )
+        assert resp.status_code == 404
+
+
+def test_tile_cache_respects_max_bytes_budget():
+    """Unit test: tile LRU cache should not grow unbounded in bytes.
+
+    This protects the backend from OOM kills (which appear as proxy-level 502).
+    """
+    from pathlib import Path
+    import sys
+
+    backend_path = Path(__file__).parent.parent / "backend"
+    if str(backend_path) not in sys.path:
+        sys.path.insert(0, str(backend_path))
+    import main as main_module  # noqa: WPS433
+
+    # Configure a tiny budget and reset cache.
+    main_module._tile_cache_max_items = 100
+    main_module._tile_cache_max_bytes = 250
+    try:
+        main_module._tile_cache.clear()
+    except Exception:
+        pass
+    main_module._tile_cache_total_bytes = 0
+
+    headers = {"Content-Type": "image/png"}
+    main_module._tile_cache_set(("t", 0, 0, 0), b"a" * 120, "image/png", headers)
+    main_module._tile_cache_set(("t", 0, 0, 1), b"b" * 120, "image/png", headers)
+    # Adding a third entry should trigger eviction to stay within 250 bytes.
+    main_module._tile_cache_set(("t", 0, 0, 2), b"c" * 120, "image/png", headers)
+
+    assert main_module._tile_cache_total_bytes <= main_module._tile_cache_max_bytes
+    assert len(main_module._tile_cache) <= 3
+    # With 3x120 bytes and a 250-byte budget, at least one eviction must occur.
+    assert len(main_module._tile_cache) <= 2
 
 
 class TestExportEndpoint:

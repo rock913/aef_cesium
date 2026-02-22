@@ -1,6 +1,6 @@
-# OneEarth Cesium App (V6.6)
+# Alpha Earth Foundation 场景验证系统 (V6.6)
 
-OneEarth 的 Cesium 升级版：前端 Vue3 + CesiumJS（3D 数字地球），后端 FastAPI + Google Earth Engine（AEF 表征 / 统计 / 瓦片代理）。
+Alpha Earth Foundation（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字地球），后端 FastAPI + Google Earth Engine（AEF 表征 / 统计 / 瓦片代理）。
 
 本目录为 `cesium_app_v6`，端口与主案例已固化，适合“快速了解现状 → 继续开发”。
 
@@ -76,6 +76,16 @@ cd cesium_app_v6
 cp .env.example .env
 # 或使用交互脚本
 ./setup_env.sh
+```
+
+### 1) 运行测试（推荐）
+
+本仓库的 pytest 默认走“快速单元测试”路径（会 stub 掉 `ee`/LLM 等重依赖；集成诊断需显式开启）。
+
+```bash
+make test-fast         # 快速全量（默认推荐）
+make test-contract     # PNG/JPG/HTTP 契约（瓦片透明度/499 等）
+make test-integration  # 真实 EE + 本机后端诊断（需已认证/后端可用）
 ```
 
 最少需要：

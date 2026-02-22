@@ -9,7 +9,7 @@ cd "$SCRIPT_DIR"
 
 echo "╔════════════════════════════════════════════════╗"
 echo "║   🌍 AlphaEarth Cesium 启动器                  ║"
-echo "║   OneEarth Command System                      ║"
+echo "║   Alpha Earth Foundation 场景验证系统          ║"
 echo "╚════════════════════════════════════════════════╝"
 echo ""
 
@@ -76,6 +76,7 @@ FRONTEND_CFG=$(ONEEARTH_PROFILE="$ONEEARTH_PROFILE" ENV_FILE="${ENV_FILE:-}" bas
 API_HOST=$(echo "$BACKEND_CFG" | awk -F= '/^API_HOST=/{print $2}' | tail -n 1)
 API_PORT=$(echo "$BACKEND_CFG" | awk -F= '/^API_PORT=/{print $2}' | tail -n 1)
 FRONTEND_PORT=$(echo "$FRONTEND_CFG" | awk -F= '/^FRONTEND_PORT=/{print $2}' | tail -n 1)
+FRONTEND_RUN_MODE=$(echo "$FRONTEND_CFG" | awk -F= '/^FRONTEND_RUN_MODE=/{print $2}' | tail -n 1)
 
 if [ -z "$API_HOST" ] || [ -z "$API_PORT" ] || [ -z "$FRONTEND_PORT" ]; then
     echo "❌ 无法解析端口配置。"
@@ -88,6 +89,9 @@ fi
 
 echo "✅ Resolved backend: http://${API_HOST}:${API_PORT}"
 echo "✅ Resolved frontend: http://127.0.0.1:${FRONTEND_PORT}"
+if [ -n "$FRONTEND_RUN_MODE" ]; then
+    echo "✅ Frontend run mode: ${FRONTEND_RUN_MODE}"
+fi
 
 # 创建日志目录
 mkdir -p logs
@@ -122,6 +126,32 @@ echo "   日志: logs/frontend.log"
 # 等待前端启动
 echo "   等待前端就绪..."
 sleep 5
+
+# 检查前端是否启动成功（常见故障：端口被占用/依赖未装/进程崩溃，外部表现为 502/Bad Gateway）
+if ! curl -s "http://127.0.0.1:${FRONTEND_PORT}/" > /dev/null 2>&1; then
+    echo "❌ 前端启动失败或不可访问: http://127.0.0.1:${FRONTEND_PORT}/"
+    echo "   请查看 logs/frontend.log 获取详细错误信息。"
+    echo "--- logs/frontend.log (tail) ---"
+    tail -n 120 logs/frontend.log || true
+    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+    exit 1
+fi
+
+# Extra check for the exact reported symptom:
+# In dev mode, Vite must be able to serve ESM source modules under /src/*.
+if [ "${FRONTEND_RUN_MODE:-dev}" = "dev" ]; then
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${FRONTEND_PORT}/src/services/api.js" 2>/dev/null || echo "000")
+    if [ "$CODE" != "200" ]; then
+        echo "❌ 前端模块资源不可用: /src/services/api.js (HTTP $CODE)"
+        echo "   这通常意味着: 8504 不是 Vite 进程，而是 nginx/反代在返回 502。"
+        echo "   请查看 logs/frontend.log，或用 ss/netstat 检查 :${FRONTEND_PORT} 端口占用。"
+        echo "--- logs/frontend.log (tail) ---"
+        tail -n 120 logs/frontend.log || true
+        kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+        exit 1
+    fi
+fi
+echo "✅ 前端就绪"
 
 echo ""
 echo "╔════════════════════════════════════════════════╗"

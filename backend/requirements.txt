@@ -4,3 +4,4 @@ earthengine-api
 pydantic<2.0
 python-dotenv
 httpx
+aiofiles

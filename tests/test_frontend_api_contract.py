@@ -11,6 +11,7 @@
 
 import pytest
 import sys
+import types
 from pathlib import Path
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch
@@ -22,19 +23,30 @@ def client():
     # 添加 backend 目录到 Python 路径
     backend_path = Path(__file__).parent.parent / "backend"
     sys.path.insert(0, str(backend_path))
+
+    # Keep unit tests offline/fast: stub out the heavy Earth Engine SDK.
+    if "ee" not in sys.modules:
+        fake_ee = types.ModuleType("ee")
+        fake_ee.Geometry = types.SimpleNamespace(Point=lambda *a, **k: None)
+        sys.modules["ee"] = fake_ee
+
+    # Ensure we import the intended backend/main.py module.
+    sys.modules.pop("main", None)
     
     # 延迟导入以避免 GEE 初始化
-    from main import app
     import main as main_module
+
+    # Avoid real EE init during FastAPI startup.
+    main_module.init_earth_engine = lambda: None
     
     # 模拟 GEE 已初始化
     main_module.gee_initialized = True
     
-    return TestClient(app)
+    return TestClient(main_module.app)
 
 
 @pytest.fixture(autouse=True)
-def mock_layers_dependencies():
+def mock_layers_dependencies(client):
     """避免契约测试触发真实 Earth Engine 计算。
 
     这些测试关注的是前后端数据结构契约，而不是 GEE 本身可用性。
@@ -42,6 +54,7 @@ def mock_layers_dependencies():
     mock_viewport = Mock()
     mock_image = Mock()
 
+    # Depend on `client` fixture so backend_path is on sys.path and `main` is imported.
     with (
         patch("main.ee.Geometry.Point") as mock_point,
         patch("main.smart_load") as mock_smart_load,
@@ -278,6 +291,14 @@ class TestLayerAPIContract:
         
         assert response.status_code == 200, \
             "有效的字符串参数应该被接受"
+
+        data = response.json()
+        assert "render_hints" in data, "layers 响应应包含可选 render_hints（用于前端渲染调优）"
+        assert isinstance(data["render_hints"], dict)
+        assert "ai_opacity" in data["render_hints"], "render_hints 应包含 ai_opacity"
+        opacity = data["render_hints"]["ai_opacity"]
+        assert isinstance(opacity, (int, float))
+        assert 0.0 <= float(opacity) <= 1.0
     
     def test_layer_api_rejects_numeric_location(self, client):
         """测试图层API拒绝数字location参数

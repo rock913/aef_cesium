@@ -55,10 +55,10 @@
     <transition name="fade">
       <div v-if="appState === 'standby'" class="global-lobby">
         <div class="brand-title">
-          <h1 class="glitch" data-text="ONE EARTH">ONE EARTH</h1>
+          <h1 class="glitch" data-text="ALPHA EARTH">ALPHA EARTH</h1>
           <p class="brand-subtitle">PLANETARY OPERATING SYSTEM · UNIFIED EARTH REPRESENTATION</p>
           <div class="intro-text">
-            OneEarth 行星级操作系统：点击任务包，智能体将自动锁定目标并展开研判。
+            Alpha Earth Foundation 场景验证系统：点击任务包，智能体将自动锁定目标并展开研判。
           </div>
         </div>
         
@@ -88,7 +88,7 @@
     <transition name="slide-down">
       <div v-if="appState !== 'standby'" class="hud-top-left">
         <div class="hud-brand">
-          <h1>ONE EARTH <span>INTEL</span></h1>
+          <h1>ALPHA EARTH <span>INTEL</span></h1>
           <div class="target-lock">MISSION: {{ currentChapter?.id }} /// TARGET: {{ currentChapter?.locationName }}</div>
         </div>
         <button class="btn-orbit" @click="abortMission">
@@ -190,7 +190,7 @@ const chapters = [
     id: '觉醒', name: '杭州余杭 · 未来科技城崛起 (2017-2024)',
     brief: '中国数字经济的心脏地带，7年间从城郊荒地变为高新产业矩阵。AEF以欧氏距离锁定人类建筑重写，作为客观的城建审计铁证。',
     locationName: '杭州余杭', locationId: 'yuhang', apiMode: 'ch1_yuhang_faceid', operator: 'EuclideanDistance(V_2017, V_2024)',
-    lng: 119.965, lat: 30.271, height: 16000, pitch: -45,
+    lng: 119.92284, lat: 30.26879, height: 16000, pitch: -45,
     stats: { area: '11162.53', anomaly: '45.05%' },
     report: {
       mechanism: '提取 2017 与 2024 年底座 64 维向量的欧氏距离，过滤微小变化，锁定彻底的物理重构。',
@@ -245,9 +245,9 @@ const chapters = [
   },
   {
     id: '共识', name: '巴西亚马逊 · 毁林前线的“鱼骨” (马托格罗索州)',
-    brief: '不给AI任何南美地理先验，直接一键聚类：自动切分原始林/新生砍伐/水域等单元。证明OneEarth具备全球即插即用的通用智能能力。',
+    brief: '不给AI任何南美地理先验，直接一键聚类：自动切分原始林/新生砍伐/水域等单元。证明 Alpha Earth Foundation 具备全球即插即用的通用智能能力。',
     locationName: '巴西亚马逊', locationId: 'amazon', apiMode: 'ch4_amazon_zeroshot', operator: 'ZeroShotKMeans(k=6)',
-    lng: -55.000, lat: -11.000, height: 95000, pitch: -55,
+    lng: -55.42936, lat: -10.04485, height: 95000, pitch: -55,
     stats: { area: '69559.98', anomaly: '全局聚类' },
     report: {
       mechanism: '未输入任何样本标签，算力集群利用 64 维空间自动执行零样本 (Zero-Shot) 无监督聚类切分。',
@@ -259,7 +259,7 @@ const chapters = [
       insights: [
         "<strong>[异动感知]</strong> 算力集群在 <span style='color:#00F5FF'>3 秒内</span>自动利用聚类特征切分出了亚马逊极其复杂的生态割裂网络与砍伐边界。",
         "<strong>[归因分析]</strong> 证明了模型强大的泛化涌现能力。无需人为教导，AI 已在向量空间内自主内化了地球物理演变法则。",
-        "<strong>[战略价值]</strong> OneEarth 完全具备作为全球空间治理公共科技产品的底座能力，助力消除南北技术鸿沟。"
+        "<strong>[战略价值]</strong> Alpha Earth Foundation 完全具备作为全球空间治理公共科技产品的底座能力，助力消除南北技术鸿沟。"
       ]
     }
   },
