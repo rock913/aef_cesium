@@ -33,8 +33,14 @@ def _maybe_install_fast_import_stubs() -> None:
         fake_ee.Filter = types.SimpleNamespace(lt=lambda *a, **k: None)
         fake_ee.Reducer = types.SimpleNamespace(min=lambda *a, **k: None, sum=lambda *a, **k: None)
         fake_ee.Clusterer = types.SimpleNamespace(wekaKMeans=lambda *a, **k: None)
-        fake_ee.batch = types.SimpleNamespace(Export=types.SimpleNamespace(image=types.SimpleNamespace(toAsset=lambda **k: None)))
-        fake_ee.data = types.SimpleNamespace(getAsset=lambda *a, **k: None)
+        fake_ee.Classifier = types.SimpleNamespace(load=lambda *a, **k: None)
+        fake_ee.batch = types.SimpleNamespace(
+            Export=types.SimpleNamespace(
+                image=types.SimpleNamespace(toAsset=lambda **k: None),
+                classifier=types.SimpleNamespace(toAsset=lambda **k: types.SimpleNamespace(start=lambda: None, status=lambda: {"state": "READY"}, id="stub")),
+            )
+        )
+        fake_ee.data = types.SimpleNamespace(getAsset=lambda *a, **k: None, createAsset=lambda *a, **k: None)
         fake_ee.Initialize = lambda *a, **k: None
         fake_ee.ServiceAccountCredentials = lambda *a, **k: None
         fake_ee.ImageCollection = lambda *a, **k: None

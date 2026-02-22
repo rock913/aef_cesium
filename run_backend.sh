@@ -371,23 +371,57 @@ else
 fi
 
 # Optional: Chapter 5 supervised RF classifier (assetized) bootstrap.
-# - Always runs a lightweight existence check if CH5_RF_BOOTSTRAP=1 (default).
-# - If CH5_RF_AUTO_EXPORT=1 and the asset is missing, submits an export task.
+# - Hard gate startup: backend will NOT start unless the asset is ready.
+# - If missing, it will auto-submit an export task and wait until ready (timeout).
 CH5_RF_BOOTSTRAP="${CH5_RF_BOOTSTRAP:-1}"
-CH5_RF_AUTO_EXPORT="${CH5_RF_AUTO_EXPORT:-0}"
+CH5_RF_AUTO_EXPORT="${CH5_RF_AUTO_EXPORT:-1}"
+CH5_RF_WAIT_TIMEOUT_S="${CH5_RF_WAIT_TIMEOUT_S:-420}"
+CH5_RF_WAIT_INTERVAL_S="${CH5_RF_WAIT_INTERVAL_S:-8}"
 if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
     echo "🧊 Checking CH5 RF classifier asset..."
     set +e
     python backend/ch5_rf_export.py --check >/dev/null 2>&1
     CHECK_RC=$?
     if [ "$CHECK_RC" -ne 0 ]; then
-        echo "⚠️  CH5 RF classifier asset not ready (rc=$CHECK_RC)."
+        echo "❌ CH5 RF classifier asset not ready (rc=$CHECK_RC)."
+        if [ "$CHECK_RC" -eq 2 ]; then
+            echo "❌ CH5 RF asset id not configured. Set CH5_RF_ASSET_ID or GEE_USER_PATH (non-default)."
+            set -e
+            exit 1
+        fi
+
         if [ "$CH5_RF_AUTO_EXPORT" = "1" ]; then
-            echo "🚚 Submitting export task for CH5 RF classifier (non-blocking)..."
-            python backend/ch5_rf_export.py --ensure || true
+            echo "🚚 Submitting export task for CH5 RF classifier..."
+            python backend/ch5_rf_export.py --ensure
+            ENSURE_RC=$?
+            if [ "$ENSURE_RC" -ne 0 ]; then
+                echo "❌ Failed to submit export task (rc=$ENSURE_RC)."
+                set -e
+                exit 1
+            fi
+            echo "⏳ Waiting for CH5 RF asset to become ready (timeout=${CH5_RF_WAIT_TIMEOUT_S}s)..."
+            ELAPSED=0
+            while [ "$ELAPSED" -lt "$CH5_RF_WAIT_TIMEOUT_S" ]; do
+                python backend/ch5_rf_export.py --check >/dev/null 2>&1
+                if [ "$?" -eq 0 ]; then
+                    echo "✅ CH5 RF classifier asset is ready"
+                    break
+                fi
+                sleep "$CH5_RF_WAIT_INTERVAL_S"
+                ELAPSED=$((ELAPSED + CH5_RF_WAIT_INTERVAL_S))
+            done
+            if [ "$ELAPSED" -ge "$CH5_RF_WAIT_TIMEOUT_S" ]; then
+                echo "❌ Timeout waiting for CH5 RF asset."
+                echo "   Monitor tasks: https://code.earthengine.google.com/tasks"
+                set -e
+                exit 1
+            fi
         else
-            echo "   Tip: set CH5_RF_AUTO_EXPORT=1 to auto-submit export task on startup."
-            echo "   Or run: python backend/ch5_rf_export.py --ensure"
+            echo "❌ CH5 RF auto-export disabled (CH5_RF_AUTO_EXPORT=0)."
+            echo "   Run: python backend/ch5_rf_export.py --ensure"
+            echo "   Then re-run backend start after the task completes."
+            set -e
+            exit 1
         fi
     else
         echo "✅ CH5 RF classifier asset looks ready"

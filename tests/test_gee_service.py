@@ -240,6 +240,54 @@ class TestLayerLogicV6:
             mock_ee.Classifier.load.assert_called_once()
             mock_base_img.classify.assert_called_once_with(mock_classifier)
 
+    def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
+        mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"
+        mock_region = Mock()
+
+        # Strict behavior: without an asset id configured, we must fail fast.
+        monkeypatch.delenv("CH5_RF_ASSET_ID", raising=False)
+        monkeypatch.setenv("GEE_USER_PATH", "users/default/aef_demo")
+        gee_service_module._CH5_CLASSIFIER_CACHE = None
+
+        with patch.object(gee_service_module, "ee") as mock_ee:
+            mock_collection = Mock()
+            mock_filtered = Mock()
+            mock_mosaic = Mock()
+            mock_base_img = Mock()
+
+            mock_ee.ImageCollection.return_value = mock_collection
+            mock_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
+            mock_filtered.mosaic.return_value = mock_mosaic
+
+            mock_mosaic.select.return_value.rename.return_value = mock_base_img
+
+            with pytest.raises(ValueError):
+                gee_service_module.get_layer_logic(mode, mock_region)
+
+    def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
+        """CH5 must fail fast if the supervised classifier asset is not configured."""
+
+        mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"
+        mock_region = Mock()
+
+        monkeypatch.delenv("CH5_RF_ASSET_ID", raising=False)
+        monkeypatch.setenv("GEE_USER_PATH", "users/default/aef_demo")
+        gee_service_module._CH5_CLASSIFIER_CACHE = None
+
+        with patch.object(gee_service_module, "ee") as mock_ee:
+            mock_embedding_collection = Mock()
+            mock_filtered = Mock()
+            mock_mosaic = Mock()
+            mock_base_img = Mock()
+
+            mock_ee.ImageCollection.return_value = mock_embedding_collection
+            mock_embedding_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
+            mock_filtered.mosaic.return_value = mock_mosaic
+            mock_mosaic.select.return_value.rename.return_value = mock_base_img
+
+            with pytest.raises(ValueError):
+                gee_service_module.get_layer_logic(mode, mock_region)
+
     def test_get_layer_logic_ch6_water_pulse_year_diff(self, gee_service_module):
         mode = "ch6_water_pulse 水网脉动监测 (维差分)"
         mock_region = Mock()

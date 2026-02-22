@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from typing import Any
+import time
+from typing import Any, Dict, Iterable
 
 import ee
 
@@ -60,6 +61,55 @@ def _asset_exists(asset_id: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _asset_root_prefix_len(asset_id: str) -> int:
+    parts = [p for p in asset_id.split("/") if p]
+    if not parts:
+        return 0
+
+    # Common formats:
+    # - users/<username>/...
+    # - projects/<project-id>/assets/...
+    if parts[0] == "users":
+        return 2 if len(parts) >= 2 else 1
+    if parts[0] == "projects":
+        if len(parts) >= 3 and parts[2] == "assets":
+            return 3
+        return 2
+    return 0
+
+
+def _iter_parent_folders(folder_id: str) -> Iterable[str]:
+    parts = [p for p in folder_id.split("/") if p]
+    base_len = _asset_root_prefix_len(folder_id)
+    # Start creating from the first folder after the root.
+    for i in range(base_len + 1, len(parts) + 1):
+        yield "/".join(parts[:i])
+
+
+def _ensure_asset_folders_exist(asset_id: str) -> None:
+    parent = asset_id.rsplit("/", 1)[0] if "/" in asset_id else ""
+    if not parent:
+        return
+
+    for folder_id in _iter_parent_folders(parent):
+        try:
+            ee.data.getAsset(folder_id)
+            continue
+        except Exception:
+            pass
+
+        try:
+            ee.data.createAsset({"type": "FOLDER"}, folder_id)
+        except Exception as e:
+            msg = str(e)
+            raise RuntimeError(
+                "Failed to create required asset folder. "
+                f"folder_id={folder_id}. Error: {msg}. "
+                "Fix: ensure you have write permission to this asset path, or set CH5_RF_ASSET_ID to a path you own "
+                "(e.g. users/<username>/aef_demo/classifiers/ch5_coastline_rf_v1), or create the folder in the GEE Code Editor Assets panel."
+            ) from e
 
 
 def _build_classifier_graph() -> Any:
@@ -98,7 +148,16 @@ def _build_classifier_graph() -> Any:
     return classifier
 
 
+def _task_status(task: Any) -> Dict[str, Any]:
+    try:
+        status = task.status()  # type: ignore[attr-defined]
+        return status if isinstance(status, dict) else {"raw": status}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _submit_export(asset_id: str) -> str:
+    _ensure_asset_folders_exist(asset_id)
     classifier = _build_classifier_graph()
     task = ee.batch.Export.classifier.toAsset(
         classifier=classifier,
@@ -106,6 +165,15 @@ def _submit_export(asset_id: str) -> str:
         assetId=asset_id,
     )
     task.start()
+
+    # Surface immediate failures (e.g. missing parent folders / permission) as early as possible.
+    time.sleep(0.5)
+    status = _task_status(task)
+    state = str(status.get("state", "")).upper()
+    if state in {"FAILED", "CANCELLED"}:
+        err = status.get("error_message") or status.get("error") or status
+        raise RuntimeError(f"Export task {state}: {err}")
+
     return str(getattr(task, "id", "")) or "<unknown>"
 
 

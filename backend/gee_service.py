@@ -219,24 +219,18 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         #   2: reclaimed/artificial hardening (red)
         base_img = _select_embedding_bands(filtered_col.mosaic(), emb_bands)
 
+        # STRICT: production requires the supervised classifier asset to be configured and loadable.
         try:
             classifier = _get_ch5_classifier()
+        except Exception as e:
+            raise ValueError(f"CH5 RF classifier asset is not configured/ready: {e}") from e
+
+        try:
             img = base_img.classify(classifier)
-            suffix = "ch5_audit_supervised"
-        except Exception:
-            # Safe fallback: keep the system usable even if the supervised asset is not ready yet.
-            training_region = ee.Geometry.Rectangle([119.8, 33.1, 121.2, 33.7])
-            base = _select_embedding_bands(filtered_col.mosaic(), ["A00", "A02"]).unitScale(-0.2, 0.2)
-            training = base.sample(
-                region=training_region,
-                scale=60,
-                numPixels=4000,
-                seed=19,
-                geometries=False,
-            )
-            clusterer = ee.Clusterer.wekaKMeans(3).train(training)
-            img = base.cluster(clusterer)
-            suffix = "ch5_audit_kmeans_fallback"
+        except Exception as e:
+            raise RuntimeError(f"CH5 RF classifier failed to run classify(): {e}") from e
+
+        suffix = "ch5_audit_supervised"
 
         vis = {
             "min": 0,
