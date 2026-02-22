@@ -54,7 +54,6 @@
                 <span v-if="m.formula" class="tag tertiary formula">{{ m.formula }}</span>
               </div>
               <div class="mission-card-title">{{ m.title }}</div>
-              <div class="mission-card-desc">{{ extractTagline(m.narrative) }}</div>
               <div class="mission-card-foot">
                 <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
                 <span class="foot-text">
@@ -182,7 +181,6 @@ import {
   buildCommanderBrief,
   buildLegendHint,
   extractActionInsightsFromReport,
-  extractTagline,
   getChapterCode,
 } from './utils/missionBrief.js'
 
@@ -1119,7 +1117,7 @@ export default {
 }
 
 .mission-card {
-  padding: 12px 12px 10px;
+  padding: 10px 10px 8px;
   background: rgba(0, 245, 255, 0.08);
   border: 1px solid rgba(0, 245, 255, 0.25);
   border-radius: 10px;
@@ -1133,7 +1131,7 @@ export default {
   flex-direction: column;
   justify-content: flex-start;
   gap: 6px;
-  min-height: 128px;
+  min-height: 96px;
 }
 
 .mission-card:disabled {
@@ -1187,14 +1185,6 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mission-card-desc {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13px;
-  line-height: 1.5;
-  min-height: 54px;
-  flex: 1;
 }
 
 .mission-card-foot {

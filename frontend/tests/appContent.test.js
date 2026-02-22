@@ -32,10 +32,10 @@ describe('App.vue content guards', () => {
     expect(s).not.toContain('ONE EARTH')
   })
 
-  it('lobby cards include a one-line narrative tagline', () => {
+  it('lobby cards keep compact (no narrative line)', () => {
     const s = readAppVue()
-    expect(s).toContain('extractTagline(m.narrative)')
-    expect(s).toContain('mission-card-desc')
+    expect(s).not.toContain('extractTagline(m.narrative)')
+    expect(s).not.toContain('mission-card-desc')
   })
 
   it('lobby cards include operator formula tag', () => {
