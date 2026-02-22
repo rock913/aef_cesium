@@ -5,9 +5,12 @@ set -e
 
 # Supported usage:
 #   ./run_backend.sh [start|stop|restart|status|tail] [--daemon] [--print-config]
+#   ./run_backend.sh start --ch5-rf-reset-default --ch5-rf-yes
 ACTION="start"
 DAEMON=0
 PRINT_CONFIG=0
+CH5_RF_RESET_DEFAULT=0
+CH5_RF_RESET_YES=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -19,6 +22,14 @@ for arg in "$@"; do
             ;;
         --print-config)
             PRINT_CONFIG=1
+            ;;
+        --ch5-rf-reset-default)
+            # Destructive: delete the *default* derived CH5 RF asset id and submit a fresh export task.
+            CH5_RF_RESET_DEFAULT=1
+            ;;
+        --ch5-rf-yes)
+            # Confirm destructive CH5 RF operations.
+            CH5_RF_RESET_YES=1
             ;;
         *)
             ;;
@@ -142,6 +153,9 @@ if [ "$PRINT_CONFIG" = "1" ]; then
     echo "ENV_SOURCE_KIND=$ENV_SOURCE_KIND"
     echo "API_HOST=$API_HOST"
     echo "API_PORT=$API_PORT"
+    echo "CH5_RF_BOOTSTRAP=${CH5_RF_BOOTSTRAP:-<unset>}"
+    echo "CH5_RF_AUTO_EXPORT=${CH5_RF_AUTO_EXPORT:-<unset>}"
+    echo "CH5_RF_RESET_DEFAULT=$CH5_RF_RESET_DEFAULT"
     exit 0
 fi
 
@@ -379,6 +393,58 @@ CH5_RF_WAIT_TIMEOUT_S="${CH5_RF_WAIT_TIMEOUT_S:-420}"
 CH5_RF_WAIT_INTERVAL_S="${CH5_RF_WAIT_INTERVAL_S:-8}"
 if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
     echo "🧊 Checking CH5 RF classifier asset..."
+
+    # Optional: reset/retrain default asset id by deleting it and submitting a fresh export task.
+    # Safety rules:
+    # - Only operates on the derived default: ${GEE_USER_PATH}/classifiers/ch5_coastline_rf_v1
+    # - Requires explicit confirmation flag: --ch5-rf-yes
+    CH5_RF_EXPORT_ALREADY_SUBMITTED=0
+    if [ "$CH5_RF_RESET_DEFAULT" = "1" ]; then
+        if [ "$CH5_RF_RESET_YES" != "1" ]; then
+            echo "❌ Refusing to reset CH5 RF default asset without --ch5-rf-yes"
+            echo "   Example: ./run_backend.sh start --ch5-rf-reset-default --ch5-rf-yes"
+            exit 1
+        fi
+
+        if [ -z "${GEE_USER_PATH:-}" ] || [ "${GEE_USER_PATH:-}" = "users/default/aef_demo" ]; then
+            echo "❌ Cannot reset default CH5 RF asset because GEE_USER_PATH is not configured (or still default)."
+            echo "   Fix: set GEE_USER_PATH in .env/.env.v6 (recommended), then retry."
+            exit 1
+        fi
+
+        DEFAULT_CH5_RF_ASSET_ID="${GEE_USER_PATH%/}/classifiers/ch5_coastline_rf_v1"
+        EFFECTIVE_CH5_RF_ASSET_ID="${CH5_RF_ASSET_ID:-$DEFAULT_CH5_RF_ASSET_ID}"
+
+        if [ "$EFFECTIVE_CH5_RF_ASSET_ID" != "$DEFAULT_CH5_RF_ASSET_ID" ]; then
+            echo "❌ Refusing to reset because CH5_RF_ASSET_ID is not the derived default."
+            echo "   CH5_RF_ASSET_ID=$EFFECTIVE_CH5_RF_ASSET_ID"
+            echo "   default=$DEFAULT_CH5_RF_ASSET_ID"
+            echo "   Tip: unset CH5_RF_ASSET_ID (or set it to the default) if you really want to reset the default asset."
+            exit 1
+        fi
+
+        echo "🧨 Resetting CH5 RF default asset (delete + re-export)"
+        echo "   asset_id=$DEFAULT_CH5_RF_ASSET_ID"
+        set +e
+        python backend/ch5_rf_export.py --asset-id "$DEFAULT_CH5_RF_ASSET_ID" --delete --yes
+        DEL_RC=$?
+        if [ "$DEL_RC" -ne 0 ]; then
+            echo "❌ Failed to delete default CH5 RF asset (rc=$DEL_RC)."
+            set -e
+            exit 1
+        fi
+
+        python backend/ch5_rf_export.py --asset-id "$DEFAULT_CH5_RF_ASSET_ID" --ensure
+        ENSURE_RC=$?
+        if [ "$ENSURE_RC" -ne 0 ]; then
+            echo "❌ Failed to submit export task for default CH5 RF asset (rc=$ENSURE_RC)."
+            set -e
+            exit 1
+        fi
+        CH5_RF_EXPORT_ALREADY_SUBMITTED=1
+        set -e
+    fi
+
     set +e
     python backend/ch5_rf_export.py --check >/dev/null 2>&1
     CHECK_RC=$?
@@ -391,13 +457,17 @@ if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
         fi
 
         if [ "$CH5_RF_AUTO_EXPORT" = "1" ]; then
-            echo "🚚 Submitting export task for CH5 RF classifier..."
-            python backend/ch5_rf_export.py --ensure
-            ENSURE_RC=$?
-            if [ "$ENSURE_RC" -ne 0 ]; then
-                echo "❌ Failed to submit export task (rc=$ENSURE_RC)."
-                set -e
-                exit 1
+            if [ "$CH5_RF_EXPORT_ALREADY_SUBMITTED" != "1" ]; then
+                echo "🚚 Submitting export task for CH5 RF classifier..."
+                python backend/ch5_rf_export.py --ensure
+                ENSURE_RC=$?
+                if [ "$ENSURE_RC" -ne 0 ]; then
+                    echo "❌ Failed to submit export task (rc=$ENSURE_RC)."
+                    set -e
+                    exit 1
+                fi
+            else
+                echo "ℹ️  Export task already submitted (via --ch5-rf-reset-default); skipping re-submit"
             fi
             echo "⏳ Waiting for CH5 RF asset to become ready (timeout=${CH5_RF_WAIT_TIMEOUT_S}s)..."
             ELAPSED=0

@@ -27,10 +27,76 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 import time
 from typing import Any, Dict, Iterable
 
 import ee
+
+
+def _maybe_setenv(key: str, value: str) -> None:
+    if key not in os.environ or os.environ.get(key, "") == "":
+        os.environ[key] = value
+
+
+def _load_env_file(path: Path) -> None:
+    """Minimal .env loader (no external deps).
+
+    - Ignores comments and empty lines
+    - Supports KEY=VALUE
+    - Does not override existing os.environ
+    """
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        key = k.strip()
+        val = v.strip()
+        if not key:
+            continue
+        # Strip optional quotes.
+        if len(val) >= 2 and ((val[0] == val[-1] == '"') or (val[0] == val[-1] == "'")):
+            val = val[1:-1]
+        _maybe_setenv(key, val)
+
+
+def _auto_load_env(env_file: str = "") -> str:
+    """Load environment from repo-level .env files for standalone execution.
+
+    Returns the path loaded (or empty string if none).
+    """
+
+    script_path = Path(__file__).resolve()
+    repo_root = script_path.parent.parent
+
+    if env_file:
+        p = Path(env_file).expanduser()
+        if not p.is_absolute():
+            p = (Path.cwd() / p).resolve()
+        if p.exists() and p.is_file():
+            _load_env_file(p)
+            return str(p)
+        return ""
+
+    # Mirror run_backend.sh behavior loosely.
+    profile = str(os.getenv("ONEEARTH_PROFILE", "v6")).strip() or "v6"
+    candidates = [repo_root / f".env.{profile}", repo_root / ".env"]
+    for p in candidates:
+        if p.exists() and p.is_file():
+            _load_env_file(p)
+            return str(p)
+    return ""
 
 
 def _resolve_asset_id() -> str:
@@ -119,26 +185,46 @@ def _build_classifier_graph() -> Any:
     emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
 
     scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
-    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "600") or "600")
+    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "1000") or "1000")
     seed = int(os.getenv("CH5_RF_SEED", "42") or "42")
 
     # Use recent years for robustness (as per playbook)
     base_img = emb_col.filterDate("2023-01-01", "2025-01-01").mosaic().select(list(range(0, 16))).rename(emb_bands)
 
-    # Representative polygons (keep them modest; we'll always sample a bounded number of pixels).
-    # Note: Using sampleRegions over large polygons can explode in size and fail with
-    # "Image.reduceRegions: Computed value is too large".
-    water_clear = ee.Geometry.Rectangle([122.35, 30.95, 122.45, 31.05])
-    water_turbid = ee.Geometry.Rectangle([121.88, 31.38, 121.94, 31.44])
-    # Extreme-turbidity water near Yancheng radial sand ridges (still water).
-    water_turbid_yancheng = ee.Geometry.Rectangle([120.60, 33.60, 120.80, 33.80])
+    # ---------------------------------------------------------
+    # Micro-Anchors + targeted debiasing
+    #
+    # Why:
+    # - Large buffers in a narrow coastal transition zone inevitably mix classes,
+    #   contaminating labels and causing semantic overflow.
+    # - Aquaculture areas are a "water + embankment grid" mixture; we treat it
+    #   as Class 2 (artificial hardening/reclamation) for stable semantics.
+    #
+    # Strategy:
+    # - Shrink buffers to 200m–500m for purity
+    # - Add explicit anchors for the observed failure zones (port + aquaculture)
+    # ---------------------------------------------------------
 
-    mudflat = ee.Geometry.Rectangle([120.86, 33.46, 120.92, 33.52])
-    urban = ee.Geometry.Rectangle([121.46, 31.16, 121.52, 31.22])
-    reclamation = ee.Geometry.Rectangle([121.88, 30.88, 121.93, 30.93])
+    # Class 0: Water
+    w_clear = ee.Geometry.Point([122.50, 31.00]).buffer(500)
+    w_turbid_1 = ee.Geometry.Point([120.82, 33.28]).buffer(300)
+    w_turbid_2 = ee.Geometry.Point([120.72, 33.48]).buffer(300)
+    w_turbid_3 = ee.Geometry.Point([121.90, 31.40]).buffer(500)
 
-    # Inland background (vegetation/farmland) - will be masked out at render time.
-    vegetation_inland = ee.Geometry.Rectangle([120.00, 33.20, 120.30, 33.50])
+    # Class 1: Natural mudflat
+    m_flat_1 = ee.Geometry.Point([120.88, 33.35]).buffer(200)
+    m_flat_2 = ee.Geometry.Point([121.95, 30.90]).buffer(200)
+
+    # Class 2: Artificial hardening / reclamation (port + aquaculture + urban)
+    a_port = ee.Geometry.Point([120.78, 33.24]).buffer(300)
+    a_aqua = ee.Geometry.Point([120.65, 33.45]).buffer(400)
+    a_urban = ee.Geometry.Point([121.48, 31.23]).buffer(500)
+
+    # Class 3: Inland background mask class (must be diverse)
+    b_farm_1 = ee.Geometry.Point([120.50, 33.40]).buffer(500)
+    b_farm_2 = ee.Geometry.Point([120.20, 33.20]).buffer(500)
+    b_bare = ee.Geometry.Point([120.40, 33.50]).buffer(500)
+    b_water = ee.Geometry.Point([120.10, 31.20]).buffer(500)
 
     def _sample_class(geom: Any, class_id: int, class_seed_offset: int) -> Any:
         return (
@@ -154,16 +240,22 @@ def _build_classifier_graph() -> Any:
         )
 
     training_data = (
-        _sample_class(water_clear, 0, 0)
-        .merge(_sample_class(water_turbid, 0, 1))
-        .merge(_sample_class(water_turbid_yancheng, 0, 2))
-        .merge(_sample_class(mudflat, 1, 3))
-        .merge(_sample_class(urban, 2, 4))
-        .merge(_sample_class(reclamation, 2, 5))
-        .merge(_sample_class(vegetation_inland, 3, 6))
+        _sample_class(w_clear, 0, 0)
+        .merge(_sample_class(w_turbid_1, 0, 1))
+        .merge(_sample_class(w_turbid_2, 0, 2))
+        .merge(_sample_class(w_turbid_3, 0, 3))
+        .merge(_sample_class(m_flat_1, 1, 4))
+        .merge(_sample_class(m_flat_2, 1, 5))
+        .merge(_sample_class(a_port, 2, 6))
+        .merge(_sample_class(a_aqua, 2, 7))
+        .merge(_sample_class(a_urban, 2, 8))
+        .merge(_sample_class(b_farm_1, 3, 9))
+        .merge(_sample_class(b_farm_2, 3, 10))
+        .merge(_sample_class(b_bare, 3, 11))
+        .merge(_sample_class(b_water, 3, 12))
     )
 
-    classifier = ee.Classifier.smileRandomForest(10).train(
+    classifier = ee.Classifier.smileRandomForest(numberOfTrees=50, minLeafPopulation=5).train(
         features=training_data,
         classProperty="class",
         inputProperties=emb_bands,
@@ -210,6 +302,7 @@ def _delete_asset(asset_id: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export/ensure CH5 supervised RF classifier as a GEE Asset")
     parser.add_argument("--asset-id", default="", help="Override target asset id")
+    parser.add_argument("--env-file", default="", help="Load env vars from a file (default: auto-detect repo .env)")
     parser.add_argument("--check", action="store_true", help="Only check whether the asset exists")
     parser.add_argument("--ensure", action="store_true", help="If missing, submit an export task")
     parser.add_argument("--delete", action="store_true", help="Delete the target asset (for retraining); requires --yes")
@@ -217,8 +310,11 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    loaded_env = _auto_load_env(str(args.env_file).strip())
     asset_id = str(args.asset_id).strip() or _resolve_asset_id()
     if not asset_id:
+        if loaded_env:
+            print(f"ℹ️  Loaded environment from: {loaded_env}")
         print("⚠️  CH5 RF asset id not configured. Set CH5_RF_ASSET_ID or configure GEE_USER_PATH.")
         return 2
 
