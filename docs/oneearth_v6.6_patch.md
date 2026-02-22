@@ -266,7 +266,7 @@ const chapters = [
   {
     id: '审计', name: '江苏盐城 · 海岸线红线审计 (2023-2024)',
     brief: '以AEF敏感语义特征(A00/A02)进行半监督聚类，快速勾勒围填海侵占与潜在越界占用；为涉海环保核查提供先验数字底稿。',
-    locationName: '江苏盐城', locationId: 'yancheng', apiMode: 'ch5_coastline_audit', operator: 'KMeans(A00,A02,k=3)',
+    locationName: '江苏盐城', locationId: 'yancheng', apiMode: 'ch5_coastline_audit', operator: 'RF-Supervised(16-Dim) + Asset',
     lng: 120.645, lat: 33.557, height: 60000, pitch: -45,
     stats: { area: '44678.92', anomaly: '智能划界' },
     report: {

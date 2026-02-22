@@ -4,7 +4,7 @@ These tests are mock-based and validate:
 - Mode dispatch in get_layer_logic for the V6 four chapters
 - smart_load cache-hit/miss behavior
 - Zero-shot KMeans (ch4) uses a bounded training_region to avoid timeouts
-- Coastline audit (ch5) uses legacy KMeans clustering (bounded training region)
+- Coastline audit (ch5) prefers supervised assetized classifier (RF)
 
 We import backend modules via sys.path injection so the tests work in this repo
 layout (backend/*.py are not packaged as a pip module).
@@ -201,48 +201,44 @@ class TestLayerLogicV6:
             assert "region" in kwargs
             assert kwargs["region"] is mock_geom
 
-    def test_get_layer_logic_ch5_coastline_audit_kmeans_legacy(self, gee_service_module):
-        mode = "ch5_coastline_audit 海岸线红线审计 (KMeans聚类)"
+    def test_get_layer_logic_ch5_coastline_audit_supervised_classifier_asset(self, gee_service_module, monkeypatch):
+        mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"
         mock_region = Mock()
+
+        monkeypatch.setenv("CH5_RF_ASSET_ID", "users/test/classifiers/ch5_coastline_rf_v1")
+        gee_service_module._CH5_CLASSIFIER_CACHE = None
 
         with patch.object(gee_service_module, "ee") as mock_ee:
             mock_embedding_collection = Mock()
             mock_filtered = Mock()
             mock_mosaic = Mock()
             mock_selected = Mock()
-            mock_base = Mock()
-            mock_training = Mock()
-            mock_clusterer = Mock()
-            mock_clustered = Mock()
+            mock_base_img = Mock()
+            mock_classifier = Mock()
+            mock_classified = Mock()
 
             mock_ee.ImageCollection.return_value = mock_embedding_collection
             mock_embedding_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
             mock_filtered.mosaic.return_value = mock_mosaic
 
-            # base = _select_embedding_bands(mosaic, ["A00","A02"]).unitScale(-0.2,0.2)
-            mock_mosaic.select.return_value.rename.return_value = mock_selected
-            mock_selected.unitScale.return_value = mock_base
+            # base_img = _select_embedding_bands(mosaic, emb_bands)
+            mock_mosaic.select.return_value.rename.return_value = mock_base_img
 
-            # training = base.sample(region=training_region, ...)
-            mock_base.sample.return_value = mock_training
-            mock_ee.Geometry.Rectangle.return_value = Mock()
-
-            mock_ee.Clusterer.wekaKMeans.return_value = mock_clusterer
-            mock_clusterer.train.return_value = mock_clusterer
-            mock_base.cluster.return_value = mock_clustered
+            # classifier = ee.Classifier.load(asset_id)
+            mock_ee.Classifier.load.return_value = mock_classifier
+            mock_base_img.classify.return_value = mock_classified
 
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
-            assert suffix == "ch5_audit"
+            assert suffix == "ch5_audit_supervised"
             assert vis_params.get("min") == 0
             assert vis_params.get("max") == 2
             assert isinstance(vis_params.get("palette"), list)
             assert len(vis_params["palette"]) == 3
-            assert result_image is mock_clustered
+            assert result_image is mock_classified
 
-            mock_ee.Geometry.Rectangle.assert_called_once()
-            mock_base.sample.assert_called_once()
-            mock_ee.Clusterer.wekaKMeans.assert_called_once_with(3)
+            mock_ee.Classifier.load.assert_called_once()
+            mock_base_img.classify.assert_called_once_with(mock_classifier)
 
     def test_get_layer_logic_ch6_water_pulse_year_diff(self, gee_service_module):
         mode = "ch6_water_pulse 水网脉动监测 (维差分)"

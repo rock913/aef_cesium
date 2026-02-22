@@ -370,6 +370,31 @@ else
     echo "✅ Earth Engine already authenticated"
 fi
 
+# Optional: Chapter 5 supervised RF classifier (assetized) bootstrap.
+# - Always runs a lightweight existence check if CH5_RF_BOOTSTRAP=1 (default).
+# - If CH5_RF_AUTO_EXPORT=1 and the asset is missing, submits an export task.
+CH5_RF_BOOTSTRAP="${CH5_RF_BOOTSTRAP:-1}"
+CH5_RF_AUTO_EXPORT="${CH5_RF_AUTO_EXPORT:-0}"
+if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
+    echo "🧊 Checking CH5 RF classifier asset..."
+    set +e
+    python backend/ch5_rf_export.py --check >/dev/null 2>&1
+    CHECK_RC=$?
+    if [ "$CHECK_RC" -ne 0 ]; then
+        echo "⚠️  CH5 RF classifier asset not ready (rc=$CHECK_RC)."
+        if [ "$CH5_RF_AUTO_EXPORT" = "1" ]; then
+            echo "🚚 Submitting export task for CH5 RF classifier (non-blocking)..."
+            python backend/ch5_rf_export.py --ensure || true
+        else
+            echo "   Tip: set CH5_RF_AUTO_EXPORT=1 to auto-submit export task on startup."
+            echo "   Or run: python backend/ch5_rf_export.py --ensure"
+        fi
+    else
+        echo "✅ CH5 RF classifier asset looks ready"
+    fi
+    set -e
+fi
+
 # 启动后端
 echo "✅ Backend starting on http://${API_HOST}:${API_PORT}"
 cd backend

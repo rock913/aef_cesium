@@ -33,6 +33,7 @@ def _make_ee_stub() -> MagicMock:
     ee_stub.Geometry.Rectangle.return_value = MagicMock()
     ee_stub.Clusterer.wekaKMeans.return_value.train.return_value = MagicMock()
     ee_stub.Reducer.sum.return_value = MagicMock()
+    ee_stub.Classifier.load.return_value = MagicMock()
 
     return ee_stub
 
@@ -44,13 +45,20 @@ def _make_ee_stub() -> MagicMock:
         ("ch2_maowusu_shield 大国生态护盾 (余弦相似度)", "ch2_shield"),
         ("ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)", "ch3_pulse"),
         ("ch4_amazon_zeroshot 全球通用智能 (零样本聚类)", "ch4_zeroshot"),
-        ("ch5_coastline_audit 海岸线红线审计 (KMeans聚类)", "ch5_audit"),
+        ("ch5_coastline_audit 海岸线红线审计 (RF资产化)", "ch5_audit_supervised"),
         ("ch6_water_pulse 水网脉动监测 (维差分)", "ch6_water"),
     ],
 )
 def test_v6_modes_dispatch_without_error(gee_service_module, mode: str, expected_suffix: str):
     ee_stub = _make_ee_stub()
     mock_region = MagicMock()
+
+    if "ch5_coastline_audit" in mode:
+        # Force supervised path (otherwise gee_service will fall back).
+        import os
+
+        os.environ["CH5_RF_ASSET_ID"] = "users/test/classifiers/ch5_coastline_rf_v1"
+        gee_service_module._CH5_CLASSIFIER_CACHE = None
 
     with patch.object(gee_service_module, "ee", ee_stub):
         _img, vis, suffix = gee_service_module.get_layer_logic(mode, mock_region)

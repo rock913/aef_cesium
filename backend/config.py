@@ -95,7 +95,7 @@ class Settings(BaseModel):
         "ch2_maowusu_shield": "ch2_maowusu_shield 大国生态护盾 (余弦相似度)",
         "ch3_zhoukou_pulse": "ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)",
         "ch4_amazon_zeroshot": "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)",
-        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (KMeans聚类)",
+        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (RF资产化)",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
     }
 
@@ -145,11 +145,11 @@ class Settings(BaseModel):
         {
             "id": "ch5_yancheng",
             "name": "审计",
-            "title": "江苏盐城 · 海岸线红线审计 (2023-2024)",
+            "title": "江苏盐城 · 海岸线生态离任审计 (2023-2024)",
             "location": "yancheng",
             "api_mode": "ch5_coastline_audit",
-            "formula": "KMeans(A00, A02, k=3)",
-            "narrative": "以 AEF 敏感语义特征（A00 人造物 / A02 水体）进行‘固定训练区’KMeans 聚类，快速勾勒围填海侵占与潜在越界占用；为涉海环保核查提供先验数字底稿。",
+            "formula": "RF-Supervised(16-Dim) + Asset",
+            "narrative": "以 AEF 16 维隐空间为特征，使用多边形锚点监督训练随机森林并固化为 GEE Asset；生产推理毫秒级，严格绑定 0水域/1自然滩涂/2人工围垦，避免标签漂移与高并发训练开销。",
             "camera": {"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0},
         },
         {

@@ -7,6 +7,46 @@ import os
 from typing import Dict, Tuple, Any
 
 
+_CH5_CLASSIFIER_CACHE: Any | None = None
+
+
+def _resolve_ch5_rf_asset_id() -> str:
+    """Resolve the GEE Asset ID for the Chapter 5 classifier.
+
+    Priority:
+      1) Explicit CH5_RF_ASSET_ID
+      2) Derived from GEE_USER_PATH (if configured)
+    """
+
+    explicit = str(os.getenv("CH5_RF_ASSET_ID", "")).strip()
+    if explicit:
+        return explicit
+
+    gee_user_path = str(os.getenv("GEE_USER_PATH", "")).strip()
+    if gee_user_path and gee_user_path != "users/default/aef_demo":
+        return f"{gee_user_path.rstrip('/')}/classifiers/ch5_coastline_rf_v1"
+
+    return ""
+
+
+def _get_ch5_classifier() -> Any:
+    """Load (and cache) the supervised Chapter 5 classifier from a GEE Asset."""
+
+    global _CH5_CLASSIFIER_CACHE
+    if _CH5_CLASSIFIER_CACHE is not None:
+        return _CH5_CLASSIFIER_CACHE
+
+    asset_id = _resolve_ch5_rf_asset_id()
+    if not asset_id:
+        raise ValueError(
+            "CH5 RF classifier Asset ID not configured. Set CH5_RF_ASSET_ID, "
+            "or set GEE_USER_PATH to a non-default path so the default asset path can be derived."
+        )
+
+    _CH5_CLASSIFIER_CACHE = ee.Classifier.load(asset_id)
+    return _CH5_CLASSIFIER_CACHE
+
+
 def _embedding_band_index(a_band: str) -> int:
     """Return embedding band index for an alias like 'A00'..'A63'."""
 
@@ -172,28 +212,37 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        # Chapter 5: Coastline redline audit (legacy KMeans clustering).
-        # Guardrail: use a bounded training region to avoid GEE timeouts.
-        # NOTE: Use a fixed rectangle near Yancheng coast as the training seed.
-        training_region = ee.Geometry.Rectangle([119.8, 33.1, 121.2, 33.7])
+        # Chapter 5: Coastline redline audit (supervised, assetized RF classifier).
+        # Semantic binding:
+        #   0: water (blue)
+        #   1: natural mudflat (gold)
+        #   2: reclaimed/artificial hardening (red)
+        base_img = _select_embedding_bands(filtered_col.mosaic(), emb_bands)
 
-        base = _select_embedding_bands(filtered_col.mosaic(), ["A00", "A02"]).unitScale(-0.2, 0.2)
-        training = base.sample(
-            region=training_region,
-            scale=60,
-            numPixels=4000,
-            seed=19,
-            geometries=False,
-        )
-        clusterer = ee.Clusterer.wekaKMeans(3).train(training)
-        clustered = base.cluster(clusterer)
-        img = clustered
+        try:
+            classifier = _get_ch5_classifier()
+            img = base_img.classify(classifier)
+            suffix = "ch5_audit_supervised"
+        except Exception:
+            # Safe fallback: keep the system usable even if the supervised asset is not ready yet.
+            training_region = ee.Geometry.Rectangle([119.8, 33.1, 121.2, 33.7])
+            base = _select_embedding_bands(filtered_col.mosaic(), ["A00", "A02"]).unitScale(-0.2, 0.2)
+            training = base.sample(
+                region=training_region,
+                scale=60,
+                numPixels=4000,
+                seed=19,
+                geometries=False,
+            )
+            clusterer = ee.Clusterer.wekaKMeans(3).train(training)
+            img = base.cluster(clusterer)
+            suffix = "ch5_audit_kmeans_fallback"
+
         vis = {
             "min": 0,
             "max": 2,
-            "palette": ["0B1B36", "E23D28", "F6C431"],
+            "palette": ["1A365D", "F6C431", "E23D28"],
         }
-        suffix = "ch5_audit"
 
     elif ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         # Chapter 6: Poyang water pulse (dimension delta between years).
