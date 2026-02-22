@@ -95,7 +95,7 @@ class Settings(BaseModel):
         "ch2_maowusu_shield": "ch2_maowusu_shield 大国生态护盾 (余弦相似度)",
         "ch3_zhoukou_pulse": "ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)",
         "ch4_amazon_zeroshot": "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)",
-        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (零样本超平面映射)",
+        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (KMeans聚类)",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
     }
 
@@ -144,12 +144,12 @@ class Settings(BaseModel):
         },
         {
             "id": "ch5_yancheng",
-            "name": "红线",
+            "name": "审计",
             "title": "江苏盐城 · 海岸线红线审计 (2023-2024)",
             "location": "yancheng",
             "api_mode": "ch5_coastline_audit",
-            "formula": "ZeroShotHyperplane(A00,A02) + PriorityMosaic",
-            "narrative": "弃用 KMeans 以消除跨区域标签漂移：用 A00(人造物) 与 A02(水/湿度) 的固定阈值超平面规则，稳定区分建筑硬化带/水体/滩涂，并以优先级合成让建筑压制水体假信号；为红线核查提供可迁移的审计底图。",
+            "formula": "KMeans(A00, A02, k=3)",
+            "narrative": "以 AEF 敏感语义特征（A00 人造物 / A02 水体）进行‘固定训练区’KMeans 聚类，快速勾勒围填海侵占与潜在越界占用；为涉海环保核查提供先验数字底稿。",
             "camera": {"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0},
         },
         {
@@ -158,7 +158,7 @@ class Settings(BaseModel):
             "title": "江西鄱阳湖 · 水网脉动与湿地变化 (2022 vs 2024)",
             "location": "poyang",
             "api_mode": "ch6_water_pulse",
-            "formula": "ΔA02(2024-2022) with |Δ|>0.10",
+            "formula": "ΔA02(2024 - 2022)",
             "narrative": "以 A02 维度跨年差分突出水体/湿地相关语义变化，捕捉枯丰水位变化与水网连通性波动，为生态水文协同治理提供量化线索。",
             "camera": {"lat": 29.20, "lon": 116.20, "height": 95000, "duration_s": 4.0},
         },

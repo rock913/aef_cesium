@@ -4,7 +4,7 @@ These tests are mock-based and validate:
 - Mode dispatch in get_layer_logic for the V6 four chapters
 - smart_load cache-hit/miss behavior
 - Zero-shot KMeans (ch4) uses a bounded training_region to avoid timeouts
-- Coastline audit (ch5) uses deterministic hyperplane mapping (no KMeans)
+- Coastline audit (ch5) uses legacy KMeans clustering (bounded training region)
 
 We import backend modules via sys.path injection so the tests work in this repo
 layout (backend/*.py are not packaged as a pip module).

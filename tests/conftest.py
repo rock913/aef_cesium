@@ -84,7 +84,7 @@ def mock_modes():
         "ch2_maowusu_shield": "ch2_maowusu_shield 大国生态护盾 (余弦相似度)",
         "ch3_zhoukou_pulse": "ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)",
         "ch4_amazon_zeroshot": "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)",
-        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (零样本超平面映射)",
+        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (KMeans聚类)",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
     }
 

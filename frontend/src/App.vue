@@ -54,6 +54,7 @@
                 <span v-if="m.formula" class="tag tertiary formula">{{ m.formula }}</span>
               </div>
               <div class="mission-card-title">{{ m.title }}</div>
+              <div class="mission-card-desc">{{ extractTagline(m.narrative) }}</div>
               <div class="mission-card-foot">
                 <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
                 <span class="foot-text">
@@ -181,6 +182,7 @@ import {
   buildCommanderBrief,
   buildLegendHint,
   extractActionInsightsFromReport,
+  extractTagline,
   getChapterCode,
 } from './utils/missionBrief.js'
 
