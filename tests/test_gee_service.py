@@ -139,24 +139,24 @@ class TestLayerLogicV6:
             mock_mosaic = Mock()
             mock_filtered = Mock()
             mock_pulse = Mock()
+            mock_scaled = Mock()
             mock_masked = Mock()
-            mock_final = Mock()
 
             mock_ee.ImageCollection.return_value = mock_collection
-            mock_collection.filterDate.return_value.filterBounds.return_value = mock_filtered
+            mock_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
             mock_filtered.mosaic.return_value = mock_mosaic
 
-            # pulse band selection (no unitScale)
+            # pulse band selection (legacy: unitScale + threshold in normalized domain)
             mock_mosaic.select.return_value.rename.return_value = mock_pulse
-            mock_pulse.gt.return_value = Mock()
-            mock_pulse.updateMask.return_value = mock_masked
-            mock_masked.selfMask.return_value = mock_final
+            mock_pulse.unitScale.return_value = mock_scaled
+            mock_scaled.gt.return_value = Mock()
+            mock_scaled.updateMask.return_value = mock_masked
 
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
             assert suffix == "ch3_pulse"
             assert vis_params.get("min") is not None
-            assert result_image is mock_final
+            assert result_image is mock_masked
 
     def test_get_layer_logic_ch4_kmeans_uses_training_region(self, gee_service_module):
         mode = "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)"
@@ -170,7 +170,7 @@ class TestLayerLogicV6:
             mock_base = Mock()
 
             mock_ee.ImageCollection.return_value = mock_collection
-            mock_collection.filterDate.return_value.filterBounds.return_value = mock_filtered
+            mock_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
             mock_filtered.mosaic.return_value = mock_mosaic
 
             # base = filtered_col.mosaic().select([...indices...]).rename([...Axx...])
@@ -247,7 +247,7 @@ class TestLayerLogicV6:
 
             # get_layer_logic calls ee.ImageCollection once (embedding dataset)
             mock_ee.ImageCollection.return_value = mock_embedding_collection
-            mock_embedding_collection.filterDate.return_value.filterBounds.return_value = mock_filtered
+            mock_embedding_collection.filterBounds.return_value.filterDate.return_value = mock_filtered
             mock_filtered.mosaic.return_value = mock_mosaic
 
             # raw = filtered_col.mosaic().select([0, 2]).rename(["A00", "A02"])

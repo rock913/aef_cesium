@@ -945,12 +945,15 @@ async def get_layer(
             # when stacked at high alpha. Per-mode opacity stabilizes perception.
             "render_hints": {
                 "ai_opacity": {
-                    "ch1_yuhang_faceid": 0.62,
-                    "ch2_maowusu_shield": 0.70,
-                    "ch3_zhoukou_pulse": 0.76,
+                    # Legacy visual baseline: App.vue historically used 0.88 for all modes.
+                    # Keep non-Yancheng modes at 0.88 to match the old look.
+                    "ch1_yuhang_faceid": 0.88,
+                    "ch2_maowusu_shield": 0.88,
+                    "ch3_zhoukou_pulse": 0.88,
                     "ch4_amazon_zeroshot": 0.88,
-                    "ch5_coastline_audit": 0.72,
-                    "ch6_water_pulse": 0.80,
+                    "ch6_water_pulse": 0.88,
+                    # Yancheng optimization: reduce perceived "white film" for coastline audit.
+                    "ch5_coastline_audit": 0.65,
                 }.get(mode, 0.88),
             },
             "location": loc_data,

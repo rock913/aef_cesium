@@ -119,15 +119,11 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
     # The dataset is 64-D (A00..A63); using a subset keeps cloud costs bounded.
     emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
 
-    # IMPORTANT performance guard:
-    # - Keep `.mosaic()` (not `.first()`) to avoid the "single square tile" artifact when the
-    #   ImageCollection is internally sharded.
-    # - Avoid wide multi-year windows for per-tile rendering; they can inflate the compute graph
-    #   at low zoom levels.
-    # - DO use `.filterBounds(region)` when combining global ImageCollections with `.mosaic()`.
-    #   Without it, GEE may need to scan global metadata before producing a tile at macro zooms,
-    #   causing 504/502 storms. Our `region` already has a large buffer.
-    filtered_col = emb_col.filterDate('2024-01-01', '2024-12-31').filterBounds(region)
+    # Core fix: Earth Engine stores imagery in large tiles; using .first() may return just
+    # the first intersecting source tile, rendering as a single square. Use
+    # filterBounds(region).mosaic() to stitch all intersecting pieces into one image.
+    # NOTE: Restore the original wider time window for visual consistency with the previous version.
+    filtered_col = emb_col.filterBounds(region).filterDate("2023-01-01", "2025-01-01")
 
     # --- V6 modes ---
     if ("ch1_yuhang_faceid" in mode_s) or ("城市基因突变" in mode_s) or ("欧氏距离" in mode_s):
@@ -142,7 +138,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         )
         dist = emb17.subtract(emb24).pow(2).reduce(ee.Reducer.sum()).sqrt()
         img = dist.updateMask(dist.gt(0.16))
-        vis = {"min": 0.16, "max": 0.45, "palette": ["330000", "FF0000", "FFAA00", "FFE3C2"]}
+        vis = {"min": 0.16, "max": 0.45, "palette": ["330000", "FF0000", "FFAA00", "FFFFFF"]}
         suffix = "ch1_faceid"
 
     elif ("ch2_maowusu_shield" in mode_s) or ("大国生态护盾" in mode_s) or ("余弦相似度" in mode_s):
@@ -169,16 +165,10 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
 
     elif ("ch3_zhoukou_pulse" in mode_s) or ("粮仓脉搏" in mode_s) or ("特定维度反演" in mode_s):
         # Chapter 3: Specific dimension inversion/extraction (interpretable intensity field).
-        # Use the raw embedding value (no unitScale) to avoid saturation artifacts.
-        # unitScale(-0.2, 0.2) can over-stretch small differences so many pixels clamp
-        # to the palette max (often perceived as "white film").
-        img = _select_embedding_bands(filtered_col.mosaic(), ["A02"], rename_to=["pulse"])
-
-        # Keep only strong positive signals and ensure true alpha=0 transparency elsewhere.
-        img = img.updateMask(img.gt(0.02)).selfMask()
-
-        # Avoid pure white as the palette max; saturated areas should not look like haze.
-        vis = {"min": 0.02, "max": 0.12, "palette": ["001018", "00A3FF", "00F5FF", "BDF3FF"]}
+        # Restore legacy visualization: unitScale + threshold in the normalized domain.
+        img = _select_embedding_bands(filtered_col.mosaic(), ["A02"], rename_to=["pulse"]).unitScale(-0.2, 0.2)
+        img = img.updateMask(img.gt(0.55))
+        vis = {"min": 0.55, "max": 0.9, "palette": ["001018", "00A3FF", "00F5FF", "FFFFFF"]}
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
@@ -302,7 +292,7 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
             {
                 "min": 0.16,
                 "max": 0.45,
-                "palette": ["330000", "FF0000", "FFAA00", "FFE3C2"],
+                "palette": ["330000", "FF0000", "FFAA00", "FFFFFF"],
                 # Preserve alpha for masked pixels when stacking in Cesium.
                 "format": "png",
             },
@@ -321,9 +311,9 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
     if ("ch3_zhoukou_pulse" in mode_s) or ("粮仓脉搏" in mode_s) or ("特定维度反演" in mode_s):
         return (
             {
-                "min": 0.02,
-                "max": 0.12,
-                "palette": ["001018", "00A3FF", "00F5FF", "BDF3FF"],
+                "min": 0.55,
+                "max": 0.9,
+                "palette": ["001018", "00A3FF", "00F5FF", "FFFFFF"],
                 "format": "png",
             },
             "ch3_pulse",

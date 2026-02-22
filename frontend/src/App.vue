@@ -245,6 +245,16 @@ export default {
     const splitMinPos = ref(0.02)
     const splitMaxPos = ref(0.98)
 
+    // Remember the last successfully loaded AI layer so we can detach it (stop tile requests)
+    // and later restore it without re-hitting /api/layers.
+    const lastAiTileUrl = ref('')
+    const lastAiOpacity = ref(0.88)
+
+    // Old version behavior: no managed Sentinel-2 basemap overlay by default.
+    // Keep the feature behind an env flag so the globe doesn't get a "mask layer"
+    // when users think they've turned AI off.
+    const sentinelBasemapEnabled = (import.meta.env.VITE_ENABLE_SENTINEL_BASEMAP === '1')
+
     function _onResize() {
       if (appState.value !== 'analyzing') return
       if (!splitCompareEnabled.value) return
@@ -358,6 +368,7 @@ export default {
     async function ensureBasemapForLocation(locationCode) {
       if (!viewerReady.value || !cesiumViewer.value) return
       if (!locationCode) return
+      if (!sentinelBasemapEnabled) return
 
       try {
         const resp = await apiService.getSentinel2Layer(locationCode)
@@ -402,6 +413,12 @@ export default {
 
       try {
         cesiumViewer.value?.clearAILayer?.()
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        cesiumViewer.value?.clearBasemapLayer?.()
       } catch (_) {
         // ignore
       }
@@ -462,6 +479,12 @@ export default {
 
       try {
         cesiumViewer.value?.clearAILayer?.()
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        cesiumViewer.value?.clearBasemapLayer?.()
       } catch (_) {
         // ignore
       }
@@ -656,12 +679,14 @@ export default {
       const startTs = Date.now()
 
       try {
-        // Always try to keep a real basemap under the AI overlay.
+        // Optional: managed Sentinel-2 basemap overlay (opt-in; old_version kept Cesium default).
         // Do not block the AI layer on basemap readiness.
-        try {
-          ensureBasemapForLocation(selectedLocation.value)
-        } catch (_) {
-          // ignore
+        if (sentinelBasemapEnabled && aiLayerVisible.value) {
+          try {
+            ensureBasemapForLocation(selectedLocation.value)
+          } catch (_) {
+            // ignore
+          }
         }
 
         const cachedLayer = prefetchedLayers.value?.[mission.id]
@@ -670,6 +695,10 @@ export default {
         const url = normalizeTileUrl(layerData.tile_url)
         const hintedOpacity = Number(layerData?.render_hints?.ai_opacity)
         const opacity = Number.isFinite(hintedOpacity) ? hintedOpacity : 0.88
+
+        lastAiTileUrl.value = url
+        lastAiOpacity.value = opacity
+
         cesiumViewer.value.loadAILayer(url, opacity, { fadeIn: true })
         try {
           cesiumViewer.value?.setAILayerVisible?.(aiLayerVisible.value)
@@ -781,10 +810,60 @@ export default {
 
     function toggleAILayer() {
       aiLayerVisible.value = !aiLayerVisible.value
-      try {
-        cesiumViewer.value?.setAILayerVisible?.(aiLayerVisible.value)
-      } catch (_) {
-        // ignore
+
+      // If split-compare is ON but AI is OFF, Cesium will show a blank "right side" (looks like a white/black mask).
+      // Disable split compare automatically to keep the globe stable.
+      if (!aiLayerVisible.value && splitCompareEnabled.value) {
+        splitCompareEnabled.value = false
+        try {
+          cesiumViewer.value?.enableSplitCompare?.(false)
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      // OFF: remove the layer entirely to stop any background tile requests (prevents proxy 502 storms).
+      if (!aiLayerVisible.value) {
+        try {
+          cesiumViewer.value?.clearAILayer?.()
+        } catch (_) {
+          // ignore
+        }
+
+        // Also clear the managed basemap overlay so AI-OFF truly returns to the default Cesium base.
+        try {
+          cesiumViewer.value?.clearBasemapLayer?.()
+        } catch (_) {
+          // ignore
+        }
+        return
+      }
+
+      // ON: restore the layer from the last tile URL (if any).
+      if (aiLayerVisible.value) {
+        // Optionally re-apply the managed basemap.
+        if (sentinelBasemapEnabled) {
+          try {
+            ensureBasemapForLocation(selectedLocation.value)
+          } catch (_) {
+            // ignore
+          }
+        }
+
+        const url = String(lastAiTileUrl.value || '')
+        if (url) {
+          try {
+            cesiumViewer.value?.loadAILayer?.(url, Number(lastAiOpacity.value) || 0.88, { fadeIn: true })
+          } catch (_) {
+            // ignore
+          }
+        } else {
+          try {
+            cesiumViewer.value?.setAILayerVisible?.(true)
+          } catch (_) {
+            // ignore
+          }
+        }
       }
     }
 

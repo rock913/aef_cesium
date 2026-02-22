@@ -565,7 +565,10 @@ export default {
 
       if (enabled) {
         viewer.scene.splitPosition = splitPos
-        if (baseLayer) baseLayer.splitDirection = Cesium.SplitDirection.LEFT
+        // Keep the basemap visible on BOTH sides. Only split the AI overlay.
+        // Otherwise, transparent AI pixels reveal Cesium's clearColor (often blue),
+        // which looks like a "blue background" behind the AI layer.
+        if (baseLayer) baseLayer.splitDirection = Cesium.SplitDirection.NONE
         if (currentAILayer) currentAILayer.splitDirection = Cesium.SplitDirection.RIGHT
       } else {
         if (baseLayer) baseLayer.splitDirection = Cesium.SplitDirection.NONE
