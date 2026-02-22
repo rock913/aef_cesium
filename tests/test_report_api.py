@@ -1,0 +1,112 @@
+"""TDD tests for V6 report generation endpoint.
+
+V6 roadmap:
+- Feed zonal statistics JSON into LLM to generate a monitoring brief.
+- Always include a deterministic template fallback (demo robustness).
+- Template includes the mandatory "【共识印证】" section.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def client() -> TestClient:
+    backend_path = Path(__file__).parent.parent / "backend"
+    sys.path.insert(0, str(backend_path))
+
+    from main import app  # noqa: WPS433
+
+    return TestClient(app)
+
+
+class TestReportEndpoint:
+    def test_report_rejects_unknown_mission(self, client: TestClient):
+        resp = client.post(
+            "/api/report",
+            json={
+                "mission_id": "unknown",
+                "stats": {"total_area_km2": 100.0, "anomaly_pct": 12.4},
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_report_template_fallback_works_without_gee(self, client: TestClient):
+        resp = client.post(
+            "/api/report",
+            json={
+                "mission_id": "ch1_yuhang",
+                "stats": {
+                    "total_area_km2": 8452.0,
+                    "anomaly_area_km2": 1049.0,
+                    "anomaly_pct": 12.4,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["mission_id"] == "ch1_yuhang"
+        assert data["generated_by"] in ("template", "llm")
+        assert isinstance(data["report"], str) and len(data["report"]) > 30
+        assert "余杭" in data["report"]
+        assert "12.4" in data["report"]
+        assert "【共识印证】" in data["report"]
+
+    def test_report_uses_llm_when_configured(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        import main  # noqa: WPS433
+
+        monkeypatch.setattr(main.settings, "llm_api_key", "test-key", raising=False)
+
+        async def _fake_llm(**_kwargs):
+            return "LLM 简报：建议核查异常区域并形成闭环。"
+
+        monkeypatch.setattr(main, "generate_monitoring_brief_openai_compatible", _fake_llm)
+
+        resp = client.post(
+            "/api/report",
+            json={
+                "mission_id": "ch1_yuhang",
+                "stats": {
+                    "total_area_km2": 8452.0,
+                    "anomaly_area_km2": 1049.0,
+                    "anomaly_pct": 12.4,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["generated_by"] == "llm"
+        assert "LLM 简报" in data["report"]
+
+    def test_report_falls_back_to_template_on_llm_error(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        import main  # noqa: WPS433
+
+        monkeypatch.setattr(main.settings, "llm_api_key", "test-key", raising=False)
+
+        async def _fake_llm(**_kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(main, "generate_monitoring_brief_openai_compatible", _fake_llm)
+
+        resp = client.post(
+            "/api/report",
+            json={
+                "mission_id": "ch1_yuhang",
+                "stats": {
+                    "total_area_km2": 8452.0,
+                    "anomaly_area_km2": 1049.0,
+                    "anomaly_pct": 12.4,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["generated_by"] == "template"
+        assert "余杭" in data["report"]
+        assert "【共识印证】" in data["report"]

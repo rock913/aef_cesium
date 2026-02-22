@@ -1,0 +1,6 @@
+fastapi<=0.68.0
+uvicorn<=0.15.0
+earthengine-api
+pydantic<2.0
+python-dotenv
+httpx

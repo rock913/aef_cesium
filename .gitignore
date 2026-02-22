@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+backend/.venv/
+*.egg-info/
+
+# Environment variables (敏感信息)
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+*.pid
+
+# Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Cesium
+frontend/.cesium/
