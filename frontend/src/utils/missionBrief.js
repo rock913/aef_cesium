@@ -180,9 +180,9 @@ export function buildCommanderBrief(modeId, mission, stats) {
       '[战略价值] 具备全球泛化与即插即用能力，可作为空间治理公共科技底座。',
     ]
   } else if (modeId === 'ch5_coastline_audit') {
-    operator = 'AEF × ESA (Geofenced)'
-    brief = '严守 35% 自然岸线保有率，拒绝“内陆误触发”干扰：本章引入欧空局 ESA WorldCover 10m 金标准作为自动发牌人，并在渲染端加海岸带空间围栏（Geofence + clip），让红黄证据带聚焦近岸。'
-    mechanism = '金标准弱监督对齐 + 空间围栏靶向：先用 ESA 金标准训练得到稳定 4 类（0=水、1=滩涂、2=人工不透水、3=内陆）；推理端先 clip 到海岸带围栏，随后 mask 掉 0 和 3（透明化水域与内陆），画面只保留黄（自然滩涂）与红（围填海/堤坝硬化）的对抗证据。'
+    operator = 'AEF × JRC Water Dynamics'
+    brief = '严守 35% 自然岸线保有率，拒绝“高浑浊水域/潮汐淹没带”的语义溢出：本章以 JRC 全球水体发生率作为水文约束，并与 ESA WorldCover 交叉印证，仅从“科学纯净”像元中训练模型，再在渲染端叠加海岸带空间围栏（Geofence + clip），让红黄证据带极限聚焦近岸。'
+    mechanism = '多源共识蒸馏 + 空间围栏靶向：训练端用 ESA（土地覆盖）× JRC occurrence（水体发生率 0–100）构造共识标签（0=常年水 occ≥90%∩ESA水；1=潮间带 5%<occ<85% 且非建筑；2=硬化围垦 ESA建成区∩occ=0%；3=内陆 ESA农田/树林∩occ=0%），仅保留达成共识的像元做分层抽样训练 RF 并导出为 Asset。推理端先 clip 到海岸带围栏，随后 mask 掉 0 和 3（透明化水域与内陆），画面只保留黄（自然滩涂）与红（围填海/堤坝硬化）的对抗证据。'
     legends = [
       { color: '#F6C431', label: '金黄：自然滩涂/泥沙沉积带' },
       { color: '#E23D28', label: '警告红：人工围垦/硬化堤坝/高强度开发斑块' },
@@ -192,8 +192,8 @@ export function buildCommanderBrief(modeId, mission, stats) {
       '对“金黄滩涂”连片区做保有率统计，形成审计量化指标。',
     ]
     technicalInsights = [
-      '[权威发牌] 训练样本来自 ESA WorldCover 金标准，自动分层抽样杜绝人为偏差。',
-      '[稳定语义] 类别 ID 由金标准定义并稳定（0水/1滩涂/2人工/3内陆），无需“盲盒对齐”。',
+      '[多源共识] ESA（土地覆盖）× JRC occurrence（水体发生率）交叉印证，剔除所有模糊像元，避免浑水/湿泥的假象。',
+      '[稳定语义] 类别 ID 按物理学阈值定义并固定（0水/1滩涂/2人工/3内陆），无需“盲盒对齐”。',
       '[靶向聚焦] 渲染端加海岸带 Geofence + clip，物理切除内陆建筑/裸土的干扰信号。',
       '[极致净化] clip 后再透明化水域与内陆，画面只剩黄 vs 红，适合汇报与举证。',
       '[审计输出] 红色硬化斑块可直接用于红线预警、离任审计举证与存量核查底图。',

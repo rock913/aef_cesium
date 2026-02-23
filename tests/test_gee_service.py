@@ -202,7 +202,7 @@ class TestLayerLogicV6:
             assert kwargs["region"] is mock_geom
 
     def test_get_layer_logic_ch5_coastline_audit_kd_classifier_asset(self, gee_service_module, monkeypatch):
-        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × ESA (Geofenced))"
+        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × JRC Water Dynamics (Geofenced))"
         mock_region = Mock()
 
         monkeypatch.setenv("CH5_RF_ASSET_ID", "users/test/classifiers/ch5_coastline_rf_v1")
@@ -245,7 +245,7 @@ class TestLayerLogicV6:
 
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
-            assert suffix == "ch5_audit_geofence"
+            assert suffix == "ch5_audit_v8_science"
             assert vis_params.get("min") == 0
             assert vis_params.get("max") == 3
             assert isinstance(vis_params.get("palette"), list)

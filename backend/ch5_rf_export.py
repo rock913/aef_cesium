@@ -1,19 +1,28 @@
 """Chapter 5 (Yancheng coastline audit) classifier export helper.
 
-V7.0: ESA WorldCover Gold-Standard Alignment.
+V8.0: Multi-Source Consensus Distillation (science-grade).
 
-Instead of unsupervised clustering + blind-box alignment, we use the ESA
-WorldCover 10m product as an automatic ground-truth dealer:
-    - Find pixels within the Yancheng region that ESA labels as *pure* water,
-        bare soil (tidal flat proxy), built-up, and cropland/trees (inland).
-    - Extract corresponding AEF 16-D embedding features.
-    - Train a supervised RandomForest classifier.
+We retire single-source static landcover labeling as the only supervisor.
+Instead we build *consensus* labels by cross-checking two global products:
+
+    - ESA WorldCover (landcover class)
+    - JRC Global Surface Water occurrence (0–100, long-term inundation frequency)
+
+Consensus rules (labels are assigned only when the two sources agree under
+strict physical constraints):
+
+    - 0 Water: JRC occurrence >= 90% AND ESA says water
+    - 1 Tidal flat: 5% < occurrence < 85% AND ESA is NOT built-up
+    - 2 Built-up: ESA built-up AND occurrence == 0%
+    - 3 Inland: ESA cropland/trees AND occurrence == 0%
+
+Ambiguous pixels are excluded from training.
 
 This yields stable, auditable class IDs by construction:
-    0=water, 1=tidal mudflat/bare, 2=built/artificial, 3=inland background.
+    0=water, 1=tidal mudflat, 2=built/artificial hardening, 3=inland background.
 
-The backend loads the classifier via ee.Classifier.load(assetId) for
-millisecond inference and stable semantics.
+The backend loads the classifier via ee.Classifier.load(assetId) for fast
+inference and stable semantics.
 
 Usage:
   python backend/ch5_rf_export.py --check
@@ -194,26 +203,32 @@ def _build_classifier_graph() -> Any:
 
     scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
     seed = int(os.getenv("CH5_RF_SEED", "42") or "42")
-    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "2500") or "2500")
+    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "2000") or "2000")
     rf_trees = int(os.getenv("CH5_RF_TREES", "50") or "50")
 
     # Use recent years for robustness.
     base_img = emb_col.filterDate("2023-01-01", "2025-01-01").mosaic().select(list(range(0, 16))).rename(emb_bands)
 
-    # ESA WorldCover (gold standard)
-    esa = ee.ImageCollection("ESA/WorldCover/v200").first()
+    # Dual gold standards (consensus): ESA WorldCover + JRC Global Surface Water.
+    esa = ee.ImageCollection("ESA/WorldCover/v200").first().select("Map")
+    jrc = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select("occurrence")
 
-    # Remap ESA classes into our 4-class audit taxonomy.
-    # ESA:
-    #   80 water -> 0
-    #   60 bare/sparse -> 1 (coastal mudflat proxy)
-    #   50 built-up -> 2
-    #   40 cropland, 10 trees -> 3 (inland background)
-    from_list = [80, 60, 50, 40, 10]
-    to_list = [0, 1, 2, 3, 3]
+    # V8.0 consensus masks.
+    # NOTE: use explicit parentheses for EE boolean precedence.
+    pure_water = jrc.gte(90).And(esa.eq(80))
+    pure_flat = jrc.gt(5).And(jrc.lt(85)).And(esa.neq(50))
+    pure_built = esa.eq(50).And(jrc.unmask(0).eq(0))
+    pure_inland = (esa.eq(40).Or(esa.eq(10))).And(jrc.unmask(0).eq(0))
 
-    gold_labels = esa.remap(from_list, to_list, -1).rename("class")
-    gold_labels = gold_labels.updateMask(gold_labels.gte(0))
+    # Build labels inheriting projection from the embedding base to avoid pyramid/projection issues.
+    labels = base_img.select([0]).multiply(0).add(-1)
+    labels = labels.where(pure_water, 0)
+    labels = labels.where(pure_flat, 1)
+    labels = labels.where(pure_built, 2)
+    labels = labels.where(pure_inland, 3)
+
+    training_mask = labels.neq(-1)
+    gold_labels = labels.updateMask(training_mask).rename("class")
 
     training_stack = base_img.addBands(gold_labels)
 
@@ -397,7 +412,7 @@ def _submit_export(asset_id: str) -> str:
     classifier = _build_classifier_graph()
     task = ee.batch.Export.classifier.toAsset(
         classifier=classifier,
-        description="Export_Coastline_RF_Classifier",
+        description="Export_Coastline_RF_V8_Science",
         assetId=asset_id,
     )
     task.start()

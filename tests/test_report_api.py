@@ -86,7 +86,9 @@ class TestReportEndpoint:
         assert data["mission_id"] == "ch5_yancheng"
         assert "ESA" in data["report"]
         assert "WorldCover" in data["report"]
-        assert "80(水体)" in data["report"]
+        assert "JRC" in data["report"]
+        assert "occurrence" in data["report"]
+        assert "V8.0" in data["report"]
         assert "img.updateMask(img.neq(3).And(img.neq(0)))" in data["report"]
 
     def test_report_uses_llm_when_configured(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):

@@ -212,7 +212,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        # Chapter 5: Coastline redline audit (V7.1: ESA gold standard + coastal geofence).
+        # Chapter 5: Coastline redline audit (V8.0: ESA + JRC consensus labels, geofenced rendering).
         # Stable IDs (by construction):
         #   0=water, 1=tidal mudflat/bare, 2=artificial/built, 3=inland background
         # We clip to a coastal fence to avoid inland city/farmland interference,
@@ -252,7 +252,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         except Exception as e:
             raise RuntimeError(f"CH5 RF classifier failed to apply gold mask: {e}") from e
 
-        suffix = "ch5_audit_geofence"
+        suffix = "ch5_audit_v8_science"
 
         vis = {
             "min": 0,
@@ -377,7 +377,7 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
                 "palette": palette,
                 "format": "png",
             },
-            "ch5_audit_geofence",
+            "ch5_audit_v8_science",
         )
     if ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         return (

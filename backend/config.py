@@ -95,7 +95,7 @@ class Settings(BaseModel):
         "ch2_maowusu_shield": "ch2_maowusu_shield 大国生态护盾 (余弦相似度)",
         "ch3_zhoukou_pulse": "ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)",
         "ch4_amazon_zeroshot": "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)",
-        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (AEF × ESA (Geofenced))",
+        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (AEF × JRC Water Dynamics (Geofenced))",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
     }
 
@@ -148,8 +148,8 @@ class Settings(BaseModel):
             "title": "江苏盐城 · 海岸线生态离任审计 (2023-2024)",
             "location": "yancheng",
             "api_mode": "ch5_coastline_audit",
-            "formula": "AEF × ESA (Geofenced)",
-            "narrative": "V7.1 在 V7.0 ESA 金标准对齐的基础上，引入海岸带空间围栏（Coastal Geofence）作为业务约束：违规围海造田只发生在海陆交界处，因此先用地理围栏物理切除内陆城市/农田对‘建筑/裸土’分类的干扰，再透明化水域与内陆背景（mask 掉 0 和 3），让画面只剩悬浮在海岸线边缘的金黄（自然滩涂）与鲜红（人工围填海/硬化）证据带，用于自然岸线存量核查与离任审计举证。",
+            "formula": "AEF × JRC Water Dynamics",
+            "narrative": "V8.0 将盐城海岸线审计升级为‘多源共识’科学版：训练阶段用 ESA WorldCover（土地覆盖）与 JRC Global Surface Water occurrence（水体发生率）交叉印证，严格定义水体（occ≥90%）、潮间带滩涂（5%<occ<85% 且非建筑）、人工硬化（ESA建筑∩occ=0%）与内陆背景（ESA农田/树林∩occ=0%），仅保留达成共识的纯净像元分层采样训练随机森林并导出为 Asset。推理/渲染阶段保持海岸带空间围栏（Geofence + clip）靶向聚焦，并透明化水域与内陆（mask 掉 0 和 3），让画面只剩金黄滩涂 vs 鲜红硬化的可举证对抗带，用于自然岸线保有率核查与离任审计。",
             "camera": {"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0},
         },
         {

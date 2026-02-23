@@ -718,7 +718,7 @@ async def generate_report(req: ReportRequest):
         except Exception:
             return str(x)
 
-    def _ch5_esa_evidence_appendix() -> str:
+    def _ch5_v8_evidence_appendix() -> str:
         # Keep this appendix deterministic (no GEE calls) so it works offline and in unit tests.
         mode_id = req.mode or mission.get("api_mode")
         if mode_id != "ch5_coastline_audit":
@@ -736,27 +736,30 @@ async def generate_report(req: ReportRequest):
                 asset_id = "<unset>"
 
         scale = str(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
-        points_per_class = str(os.getenv("CH5_RF_POINTS_PER_CLASS", "2500") or "2500")
+        points_per_class = str(os.getenv("CH5_RF_POINTS_PER_CLASS", "2000") or "2000")
         trees = str(os.getenv("CH5_RF_TREES", "50") or "50")
 
         training_region = "[119.8, 32.8, 121.5, 34.0]"
         esa_dataset = "ESA/WorldCover/v200"
+        jrc_dataset = "JRC/GSW1_4/GlobalSurfaceWater (occurrence 0–100)"
 
         geofence_polygon = "[[[120.30,34.00],[121.50,34.00],[121.80,32.50],[120.60,32.50]]]"
 
         return (
-            "【证据附件：ESA 金标准对齐 × 海岸带空间围栏】\n"
-            "- 数据源：Google AEF Embedding (16D, 2023–2025) × ESA WorldCover 10m\n"
-            f"- ESA 数据集：{esa_dataset}\n"
-            "- 金标准映射（ESA → 审计四分类）：\n"
-            "  - 80(水体) → 0(水)\n"
-            "  - 60(裸地/稀疏植被) → 1(自然滩涂/裸土)\n"
-            "  - 50(建筑/人工不透水面) → 2(人工围垦/硬化)\n"
-            "  - 40(农田), 10(树林) → 3(内陆背景)\n"
+            "【证据附件：V8.0 多源共识 × 海岸带空间围栏】\n"
+            "- 数据源：Google AEF Embedding (16D, 2023–2025) × ESA WorldCover × JRC Global Surface Water\n"
+            f"- ESA 数据集：{esa_dataset}（Map）\n"
+            f"- JRC 数据集：{jrc_dataset}\n"
+            "- 共识标签（仅在两源印证时才入样；其余像元全部剔除）：\n"
+            "  - 0 水体：JRC occurrence ≥ 90% 且 ESA=80(水体)\n"
+            "  - 1 潮间带滩涂：5% < occurrence < 85% 且 ESA≠50(建筑)\n"
+            "  - 2 人工硬化：ESA=50(建筑/不透水) 且 occurrence=0%\n"
+            "  - 3 内陆背景：ESA∈{40(农田),10(树林)} 且 occurrence=0%\n"
             f"- 采样区域：{training_region}\n"
             f"- 分层采样：每类 {points_per_class} 像元（stratifiedSample），scale={scale}m\n"
             f"- 模型：RandomForest(trees={trees})，输出 ID 稳定且可复核\n"
             f"- 资产：{asset_id}\n"
+            "- 渲染后缀：ch5_audit_v8_science\n"
             f"- 空间围栏（Coastal Geofence）：{geofence_polygon}（先 clip，物理切除内陆干扰）\n"
             "- 推理净化：透明化水域与内陆（mask 掉 0 和 3）：img.updateMask(img.neq(3).And(img.neq(0)))\n"
             "- 可视化：仅保留 1=金黄(滩涂) 与 2=警告红(硬化) 的证据对抗"
@@ -772,7 +775,7 @@ async def generate_report(req: ReportRequest):
         f"建议：对异常占比高的网格优先开展核查，结合 Sentinel-2 影像与历史变化趋势形成处置清单。"
     )
 
-    appendix = _ch5_esa_evidence_appendix()
+    appendix = _ch5_v8_evidence_appendix()
     if appendix:
         report = report.rstrip() + "\n\n" + appendix
 
@@ -814,7 +817,7 @@ async def generate_report(req: ReportRequest):
             print(f"Warning: LLM report generation failed: {e}")
 
     # Ensure CH5 evidence appendix is always attached (even when LLM is used).
-    appendix = _ch5_esa_evidence_appendix()
+    appendix = _ch5_v8_evidence_appendix()
     if appendix and appendix not in report:
         report = report.rstrip() + "\n\n" + appendix
 
