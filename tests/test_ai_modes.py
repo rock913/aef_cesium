@@ -45,7 +45,7 @@ def _make_ee_stub() -> MagicMock:
         ("ch2_maowusu_shield 大国生态护盾 (余弦相似度)", "ch2_shield"),
         ("ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)", "ch3_pulse"),
         ("ch4_amazon_zeroshot 全球通用智能 (零样本聚类)", "ch4_zeroshot"),
-        ("ch5_coastline_audit 海岸线红线审计 (RF资产化)", "ch5_audit_supervised"),
+        ("ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))", "ch5_audit_kd"),
         ("ch6_water_pulse 水网脉动监测 (维差分)", "ch6_water"),
     ],
 )
@@ -58,6 +58,7 @@ def test_v6_modes_dispatch_without_error(gee_service_module, mode: str, expected
         import os
 
         os.environ["CH5_RF_ASSET_ID"] = "users/test/classifiers/ch5_coastline_rf_v1"
+        os.environ["CH5_INLAND_CLASS_ID"] = "4"
         gee_service_module._CH5_CLASSIFIER_CACHE = None
 
     with patch.object(gee_service_module, "ee", ee_stub):

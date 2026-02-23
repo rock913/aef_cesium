@@ -155,6 +155,10 @@ if [ "$PRINT_CONFIG" = "1" ]; then
     echo "API_PORT=$API_PORT"
     echo "CH5_RF_BOOTSTRAP=${CH5_RF_BOOTSTRAP:-<unset>}"
     echo "CH5_RF_AUTO_EXPORT=${CH5_RF_AUTO_EXPORT:-<unset>}"
+    echo "CH5_ALIGN_BOOTSTRAP=${CH5_ALIGN_BOOTSTRAP:-<unset>}"
+    echo "CH5_INLAND_CLASS_ID=${CH5_INLAND_CLASS_ID:-<unset>}"
+    echo "CH5_DEEP_SEA_CLASS_ID=${CH5_DEEP_SEA_CLASS_ID:-<unset>}"
+    echo "CH5_PALETTE=${CH5_PALETTE:-<unset>}"
     echo "CH5_RF_RESET_DEFAULT=$CH5_RF_RESET_DEFAULT"
     exit 0
 fi
@@ -497,6 +501,47 @@ if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
         echo "✅ CH5 RF classifier asset looks ready"
     fi
     set -e
+
+    # Optional: auto "blind box" alignment (首次对齐) for KD classifier output.
+    # This will:
+    # - infer inland/background class id
+    # - infer deep-sea class id (so it can be transparent)
+    # - generate a 6-slot palette aligned to key categories
+    # It exports CH5_INLAND_CLASS_ID / CH5_DEEP_SEA_CLASS_ID / CH5_PALETTE for the backend process.
+    CH5_ALIGN_BOOTSTRAP="${CH5_ALIGN_BOOTSTRAP:-1}"
+    if [ "$CH5_ALIGN_BOOTSTRAP" = "1" ]; then
+        echo "🎨 Auto-aligning CH5 coastline audit palette/mask (one-time heuristic)..."
+        set +e
+        ALIGN_OUT=$(python backend/ch5_rf_export.py --align 2>/dev/null)
+        ALIGN_RC=$?
+        set -e
+
+        if [ "$ALIGN_RC" -eq 0 ] && [ -n "${ALIGN_OUT:-}" ]; then
+            while IFS='=' read -r k v; do
+                # Strip optional leading "export " (defensive) and spaces.
+                k=$(echo "$k" | sed 's/^export[[:space:]]\+//' | tr -d ' \t\r')
+                v=$(echo "$v" | tr -d '\r')
+                case "$k" in
+                    CH5_INLAND_CLASS_ID)
+                        export CH5_INLAND_CLASS_ID="$v"
+                        ;;
+                    CH5_DEEP_SEA_CLASS_ID)
+                        export CH5_DEEP_SEA_CLASS_ID="$v"
+                        ;;
+                    CH5_PALETTE)
+                        export CH5_PALETTE="$v"
+                        ;;
+                    *)
+                        ;;
+                esac
+            done <<<"$ALIGN_OUT"
+
+            echo "✅ CH5 aligned: INLAND_CLASS_ID=${CH5_INLAND_CLASS_ID:-<unset>} DEEP_SEA_CLASS_ID=${CH5_DEEP_SEA_CLASS_ID:-<unset>}"
+        else
+            echo "⚠️  CH5 auto-alignment skipped/failed (rc=$ALIGN_RC)."
+            echo "   Tip: set CH5_ALIGN_BOOTSTRAP=0 to disable; or manually set CH5_INLAND_CLASS_ID / CH5_DEEP_SEA_CLASS_ID / CH5_PALETTE in .env.v6"
+        fi
+    fi
 fi
 
 # 启动后端

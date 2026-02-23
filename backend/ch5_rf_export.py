@@ -1,11 +1,14 @@
-"""Chapter 5 (Yancheng coastline audit) supervised classifier export helper.
+"""Chapter 5 (Yancheng coastline audit) classifier export helper.
 
-This follows the upgrade playbook in docs/江苏盐城案例案例升级.md:
-- Sample AEF 16-D annual embedding features over a few representative polygons
-- Train a lightweight Random Forest classifier
-- Export it to a persistent GEE Asset
+This follows the upgrade playbook in docs/江苏盐城案例案例升级.md (V6.8 靶向聚类版):
+- Targeted spatial compression: shrink training_region to the coastline transition belt
+- Guided clustering uses a physically-orthogonal 3-D subspace (A00, A01, A02)
+- Increase cluster capacity (K=6) so turbid coastal water can separate from hard structures
+- Distill pseudo labels into an RF classifier using the full 16-D features
+- Export the RF to a persistent GEE Asset
 
-The backend can then load it via ee.Classifier.load(assetId) for millisecond inference.
+The backend then loads the classifier via ee.Classifier.load(assetId) for
+millisecond inference and stable semantics (no label drift).
 
 Usage:
   python backend/ch5_rf_export.py --check
@@ -185,82 +188,190 @@ def _build_classifier_graph() -> Any:
     emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
 
     scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
-    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "1000") or "1000")
+    num_pixels = int(os.getenv("CH5_RF_SAMPLE_PIXELS", "12000") or "12000")
     seed = int(os.getenv("CH5_RF_SEED", "42") or "42")
 
     # Use recent years for robustness (as per playbook)
     base_img = emb_col.filterDate("2023-01-01", "2025-01-01").mosaic().select(list(range(0, 16))).rename(emb_bands)
 
-    # ---------------------------------------------------------
-    # Micro-Anchors + targeted debiasing
-    #
-    # Why:
-    # - Large buffers in a narrow coastal transition zone inevitably mix classes,
-    #   contaminating labels and causing semantic overflow.
-    # - Aquaculture areas are a "water + embankment grid" mixture; we treat it
-    #   as Class 2 (artificial hardening/reclamation) for stable semantics.
-    #
-    # Strategy:
-    # - Shrink buffers to 200m–500m for purity
-    # - Add explicit anchors for the observed failure zones (port + aquaculture)
-    # ---------------------------------------------------------
+    # 1) Targeted training region (V6.8): tightly hug the coastline transition belt.
+    # This forces K-Means to spend its capacity on the sea-land boundary rather
+    # than deep-sea or deep-inland classes.
+    training_region = ee.Geometry.Rectangle([120.5, 33.1, 121.0, 33.8])
 
-    # Class 0: Water
-    w_clear = ee.Geometry.Point([122.50, 31.00]).buffer(500)
-    w_turbid_1 = ee.Geometry.Point([120.82, 33.28]).buffer(300)
-    w_turbid_2 = ee.Geometry.Point([120.72, 33.48]).buffer(300)
-    w_turbid_3 = ee.Geometry.Point([121.90, 31.40]).buffer(500)
-
-    # Class 1: Natural mudflat
-    m_flat_1 = ee.Geometry.Point([120.88, 33.35]).buffer(200)
-    m_flat_2 = ee.Geometry.Point([121.95, 30.90]).buffer(200)
-
-    # Class 2: Artificial hardening / reclamation (port + aquaculture + urban)
-    a_port = ee.Geometry.Point([120.78, 33.24]).buffer(300)
-    a_aqua = ee.Geometry.Point([120.65, 33.45]).buffer(400)
-    a_urban = ee.Geometry.Point([121.48, 31.23]).buffer(500)
-
-    # Class 3: Inland background mask class (must be diverse)
-    b_farm_1 = ee.Geometry.Point([120.50, 33.40]).buffer(500)
-    b_farm_2 = ee.Geometry.Point([120.20, 33.20]).buffer(500)
-    b_bare = ee.Geometry.Point([120.40, 33.50]).buffer(500)
-    b_water = ee.Geometry.Point([120.10, 31.20]).buffer(500)
-
-    def _sample_class(geom: Any, class_id: int, class_seed_offset: int) -> Any:
-        return (
-            base_img.sample(
-                region=geom,
-                scale=scale,
-                numPixels=points_per_class,
-                seed=seed + class_seed_offset,
-                geometries=False,
-                tileScale=4,
-            )
-            .map(lambda f: ee.Feature(f).set("class", class_id))
-        )
-
-    training_data = (
-        _sample_class(w_clear, 0, 0)
-        .merge(_sample_class(w_turbid_1, 0, 1))
-        .merge(_sample_class(w_turbid_2, 0, 2))
-        .merge(_sample_class(w_turbid_3, 0, 3))
-        .merge(_sample_class(m_flat_1, 1, 4))
-        .merge(_sample_class(m_flat_2, 1, 5))
-        .merge(_sample_class(a_port, 2, 6))
-        .merge(_sample_class(a_aqua, 2, 7))
-        .merge(_sample_class(a_urban, 2, 8))
-        .merge(_sample_class(b_farm_1, 3, 9))
-        .merge(_sample_class(b_farm_2, 3, 10))
-        .merge(_sample_class(b_bare, 3, 11))
-        .merge(_sample_class(b_water, 3, 12))
+    # 2) Random sampling.
+    training_data = base_img.sample(
+        region=training_region,
+        scale=scale,
+        numPixels=num_pixels,
+        seed=seed,
+        geometries=False,
+        tileScale=4,
     )
 
-    classifier = ee.Classifier.smileRandomForest(numberOfTrees=50, minLeafPopulation=5).train(
-        features=training_data,
-        classProperty="class",
+    # 3) Guided clustering in a physically-orthogonal low-dim subspace.
+    #   A00: hard/artificial structures
+    #   A01: vegetation / inland
+    #   A02: moisture / water
+    cluster_bands = ["A00", "A01", "A02"]
+    clusterer = ee.Clusterer.wekaKMeans(6).train(features=training_data, inputProperties=cluster_bands)
+
+    # 4) Pseudo-label.
+    clustered_data = training_data.cluster(clusterer, "pseudo_class")
+
+    # 5) Distill into RF using full 16-D features.
+    classifier = ee.Classifier.smileRandomForest(40).train(
+        features=clustered_data,
+        classProperty="pseudo_class",
         inputProperties=emb_bands,
     )
     return classifier
+
+
+def _mode_int(values: list[int]) -> int:
+    """Return the most frequent int value (ties: first encountered)."""
+
+    if not values:
+        raise ValueError("values must be non-empty")
+    counts: dict[int, int] = {}
+    for v in values:
+        counts[int(v)] = counts.get(int(v), 0) + 1
+    best = values[0]
+    best_n = -1
+    for v in values:
+        n = counts.get(int(v), 0)
+        if n > best_n:
+            best = int(v)
+            best_n = n
+    return int(best)
+
+
+def _infer_alignment(asset_id: str) -> Dict[str, str]:
+    """Infer a one-time 'blind box alignment' for CH5.
+
+    We classify a few anchor micro-regions and infer which class id corresponds to:
+    - inland background (to be masked out)
+    - water / mudflat / artificial hardening (to assign stable colors)
+
+    Returns a dict of env-like strings:
+    - CH5_INLAND_CLASS_ID
+    - CH5_DEEP_SEA_CLASS_ID
+    - CH5_PALETTE (comma-separated, 6 colors)
+    """
+
+    # 16-D embedding bands (match backend/gee_service.py)
+    emb_col = ee.ImageCollection("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL")
+    emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
+
+    base_img = (
+        emb_col.filterDate("2023-01-01", "2025-01-01")
+        .mosaic()
+        .select(list(range(0, 16)))
+        .rename(emb_bands)
+    )
+
+    classifier = ee.Classifier.load(asset_id)
+    class_img = base_img.classify(classifier)
+
+    scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
+    # ReduceRegion(mode) is cheaper than sample+hist for tiny buffers.
+    reducer = ee.Reducer.mode()
+
+    def _mode_class_for_geom(geom: Any) -> int:
+        out = class_img.reduceRegion(
+            reducer=reducer,
+            geometry=geom,
+            scale=scale,
+            maxPixels=int(1e7),
+        )
+        v = out.get("classification")
+        # getInfo() returns client-side value.
+        return int(ee.Number(v).getInfo())
+
+    # Anchor micro-regions (盐城沿海)
+    # NOTE: These are heuristics; if the scene changes drastically, manual override is still possible.
+    anchors: dict[str, list[Any]] = {
+        # inland: farmland / bare land away from the shoreline
+        "inland": [
+            ee.Geometry.Point([120.30, 33.65]).buffer(600),
+            ee.Geometry.Point([120.20, 33.55]).buffer(600),
+            ee.Geometry.Point([120.55, 33.60]).buffer(600),
+        ],
+        # deep sea: offshore open water (to be masked out)
+        "deep_sea": [
+            ee.Geometry.Point([121.35, 33.10]).buffer(900),
+            ee.Geometry.Point([121.30, 33.05]).buffer(900),
+        ],
+        # turbid coastal water: nearshore high-suspended sediment water
+        "turbid_water": [
+            ee.Geometry.Point([120.82, 33.28]).buffer(700),
+            ee.Geometry.Point([120.72, 33.48]).buffer(700),
+        ],
+        # mudflat: typical intertidal mudflat belt
+        "mudflat": [
+            ee.Geometry.Point([120.88, 33.35]).buffer(400),
+            ee.Geometry.Point([120.92, 33.32]).buffer(400),
+        ],
+        # artificial: port / embankment / aquaculture grids
+        "artificial": [
+            ee.Geometry.Point([120.78, 33.24]).buffer(500),
+            ee.Geometry.Point([120.65, 33.45]).buffer(500),
+        ],
+    }
+
+    inferred: dict[str, int] = {}
+    for key, geoms in anchors.items():
+        vals: list[int] = []
+        for g in geoms:
+            try:
+                vals.append(_mode_class_for_geom(g))
+            except Exception:
+                # Ignore single-point failures; we'll rely on remaining anchors.
+                continue
+        if vals:
+            inferred[key] = _mode_int(vals)
+
+    def _safe_int(v: Any, default: int) -> int:
+        try:
+            i = int(v)
+        except Exception:
+            return int(default)
+        return i if 0 <= i <= 5 else int(default)
+
+    inland_id = _safe_int(inferred.get("inland"), 5)
+    deep_sea_id = _safe_int(inferred.get("deep_sea"), 1)
+
+    # Build a palette of length 6 where index == class id.
+    # Default to fully transparent to avoid semantic overflow.
+    palette = ["000000"] * 6
+
+    # Assign visible categories where we can infer them.
+    # Note: multiple anchors may map to different ids; keep them all consistent.
+    for k, color in [
+        ("mudflat", "F6C431"),
+        ("artificial", "E23D28"),
+        ("turbid_water", "1A365D"),
+    ]:
+        class_id = inferred.get(k)
+        if class_id is not None and 0 <= int(class_id) <= 5:
+            palette[int(class_id)] = color
+
+    # Always hide inland + deep sea.
+    palette[int(inland_id)] = "000000"
+    palette[int(deep_sea_id)] = "000000"
+
+    # Any remaining (unknown) non-masked id: keep as blue for safe visibility.
+    for i in range(0, 6):
+        if i in {int(inland_id), int(deep_sea_id)}:
+            continue
+        if palette[i] == "000000":
+            palette[i] = "1A365D"
+
+    return {
+        "CH5_INLAND_CLASS_ID": str(int(inland_id)),
+        "CH5_DEEP_SEA_CLASS_ID": str(int(deep_sea_id)),
+        "CH5_PALETTE": ",".join(palette),
+    }
 
 
 def _task_status(task: Any) -> Dict[str, Any]:
@@ -300,13 +411,18 @@ def _delete_asset(asset_id: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Export/ensure CH5 supervised RF classifier as a GEE Asset")
+    parser = argparse.ArgumentParser(description="Export/ensure CH5 KD RF classifier as a GEE Asset")
     parser.add_argument("--asset-id", default="", help="Override target asset id")
     parser.add_argument("--env-file", default="", help="Load env vars from a file (default: auto-detect repo .env)")
     parser.add_argument("--check", action="store_true", help="Only check whether the asset exists")
     parser.add_argument("--ensure", action="store_true", help="If missing, submit an export task")
     parser.add_argument("--delete", action="store_true", help="Delete the target asset (for retraining); requires --yes")
     parser.add_argument("--yes", action="store_true", help="Confirm destructive actions (used with --delete)")
+    parser.add_argument(
+        "--align",
+        action="store_true",
+        help="Infer one-time CH5 palette/mask alignment and print env KEY=VALUE lines",
+    )
 
     args = parser.parse_args()
 
@@ -317,6 +433,23 @@ def main() -> int:
             print(f"ℹ️  Loaded environment from: {loaded_env}")
         print("⚠️  CH5 RF asset id not configured. Set CH5_RF_ASSET_ID or configure GEE_USER_PATH.")
         return 2
+
+    if args.align:
+        _init_ee()
+        if not _asset_exists(asset_id):
+            print("⚠️  CH5 RF classifier asset does not exist yet; cannot align.")
+            return 1
+        try:
+            aligned = _infer_alignment(asset_id)
+        except Exception as e:
+            print(f"⚠️  Failed to infer CH5 alignment: {e}")
+            return 1
+
+        # Print as KEY=VALUE lines (safe for shell parsing without eval).
+        for k in ["CH5_INLAND_CLASS_ID", "CH5_DEEP_SEA_CLASS_ID", "CH5_PALETTE"]:
+            if k in aligned:
+                print(f"{k}={aligned[k]}")
+        return 0
 
     try:
         _init_ee()

@@ -4,7 +4,7 @@ These tests are mock-based and validate:
 - Mode dispatch in get_layer_logic for the V6 four chapters
 - smart_load cache-hit/miss behavior
 - Zero-shot KMeans (ch4) uses a bounded training_region to avoid timeouts
-- Coastline audit (ch5) prefers supervised assetized classifier (RF)
+- Coastline audit (ch5) uses Knowledge Distillation: K-Means pseudo-labels -> RF asset
 
 We import backend modules via sys.path injection so the tests work in this repo
 layout (backend/*.py are not packaged as a pip module).
@@ -201,11 +201,13 @@ class TestLayerLogicV6:
             assert "region" in kwargs
             assert kwargs["region"] is mock_geom
 
-    def test_get_layer_logic_ch5_coastline_audit_supervised_classifier_asset(self, gee_service_module, monkeypatch):
-        mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"
+    def test_get_layer_logic_ch5_coastline_audit_kd_classifier_asset(self, gee_service_module, monkeypatch):
+        mode = "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))"
         mock_region = Mock()
 
         monkeypatch.setenv("CH5_RF_ASSET_ID", "users/test/classifiers/ch5_coastline_rf_v1")
+        monkeypatch.setenv("CH5_INLAND_CLASS_ID", "4")
+        monkeypatch.setenv("CH5_DEEP_SEA_CLASS_ID", "1")
         gee_service_module._CH5_CLASSIFIER_CACHE = None
 
         with patch.object(gee_service_module, "ee") as mock_ee:
@@ -216,7 +218,9 @@ class TestLayerLogicV6:
             mock_base_img = Mock()
             mock_classifier = Mock()
             mock_classified = Mock()
-            mock_mask = Mock()
+            mock_mask_inland = Mock()
+            mock_mask_deep = Mock()
+            mock_mask_combined = Mock()
             mock_masked = Mock()
 
             mock_ee.ImageCollection.return_value = mock_embedding_collection
@@ -230,26 +234,29 @@ class TestLayerLogicV6:
             mock_ee.Classifier.load.return_value = mock_classifier
             mock_base_img.classify.return_value = mock_classified
 
-            # background masking: img.updateMask(img.neq(3))
-            mock_classified.neq.return_value = mock_mask
+            # background masking: img.updateMask(img.neq(inland).And(img.neq(deep)))
+            mock_classified.neq.side_effect = [mock_mask_inland, mock_mask_deep]
+            mock_mask_inland.And.return_value = mock_mask_combined
             mock_classified.updateMask.return_value = mock_masked
 
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
-            assert suffix == "ch5_audit_supervised"
+            assert suffix == "ch5_audit_kd"
             assert vis_params.get("min") == 0
-            assert vis_params.get("max") == 2
+            assert vis_params.get("max") == 5
             assert isinstance(vis_params.get("palette"), list)
-            assert len(vis_params["palette"]) == 3
+            assert len(vis_params["palette"]) == 6
             assert result_image is mock_masked
 
             mock_ee.Classifier.load.assert_called_once()
             mock_base_img.classify.assert_called_once_with(mock_classifier)
-            mock_classified.neq.assert_called_once_with(3)
-            mock_classified.updateMask.assert_called_once_with(mock_mask)
+            assert mock_classified.neq.call_args_list[0].args[0] == 4
+            assert mock_classified.neq.call_args_list[1].args[0] == 1
+            mock_mask_inland.And.assert_called_once_with(mock_mask_deep)
+            mock_classified.updateMask.assert_called_once_with(mock_mask_combined)
 
     def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
-        mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"
+        mode = "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))"
         mock_region = Mock()
 
         # Strict behavior: without an asset id configured, we must fail fast.
@@ -273,9 +280,9 @@ class TestLayerLogicV6:
                 gee_service_module.get_layer_logic(mode, mock_region)
 
     def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
-        """CH5 must fail fast if the supervised classifier asset is not configured."""
+        """CH5 must fail fast if the KD classifier asset is not configured."""
 
-        mode = "ch5_coastline_audit 海岸线红线审计 (RF资产化)"
+        mode = "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))"
         mock_region = Mock()
 
         monkeypatch.delenv("CH5_RF_ASSET_ID", raising=False)
