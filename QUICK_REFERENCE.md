@@ -53,6 +53,21 @@ GEE_USER_PATH=users/your_username/aef_demo
 ./run_frontend.sh   # 前端 (8504)
 ```
 
+### CH5（盐城）V8.1 分类器导出（GEE Tasks）
+
+导出脚本：`backend/ch5_rf_export.py`（提交任务，不等待完成）。
+
+```bash
+# 设置资产路径（二选一）
+export CH5_RF_ASSET_ID=users/<your_username>/aef_demo/classifiers/ch5_coastline_rf_v1
+# 或：export GEE_USER_PATH=users/<your_username>/aef_demo
+
+python backend/ch5_rf_export.py --check
+python backend/ch5_rf_export.py --ensure
+```
+
+任务描述名：`Export_Coastline_RF_V8_1`（GEE Code Editor → Tasks 面板查看）。
+
 ## 🧯 线上部署：避免 502（运维/保活问题）
 
 如果你看到 `GET /__cesium/.../*.css 502 (Bad Gateway)` 或者连 `/` 首页都 502，这说明 **8504 端口背后的上游进程不存在/不可达**（nginx upstream 断了、node/uvicorn 进程挂了、端口映射错了、OOM 杀进程等）。
@@ -194,6 +209,10 @@ cat .env  # 确认 GEE_USER_PATH 已设置
 # 解决方案 2: GEE 授权
 earthengine authenticate --quiet --auth_mode=notebook
 ```
+
+### 问题: CH5 导出任务失败："The class band must be integer typed"
+
+这是 `stratifiedSample` 的典型约束，V8.1 脚本已将 `classBand` 强制转为整型；若仍失败，通常是你运行的不是仓库当前脚本版本，或任务引用了旧代码。
 
 ### 问题: 环境变量未生效
 ```bash

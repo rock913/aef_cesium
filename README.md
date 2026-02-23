@@ -151,6 +151,32 @@ npm test
 - ch5 盐城：`ch5_coastline_audit`（海岸线红线审计 / 半监督聚类）
 - ch6 鄱阳湖：`ch6_water_pulse`（水网脉动监测 / 维差分）
 
+### CH5 V8.1 导出（GEE Asset）
+
+CH5 的随机森林分类器由导出脚本提交到 Earth Engine Tasks，然后由后端通过 `ee.Classifier.load(assetId)` 加载。
+
+```bash
+# 1) 配置资产路径（二选一）
+export CH5_RF_ASSET_ID=users/<your_username>/aef_demo/classifiers/ch5_coastline_rf_v1
+# 或者：export GEE_USER_PATH=users/<your_username>/aef_demo
+
+# 2) 检查资产是否存在
+python backend/ch5_rf_export.py --check
+
+# 3) 不存在则提交导出任务（不等待完成）
+python backend/ch5_rf_export.py --ensure
+```
+
+- GEE Tasks 描述名：`Export_Coastline_RF_V8_1`
+- 常用可调参数（环境变量）：
+  - `CH5_RF_POINTS_PER_CLASS`（默认 3000）
+  - `CH5_RF_TREES`（默认 60）
+  - `CH5_RF_MIN_LEAF_POP`（默认 10）
+  - `CH5_RF_BAG_FRACTION`（默认 0.6）
+  - `CH5_RF_SAMPLE_SCALE`（默认 30）
+  - `CH5_RF_SEED`（默认 42）
+
+
 ### 智能体输出（LLM 可选）
 
 - `/api/report`：汇报口径简报（模板/LLM，失败回退模板）
