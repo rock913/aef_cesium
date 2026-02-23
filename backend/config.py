@@ -95,7 +95,7 @@ class Settings(BaseModel):
         "ch2_maowusu_shield": "ch2_maowusu_shield 大国生态护盾 (余弦相似度)",
         "ch3_zhoukou_pulse": "ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)",
         "ch4_amazon_zeroshot": "ch4_amazon_zeroshot 全球通用智能 (零样本聚类)",
-        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))",
+        "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (AEF × ESA (Geofenced))",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
     }
 
@@ -148,8 +148,8 @@ class Settings(BaseModel):
             "title": "江苏盐城 · 海岸线生态离任审计 (2023-2024)",
             "location": "yancheng",
             "api_mode": "ch5_coastline_audit",
-            "formula": "K-Means KD(16-Dim)",
-            "narrative": "盐城海岸带‘自然滩涂泥沙’与‘围海造田硬化结构’在真彩色上极易混淆。V6.8 采用靶向聚类版知识蒸馏：先将训练区域极限收缩到海岸过渡带，再在 A00/A01/A02（三轴正交：硬度/植被/水分）低维空间做 K-Means(k=6) 自动切分语义层，随后用 16 维完整特征训练随机森林蒸馏并导出为 GEE Asset。推理端通过一次性“盲盒对齐”校准 palette，并将‘内陆 + 深海’类设为透明 mask，确保输出聚焦红线审计对象；规则固化后前端滑动不漂移、并发毫秒级稳定出图，可直接用于红线核查与自然岸线保有率审计。",
+            "formula": "AEF × ESA (Geofenced)",
+            "narrative": "V7.1 在 V7.0 ESA 金标准对齐的基础上，引入海岸带空间围栏（Coastal Geofence）作为业务约束：违规围海造田只发生在海陆交界处，因此先用地理围栏物理切除内陆城市/农田对‘建筑/裸土’分类的干扰，再透明化水域与内陆背景（mask 掉 0 和 3），让画面只剩悬浮在海岸线边缘的金黄（自然滩涂）与鲜红（人工围填海/硬化）证据带，用于自然岸线存量核查与离任审计举证。",
             "camera": {"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0},
         },
         {

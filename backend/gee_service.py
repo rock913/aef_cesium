@@ -10,19 +10,6 @@ from typing import Dict, Tuple, Any
 _CH5_CLASSIFIER_CACHE: Any | None = None
 
 
-def _parse_int_env(name: str) -> int | None:
-    raw = os.getenv(name)
-    if raw is None:
-        return None
-    s = str(raw).strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except Exception:
-        return None
-
-
 def _resolve_ch5_rf_asset_id() -> str:
     """Resolve the GEE Asset ID for the Chapter 5 classifier.
 
@@ -225,11 +212,11 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        # Chapter 5: Coastline redline audit (K-Means KD -> RF, assetized).
-        # Notes:
-        # - The RF classifier is trained to mimic a K-Means pseudo-label field.
-        # - K-Means assigns class IDs arbitrarily; palette alignment may need
-        #   one-time adjustment after the first export.
+        # Chapter 5: Coastline redline audit (V7.1: ESA gold standard + coastal geofence).
+        # Stable IDs (by construction):
+        #   0=water, 1=tidal mudflat/bare, 2=artificial/built, 3=inland background
+        # We clip to a coastal fence to avoid inland city/farmland interference,
+        # then mask out water + inland so the map shows only yellow vs red evidence.
         base_img = _select_embedding_bands(filtered_col.mosaic(), emb_bands)
 
         # STRICT: production requires the supervised classifier asset to be configured and loadable.
@@ -243,34 +230,45 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         except Exception as e:
             raise RuntimeError(f"CH5 RF classifier failed to run classify(): {e}") from e
 
-        # Hide inland/background pixels (and optionally deep sea) to avoid semantic
-        # overflow and to eliminate rectangular training-region edges.
-        inland_class_id = _parse_int_env("CH5_INLAND_CLASS_ID")
-        deep_sea_class_id = _parse_int_env("CH5_DEEP_SEA_CLASS_ID")
+        # V7.1 coastal geofence: physically exclude inland city + inland bare soil noise.
         try:
-            if inland_class_id is not None and deep_sea_class_id is not None:
-                img = img.updateMask(img.neq(inland_class_id).And(img.neq(deep_sea_class_id)))
-            elif inland_class_id is not None:
-                img = img.updateMask(img.neq(inland_class_id))
-            elif deep_sea_class_id is not None:
-                img = img.updateMask(img.neq(deep_sea_class_id))
+            coastal_fence = ee.Geometry.Polygon(
+                [
+                    [
+                        [120.30, 34.00],
+                        [121.50, 34.00],
+                        [121.80, 32.50],
+                        [120.60, 32.50],
+                    ]
+                ]
+            )
+            img = img.clip(coastal_fence)
         except Exception as e:
-            raise RuntimeError(f"CH5 RF classifier failed to apply background mask: {e}") from e
+            raise RuntimeError(f"CH5 RF classifier failed to apply coastal geofence: {e}") from e
 
-        suffix = "ch5_audit_kd"
+        # Gold-standard purification: transparentize inland + water.
+        try:
+            img = img.updateMask(img.neq(3).And(img.neq(0)))
+        except Exception as e:
+            raise RuntimeError(f"CH5 RF classifier failed to apply gold mask: {e}") from e
+
+        suffix = "ch5_audit_geofence"
 
         vis = {
             "min": 0,
-            "max": 5,
-            # Default palette slots (may require one-time alignment):
-            # 0..5 (K=6). Keep inland/deep-sea transparent (black) after alignment.
-            "palette": ["1A365D", "2B6CB0", "4A5568", "F6C431", "E23D28", "000000"],
+            "max": 3,
+            "palette": [
+                "000000",  # 0 water (masked)
+                "F6C431",  # 1 mudflat/bare (yellow)
+                "E23D28",  # 2 built/artificial (red)
+                "000000",  # 3 inland (masked)
+            ],
         }
 
         palette_env = str(os.getenv("CH5_PALETTE", "") or "").strip()
         if palette_env:
             parts = [p.strip().lstrip("#") for p in palette_env.split(",") if p.strip()]
-            if len(parts) == 6 and all(parts):
+            if len(parts) == 4 and all(parts):
                 vis["palette"] = parts
 
     elif ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
@@ -366,20 +364,20 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
     if ("ch4_amazon_zeroshot" in mode_s) or ("零样本" in mode_s):
         return ({"forceRgbOutput": True, "format": "png"}, "ch4_zeroshot")
     if ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        palette = ["1A365D", "2B6CB0", "4A5568", "F6C431", "E23D28", "000000"]
+        palette = ["000000", "F6C431", "E23D28", "000000"]
         palette_env = str(os.getenv("CH5_PALETTE", "") or "").strip()
         if palette_env:
             parts = [p.strip().lstrip("#") for p in palette_env.split(",") if p.strip()]
-            if len(parts) == 6 and all(parts):
+            if len(parts) == 4 and all(parts):
                 palette = parts
         return (
             {
                 "min": 0,
-                "max": 5,
+                "max": 3,
                 "palette": palette,
                 "format": "png",
             },
-            "ch5_audit_kd",
+            "ch5_audit_geofence",
         )
     if ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         return (

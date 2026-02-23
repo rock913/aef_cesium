@@ -502,13 +502,10 @@ if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
     fi
     set -e
 
-    # Optional: auto "blind box" alignment (首次对齐) for KD classifier output.
-    # This will:
-    # - infer inland/background class id
-    # - infer deep-sea class id (so it can be transparent)
-    # - generate a 6-slot palette aligned to key categories
-    # It exports CH5_INLAND_CLASS_ID / CH5_DEEP_SEA_CLASS_ID / CH5_PALETTE for the backend process.
-    CH5_ALIGN_BOOTSTRAP="${CH5_ALIGN_BOOTSTRAP:-1}"
+    # Optional: blind-box alignment (legacy V6.7/V6.8).
+    # V7.0 uses ESA gold-standard training so class IDs are stable; alignment is
+    # not required and is disabled by default.
+    CH5_ALIGN_BOOTSTRAP="${CH5_ALIGN_BOOTSTRAP:-0}"
     if [ "$CH5_ALIGN_BOOTSTRAP" = "1" ]; then
         echo "🎨 Auto-aligning CH5 coastline audit palette/mask (one-time heuristic)..."
         set +e

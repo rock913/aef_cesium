@@ -689,9 +689,9 @@ async def generate_report(req: ReportRequest):
 
         mode_full = settings.modes[mode_id]
         img, _vis_params, _suffix = get_layer_logic(mode_full, viewport)
-        # Most modes mark "interesting" pixels via updateMask; clustering is categorical and
-        # should not be interpreted as an anomaly mask.
-        masked_as_anomaly = mode_id not in ("ch4_amazon_zeroshot",)
+        # Most modes mark "interesting" pixels via updateMask.
+        # Categorical outputs (clustering / CH5 audit classes) should not be treated as anomaly masks.
+        masked_as_anomaly = mode_id not in ("ch4_amazon_zeroshot", "ch5_coastline_audit")
         stats = await run_in_threadpool(
             compute_zonal_stats,
             img,
@@ -718,6 +718,50 @@ async def generate_report(req: ReportRequest):
         except Exception:
             return str(x)
 
+    def _ch5_esa_evidence_appendix() -> str:
+        # Keep this appendix deterministic (no GEE calls) so it works offline and in unit tests.
+        mode_id = req.mode or mission.get("api_mode")
+        if mode_id != "ch5_coastline_audit":
+            return ""
+
+        # Asset id resolution mirrors backend/ch5_rf_export.py.
+        explicit = str(os.getenv("CH5_RF_ASSET_ID", "")).strip()
+        if explicit:
+            asset_id = explicit
+        else:
+            gee_user_path = str(os.getenv("GEE_USER_PATH", "") or getattr(settings, "gee_user_path", "")).strip()
+            if gee_user_path and gee_user_path != "users/default/aef_demo":
+                asset_id = f"{gee_user_path.rstrip('/')}/classifiers/ch5_coastline_rf_v1"
+            else:
+                asset_id = "<unset>"
+
+        scale = str(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
+        points_per_class = str(os.getenv("CH5_RF_POINTS_PER_CLASS", "2500") or "2500")
+        trees = str(os.getenv("CH5_RF_TREES", "50") or "50")
+
+        training_region = "[119.8, 32.8, 121.5, 34.0]"
+        esa_dataset = "ESA/WorldCover/v200"
+
+        geofence_polygon = "[[[120.30,34.00],[121.50,34.00],[121.80,32.50],[120.60,32.50]]]"
+
+        return (
+            "【证据附件：ESA 金标准对齐 × 海岸带空间围栏】\n"
+            "- 数据源：Google AEF Embedding (16D, 2023–2025) × ESA WorldCover 10m\n"
+            f"- ESA 数据集：{esa_dataset}\n"
+            "- 金标准映射（ESA → 审计四分类）：\n"
+            "  - 80(水体) → 0(水)\n"
+            "  - 60(裸地/稀疏植被) → 1(自然滩涂/裸土)\n"
+            "  - 50(建筑/人工不透水面) → 2(人工围垦/硬化)\n"
+            "  - 40(农田), 10(树林) → 3(内陆背景)\n"
+            f"- 采样区域：{training_region}\n"
+            f"- 分层采样：每类 {points_per_class} 像元（stratifiedSample），scale={scale}m\n"
+            f"- 模型：RandomForest(trees={trees})，输出 ID 稳定且可复核\n"
+            f"- 资产：{asset_id}\n"
+            f"- 空间围栏（Coastal Geofence）：{geofence_polygon}（先 clip，物理切除内陆干扰）\n"
+            "- 推理净化：透明化水域与内陆（mask 掉 0 和 3）：img.updateMask(img.neq(3).And(img.neq(0)))\n"
+            "- 可视化：仅保留 1=金黄(滩涂) 与 2=警告红(硬化) 的证据对抗"
+        )
+
     report = (
         f"《区域空间监测简报》\n"
         f"任务：{title}\n"
@@ -727,6 +771,10 @@ async def generate_report(req: ReportRequest):
         f"【共识印证】在统一表征隐空间中，本次结果提供了可复核的量化证据，用于支撑‘事件叙事’的客观核验。\n"
         f"建议：对异常占比高的网格优先开展核查，结合 Sentinel-2 影像与历史变化趋势形成处置清单。"
     )
+
+    appendix = _ch5_esa_evidence_appendix()
+    if appendix:
+        report = report.rstrip() + "\n\n" + appendix
 
     generated_by = "template"
     if settings.llm_api_key:
@@ -764,6 +812,11 @@ async def generate_report(req: ReportRequest):
                 generated_by = "llm"
         except Exception as e:
             print(f"Warning: LLM report generation failed: {e}")
+
+    # Ensure CH5 evidence appendix is always attached (even when LLM is used).
+    appendix = _ch5_esa_evidence_appendix()
+    if appendix and appendix not in report:
+        report = report.rstrip() + "\n\n" + appendix
 
     return {
         "mission_id": req.mission_id,

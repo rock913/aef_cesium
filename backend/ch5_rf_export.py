@@ -1,14 +1,19 @@
 """Chapter 5 (Yancheng coastline audit) classifier export helper.
 
-This follows the upgrade playbook in docs/江苏盐城案例案例升级.md (V6.8 靶向聚类版):
-- Targeted spatial compression: shrink training_region to the coastline transition belt
-- Guided clustering uses a physically-orthogonal 3-D subspace (A00, A01, A02)
-- Increase cluster capacity (K=6) so turbid coastal water can separate from hard structures
-- Distill pseudo labels into an RF classifier using the full 16-D features
-- Export the RF to a persistent GEE Asset
+V7.0: ESA WorldCover Gold-Standard Alignment.
 
-The backend then loads the classifier via ee.Classifier.load(assetId) for
-millisecond inference and stable semantics (no label drift).
+Instead of unsupervised clustering + blind-box alignment, we use the ESA
+WorldCover 10m product as an automatic ground-truth dealer:
+    - Find pixels within the Yancheng region that ESA labels as *pure* water,
+        bare soil (tidal flat proxy), built-up, and cropland/trees (inland).
+    - Extract corresponding AEF 16-D embedding features.
+    - Train a supervised RandomForest classifier.
+
+This yields stable, auditable class IDs by construction:
+    0=water, 1=tidal mudflat/bare, 2=built/artificial, 3=inland background.
+
+The backend loads the classifier via ee.Classifier.load(assetId) for
+millisecond inference and stable semantics.
 
 Usage:
   python backend/ch5_rf_export.py --check
@@ -188,41 +193,46 @@ def _build_classifier_graph() -> Any:
     emb_bands = [f"A{idx:02d}" for idx in range(0, 16)]
 
     scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
-    num_pixels = int(os.getenv("CH5_RF_SAMPLE_PIXELS", "12000") or "12000")
     seed = int(os.getenv("CH5_RF_SEED", "42") or "42")
+    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "2500") or "2500")
+    rf_trees = int(os.getenv("CH5_RF_TREES", "50") or "50")
 
-    # Use recent years for robustness (as per playbook)
+    # Use recent years for robustness.
     base_img = emb_col.filterDate("2023-01-01", "2025-01-01").mosaic().select(list(range(0, 16))).rename(emb_bands)
 
-    # 1) Targeted training region (V6.8): tightly hug the coastline transition belt.
-    # This forces K-Means to spend its capacity on the sea-land boundary rather
-    # than deep-sea or deep-inland classes.
-    training_region = ee.Geometry.Rectangle([120.5, 33.1, 121.0, 33.8])
+    # ESA WorldCover (gold standard)
+    esa = ee.ImageCollection("ESA/WorldCover/v200").first()
 
-    # 2) Random sampling.
-    training_data = base_img.sample(
+    # Remap ESA classes into our 4-class audit taxonomy.
+    # ESA:
+    #   80 water -> 0
+    #   60 bare/sparse -> 1 (coastal mudflat proxy)
+    #   50 built-up -> 2
+    #   40 cropland, 10 trees -> 3 (inland background)
+    from_list = [80, 60, 50, 40, 10]
+    to_list = [0, 1, 2, 3, 3]
+
+    gold_labels = esa.remap(from_list, to_list, -1).rename("class")
+    gold_labels = gold_labels.updateMask(gold_labels.gte(0))
+
+    training_stack = base_img.addBands(gold_labels)
+
+    # Training region: broader Yancheng box (V7.0 doc).
+    training_region = ee.Geometry.Rectangle([119.8, 32.8, 121.5, 34.0])
+
+    training_data = training_stack.stratifiedSample(
+        numPoints=points_per_class,
+        classBand="class",
         region=training_region,
         scale=scale,
-        numPixels=num_pixels,
         seed=seed,
-        geometries=False,
         tileScale=4,
+        geometries=False,
     )
 
-    # 3) Guided clustering in a physically-orthogonal low-dim subspace.
-    #   A00: hard/artificial structures
-    #   A01: vegetation / inland
-    #   A02: moisture / water
-    cluster_bands = ["A00", "A01", "A02"]
-    clusterer = ee.Clusterer.wekaKMeans(6).train(features=training_data, inputProperties=cluster_bands)
-
-    # 4) Pseudo-label.
-    clustered_data = training_data.cluster(clusterer, "pseudo_class")
-
-    # 5) Distill into RF using full 16-D features.
-    classifier = ee.Classifier.smileRandomForest(40).train(
-        features=clustered_data,
-        classProperty="pseudo_class",
+    classifier = ee.Classifier.smileRandomForest(rf_trees).train(
+        features=training_data,
+        classProperty="class",
         inputProperties=emb_bands,
     )
     return classifier

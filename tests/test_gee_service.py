@@ -202,12 +202,10 @@ class TestLayerLogicV6:
             assert kwargs["region"] is mock_geom
 
     def test_get_layer_logic_ch5_coastline_audit_kd_classifier_asset(self, gee_service_module, monkeypatch):
-        mode = "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))"
+        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × ESA (Geofenced))"
         mock_region = Mock()
 
         monkeypatch.setenv("CH5_RF_ASSET_ID", "users/test/classifiers/ch5_coastline_rf_v1")
-        monkeypatch.setenv("CH5_INLAND_CLASS_ID", "4")
-        monkeypatch.setenv("CH5_DEEP_SEA_CLASS_ID", "1")
         gee_service_module._CH5_CLASSIFIER_CACHE = None
 
         with patch.object(gee_service_module, "ee") as mock_ee:
@@ -218,8 +216,10 @@ class TestLayerLogicV6:
             mock_base_img = Mock()
             mock_classifier = Mock()
             mock_classified = Mock()
+            mock_fence = Mock()
+            mock_clipped = Mock()
             mock_mask_inland = Mock()
-            mock_mask_deep = Mock()
+            mock_mask_water = Mock()
             mock_mask_combined = Mock()
             mock_masked = Mock()
 
@@ -234,29 +234,37 @@ class TestLayerLogicV6:
             mock_ee.Classifier.load.return_value = mock_classifier
             mock_base_img.classify.return_value = mock_classified
 
-            # background masking: img.updateMask(img.neq(inland).And(img.neq(deep)))
-            mock_classified.neq.side_effect = [mock_mask_inland, mock_mask_deep]
+            # geofence clip
+            mock_ee.Geometry.Polygon.return_value = mock_fence
+            mock_classified.clip.return_value = mock_clipped
+
+            # background masking: img.updateMask(img.neq(3).And(img.neq(0)))
+            mock_clipped.neq.side_effect = [mock_mask_inland, mock_mask_water]
             mock_mask_inland.And.return_value = mock_mask_combined
-            mock_classified.updateMask.return_value = mock_masked
+            mock_clipped.updateMask.return_value = mock_masked
 
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
-            assert suffix == "ch5_audit_kd"
+            assert suffix == "ch5_audit_geofence"
             assert vis_params.get("min") == 0
-            assert vis_params.get("max") == 5
+            assert vis_params.get("max") == 3
             assert isinstance(vis_params.get("palette"), list)
-            assert len(vis_params["palette"]) == 6
+            assert len(vis_params["palette"]) == 4
             assert result_image is mock_masked
 
             mock_ee.Classifier.load.assert_called_once()
             mock_base_img.classify.assert_called_once_with(mock_classifier)
-            assert mock_classified.neq.call_args_list[0].args[0] == 4
-            assert mock_classified.neq.call_args_list[1].args[0] == 1
-            mock_mask_inland.And.assert_called_once_with(mock_mask_deep)
-            mock_classified.updateMask.assert_called_once_with(mock_mask_combined)
+
+            mock_ee.Geometry.Polygon.assert_called_once()
+            mock_classified.clip.assert_called_once_with(mock_fence)
+
+            assert mock_clipped.neq.call_args_list[0].args[0] == 3
+            assert mock_clipped.neq.call_args_list[1].args[0] == 0
+            mock_mask_inland.And.assert_called_once_with(mock_mask_water)
+            mock_clipped.updateMask.assert_called_once_with(mock_mask_combined)
 
     def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
-        mode = "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))"
+        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × ESA WorldCover)"
         mock_region = Mock()
 
         # Strict behavior: without an asset id configured, we must fail fast.
@@ -282,7 +290,7 @@ class TestLayerLogicV6:
     def test_get_layer_logic_ch5_requires_asset_id(self, gee_service_module, monkeypatch):
         """CH5 must fail fast if the KD classifier asset is not configured."""
 
-        mode = "ch5_coastline_audit 海岸线红线审计 (K-Means KD(16-Dim))"
+        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × ESA WorldCover)"
         mock_region = Mock()
 
         monkeypatch.delenv("CH5_RF_ASSET_ID", raising=False)

@@ -68,6 +68,27 @@ class TestReportEndpoint:
         assert "12.4" in data["report"]
         assert "【共识印证】" in data["report"]
 
+    def test_report_ch5_includes_esa_evidence_appendix(self, client: TestClient):
+        resp = client.post(
+            "/api/report",
+            json={
+                "mission_id": "ch5_yancheng",
+                # Provide stats explicitly so the endpoint works offline.
+                "stats": {
+                    "total_area_km2": 1234.0,
+                    "anomaly_area_km2": None,
+                    "anomaly_pct": None,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["mission_id"] == "ch5_yancheng"
+        assert "ESA" in data["report"]
+        assert "WorldCover" in data["report"]
+        assert "80(水体)" in data["report"]
+        assert "img.updateMask(img.neq(3).And(img.neq(0)))" in data["report"]
+
     def test_report_uses_llm_when_configured(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         import main  # noqa: WPS433
 
