@@ -202,7 +202,7 @@ class TestLayerLogicV6:
             assert kwargs["region"] is mock_geom
 
     def test_get_layer_logic_ch5_coastline_audit_kd_classifier_asset(self, gee_service_module, monkeypatch):
-        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × JRC Water Dynamics (Geofenced))"
+        mode = "ch5_coastline_audit 海岸线红线审计 (AEF × JRC (Generalized RF))"
         mock_region = Mock()
 
         monkeypatch.setenv("CH5_RF_ASSET_ID", "users/test/classifiers/ch5_coastline_rf_v1")
@@ -216,6 +216,7 @@ class TestLayerLogicV6:
             mock_base_img = Mock()
             mock_classifier = Mock()
             mock_classified = Mock()
+            mock_smoothed = Mock()
             mock_fence = Mock()
             mock_clipped = Mock()
             mock_mask_inland = Mock()
@@ -234,9 +235,12 @@ class TestLayerLogicV6:
             mock_ee.Classifier.load.return_value = mock_classifier
             mock_base_img.classify.return_value = mock_classified
 
+            # morphological smoothing
+            mock_classified.focal_mode.return_value = mock_smoothed
+
             # geofence clip
             mock_ee.Geometry.Polygon.return_value = mock_fence
-            mock_classified.clip.return_value = mock_clipped
+            mock_smoothed.clip.return_value = mock_clipped
 
             # background masking: img.updateMask(img.neq(3).And(img.neq(0)))
             mock_clipped.neq.side_effect = [mock_mask_inland, mock_mask_water]
@@ -245,7 +249,7 @@ class TestLayerLogicV6:
 
             result_image, vis_params, suffix = gee_service_module.get_layer_logic(mode, mock_region)
 
-            assert suffix == "ch5_audit_v8_science"
+            assert suffix == "ch5_audit_v8_1_generalized"
             assert vis_params.get("min") == 0
             assert vis_params.get("max") == 3
             assert isinstance(vis_params.get("palette"), list)
@@ -255,8 +259,10 @@ class TestLayerLogicV6:
             mock_ee.Classifier.load.assert_called_once()
             mock_base_img.classify.assert_called_once_with(mock_classifier)
 
+            mock_classified.focal_mode.assert_called_once()
+
             mock_ee.Geometry.Polygon.assert_called_once()
-            mock_classified.clip.assert_called_once_with(mock_fence)
+            mock_smoothed.clip.assert_called_once_with(mock_fence)
 
             assert mock_clipped.neq.call_args_list[0].args[0] == 3
             assert mock_clipped.neq.call_args_list[1].args[0] == 0

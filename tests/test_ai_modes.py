@@ -45,7 +45,7 @@ def _make_ee_stub() -> MagicMock:
         ("ch2_maowusu_shield 大国生态护盾 (余弦相似度)", "ch2_shield"),
         ("ch3_zhoukou_pulse 粮仓脉搏体检 (特定维度反演)", "ch3_pulse"),
         ("ch4_amazon_zeroshot 全球通用智能 (零样本聚类)", "ch4_zeroshot"),
-        ("ch5_coastline_audit 海岸线红线审计 (AEF × JRC Water Dynamics (Geofenced))", "ch5_audit_v8_science"),
+        ("ch5_coastline_audit 海岸线红线审计 (AEF × JRC (Generalized RF))", "ch5_audit_v8_1_generalized"),
         ("ch6_water_pulse 水网脉动监测 (维差分)", "ch6_water"),
     ],
 )

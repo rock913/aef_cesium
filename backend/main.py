@@ -736,8 +736,10 @@ async def generate_report(req: ReportRequest):
                 asset_id = "<unset>"
 
         scale = str(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
-        points_per_class = str(os.getenv("CH5_RF_POINTS_PER_CLASS", "2000") or "2000")
-        trees = str(os.getenv("CH5_RF_TREES", "50") or "50")
+        points_per_class = str(os.getenv("CH5_RF_POINTS_PER_CLASS", "3000") or "3000")
+        trees = str(os.getenv("CH5_RF_TREES", "60") or "60")
+        min_leaf = str(os.getenv("CH5_RF_MIN_LEAF_POP", "10") or "10")
+        bag_fraction = str(os.getenv("CH5_RF_BAG_FRACTION", "0.6") or "0.6")
 
         training_region = "[119.8, 32.8, 121.5, 34.0]"
         esa_dataset = "ESA/WorldCover/v200"
@@ -746,20 +748,21 @@ async def generate_report(req: ReportRequest):
         geofence_polygon = "[[[120.30,34.00],[121.50,34.00],[121.80,32.50],[120.60,32.50]]]"
 
         return (
-            "【证据附件：V8.0 多源共识 × 海岸带空间围栏】\n"
+            "【证据附件：V8.1 泛化与精度控制（多源共识 × 正则化 × 形态学平滑）】\n"
             "- 数据源：Google AEF Embedding (16D, 2023–2025) × ESA WorldCover × JRC Global Surface Water\n"
             f"- ESA 数据集：{esa_dataset}（Map）\n"
             f"- JRC 数据集：{jrc_dataset}\n"
-            "- 共识标签（仅在两源印证时才入样；其余像元全部剔除）：\n"
-            "  - 0 水体：JRC occurrence ≥ 90% 且 ESA=80(水体)\n"
-            "  - 1 潮间带滩涂：5% < occurrence < 85% 且 ESA≠50(建筑)\n"
-            "  - 2 人工硬化：ESA=50(建筑/不透水) 且 occurrence=0%\n"
-            "  - 3 内陆背景：ESA∈{40(农田),10(树林)} 且 occurrence=0%\n"
+            "- 软边界共识标签（Soft Margin；仅保留达成共识的像元入样）：\n"
+            "  - 0 水体：JRC occurrence ≥ 80% 且 ESA=80(水体)\n"
+            "  - 1 潮间带滩涂：5% < occurrence < 80% 且 ESA≠50(建筑)\n"
+            "  - 2 人工硬化：ESA=50(建筑/不透水) 且 occurrence≤2%\n"
+            "  - 3 内陆背景：ESA∈{40(农田),10(树林)} 且 occurrence≤2%\n"
             f"- 采样区域：{training_region}\n"
             f"- 分层采样：每类 {points_per_class} 像元（stratifiedSample），scale={scale}m\n"
-            f"- 模型：RandomForest(trees={trees})，输出 ID 稳定且可复核\n"
+            f"- 模型：RandomForest(trees={trees}, minLeafPopulation={min_leaf}, bagFraction={bag_fraction})（正则化抑制过拟合）\n"
             f"- 资产：{asset_id}\n"
-            "- 渲染后缀：ch5_audit_v8_science\n"
+            "- 渲染后缀：ch5_audit_v8_1_generalized\n"
+            "- 形态学平滑：img.focal_mode(radius=1.5, kernelType='circle', iterations=1)（多数滤波抑制椒盐碎斑）\n"
             f"- 空间围栏（Coastal Geofence）：{geofence_polygon}（先 clip，物理切除内陆干扰）\n"
             "- 推理净化：透明化水域与内陆（mask 掉 0 和 3）：img.updateMask(img.neq(3).And(img.neq(0)))\n"
             "- 可视化：仅保留 1=金黄(滩涂) 与 2=警告红(硬化) 的证据对抗"

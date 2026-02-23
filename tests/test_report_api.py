@@ -88,7 +88,8 @@ class TestReportEndpoint:
         assert "WorldCover" in data["report"]
         assert "JRC" in data["report"]
         assert "occurrence" in data["report"]
-        assert "V8.0" in data["report"]
+        assert "V8.1" in data["report"]
+        assert "focal_mode" in data["report"]
         assert "img.updateMask(img.neq(3).And(img.neq(0)))" in data["report"]
 
     def test_report_uses_llm_when_configured(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):

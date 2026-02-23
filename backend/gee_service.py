@@ -212,7 +212,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         suffix = "ch3_pulse"
 
     elif ("ch5_coastline_audit" in mode_s) or ("海岸线" in mode_s) or ("红线审计" in mode_s):
-        # Chapter 5: Coastline redline audit (V8.0: ESA + JRC consensus labels, geofenced rendering).
+        # Chapter 5: Coastline redline audit (V8.1: generalized consensus + morphological smoothing).
         # Stable IDs (by construction):
         #   0=water, 1=tidal mudflat/bare, 2=artificial/built, 3=inland background
         # We clip to a coastal fence to avoid inland city/farmland interference,
@@ -229,6 +229,13 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
             img = base_img.classify(classifier)
         except Exception as e:
             raise RuntimeError(f"CH5 RF classifier failed to run classify(): {e}") from e
+
+        # V8.1 morphological smoothing: majority filter to suppress salt-and-pepper noise.
+        # Keep this before geofence clip so the kernel has neighborhood context.
+        try:
+            img = img.focal_mode(radius=1.5, kernelType="circle", iterations=1)
+        except Exception as e:
+            raise RuntimeError(f"CH5 RF classifier failed to apply focal_mode smoothing: {e}") from e
 
         # V7.1 coastal geofence: physically exclude inland city + inland bare soil noise.
         try:
@@ -252,7 +259,7 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         except Exception as e:
             raise RuntimeError(f"CH5 RF classifier failed to apply gold mask: {e}") from e
 
-        suffix = "ch5_audit_v8_science"
+        suffix = "ch5_audit_v8_1_generalized"
 
         vis = {
             "min": 0,
@@ -377,7 +384,7 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
                 "palette": palette,
                 "format": "png",
             },
-            "ch5_audit_v8_science",
+            "ch5_audit_v8_1_generalized",
         )
     if ("ch6_water_pulse" in mode_s) or ("水网脉动" in mode_s) or ("维差分" in mode_s):
         return (

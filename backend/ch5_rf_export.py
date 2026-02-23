@@ -1,6 +1,6 @@
 """Chapter 5 (Yancheng coastline audit) classifier export helper.
 
-V8.0: Multi-Source Consensus Distillation (science-grade).
+V8.1: Generalized Consensus Export (elastic control).
 
 We retire single-source static landcover labeling as the only supervisor.
 Instead we build *consensus* labels by cross-checking two global products:
@@ -9,12 +9,13 @@ Instead we build *consensus* labels by cross-checking two global products:
     - JRC Global Surface Water occurrence (0–100, long-term inundation frequency)
 
 Consensus rules (labels are assigned only when the two sources agree under
-strict physical constraints):
+physically meaningful constraints). V8.1 introduces *soft margins* to better
+cover real-world transition zones:
 
-    - 0 Water: JRC occurrence >= 90% AND ESA says water
-    - 1 Tidal flat: 5% < occurrence < 85% AND ESA is NOT built-up
-    - 2 Built-up: ESA built-up AND occurrence == 0%
-    - 3 Inland: ESA cropland/trees AND occurrence == 0%
+    - 0 Water: JRC occurrence >= 80% AND ESA says water
+    - 1 Tidal flat: 5% < occurrence < 80% AND ESA is NOT built-up
+    - 2 Built-up: ESA built-up AND occurrence <= 2%
+    - 3 Inland: ESA cropland/trees AND occurrence <= 2%
 
 Ambiguous pixels are excluded from training.
 
@@ -203,8 +204,10 @@ def _build_classifier_graph() -> Any:
 
     scale = int(os.getenv("CH5_RF_SAMPLE_SCALE", "30") or "30")
     seed = int(os.getenv("CH5_RF_SEED", "42") or "42")
-    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "2000") or "2000")
-    rf_trees = int(os.getenv("CH5_RF_TREES", "50") or "50")
+    points_per_class = int(os.getenv("CH5_RF_POINTS_PER_CLASS", "3000") or "3000")
+    rf_trees = int(os.getenv("CH5_RF_TREES", "60") or "60")
+    rf_min_leaf = int(os.getenv("CH5_RF_MIN_LEAF_POP", "10") or "10")
+    rf_bag_fraction = float(os.getenv("CH5_RF_BAG_FRACTION", "0.6") or "0.6")
 
     # Use recent years for robustness.
     base_img = emb_col.filterDate("2023-01-01", "2025-01-01").mosaic().select(list(range(0, 16))).rename(emb_bands)
@@ -215,10 +218,11 @@ def _build_classifier_graph() -> Any:
 
     # V8.0 consensus masks.
     # NOTE: use explicit parentheses for EE boolean precedence.
-    pure_water = jrc.gte(90).And(esa.eq(80))
-    pure_flat = jrc.gt(5).And(jrc.lt(85)).And(esa.neq(50))
-    pure_built = esa.eq(50).And(jrc.unmask(0).eq(0))
-    pure_inland = (esa.eq(40).Or(esa.eq(10))).And(jrc.unmask(0).eq(0))
+    # Soft margin consensus (V8.1)
+    pure_water = jrc.gte(80).And(esa.eq(80))
+    pure_flat = jrc.gt(5).And(jrc.lt(80)).And(esa.neq(50))
+    pure_built = esa.eq(50).And(jrc.unmask(0).lte(2))
+    pure_inland = (esa.eq(40).Or(esa.eq(10))).And(jrc.unmask(0).lte(2))
 
     # Build labels inheriting projection from the embedding base to avoid pyramid/projection issues.
     # IMPORTANT: stratifiedSample requires classBand to be *integer typed*.
@@ -247,7 +251,12 @@ def _build_classifier_graph() -> Any:
         geometries=False,
     )
 
-    classifier = ee.Classifier.smileRandomForest(rf_trees).train(
+    classifier = ee.Classifier.smileRandomForest(
+        numberOfTrees=rf_trees,
+        minLeafPopulation=rf_min_leaf,
+        bagFraction=rf_bag_fraction,
+        seed=seed,
+    ).train(
         features=training_data,
         classProperty="class",
         inputProperties=emb_bands,
@@ -414,7 +423,7 @@ def _submit_export(asset_id: str) -> str:
     classifier = _build_classifier_graph()
     task = ee.batch.Export.classifier.toAsset(
         classifier=classifier,
-        description="Export_Coastline_RF_V8_Science",
+        description="Export_Coastline_RF_V8_1",
         assetId=asset_id,
     )
     task.start()
