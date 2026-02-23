@@ -221,14 +221,16 @@ def _build_classifier_graph() -> Any:
     pure_inland = (esa.eq(40).Or(esa.eq(10))).And(jrc.unmask(0).eq(0))
 
     # Build labels inheriting projection from the embedding base to avoid pyramid/projection issues.
-    labels = base_img.select([0]).multiply(0).add(-1)
+    # IMPORTANT: stratifiedSample requires classBand to be *integer typed*.
+    labels = base_img.select([0]).multiply(0).toInt().subtract(1)
     labels = labels.where(pure_water, 0)
     labels = labels.where(pure_flat, 1)
     labels = labels.where(pure_built, 2)
     labels = labels.where(pure_inland, 3)
+    labels = labels.toInt()
 
     training_mask = labels.neq(-1)
-    gold_labels = labels.updateMask(training_mask).rename("class")
+    gold_labels = labels.updateMask(training_mask).rename("class").toInt()
 
     training_stack = base_img.addBands(gold_labels)
 
