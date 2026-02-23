@@ -8,15 +8,55 @@ const keepAliveAgent = new http.Agent({
   maxSockets: 256
 })
 
+// Used for one-shot retry on transient socket resets (e.g. backend restart while
+// the dev server keeps an idle keep-alive connection).
+const freshAgent = new http.Agent({
+  keepAlive: false,
+  maxSockets: 256
+})
+
 function attachProxyDebug(proxy, opts) {
   const target = opts?.target || ''
   try {
-    proxy.on('error', (err, req) => {
+    proxy.on('error', (err, req, res) => {
       const code = err?.code || ''
       const msg = err?.message || String(err)
       const url = req?.url || ''
       const method = req?.method || ''
+
+      // Mitigation: if the backend restarted, the proxy may attempt to reuse an
+      // idle keep-alive socket and get ECONNRESET. For idempotent tile GETs,
+      // retry once with a fresh (non-keepalive) agent.
+      const isTileGet = method === 'GET' && typeof url === 'string' && url.startsWith('/api/tiles/')
+      const canRetry = isTileGet && (code === 'ECONNRESET' || code === 'EPIPE')
+      if (canRetry && req && !req.__oneearth_proxy_retried) {
+        req.__oneearth_proxy_retried = true
+        try {
+          proxy.web(req, res, { target, agent: freshAgent })
+          return
+        } catch (_) {
+          // fall through
+        }
+      }
+
       console.error(`[proxy:error] ${method} ${url} -> ${target} ${code} ${msg}`)
+
+      // Avoid leaving the client hanging with a reset socket.
+      try {
+        if (res && !res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' })
+        }
+        res?.end?.(JSON.stringify({
+          error: 'proxy_error',
+          code,
+          message: msg,
+          target,
+          url,
+          hint: 'Backend may be restarting; retry shortly.'
+        }))
+      } catch (_) {
+        // ignore
+      }
     })
     proxy.on('proxyRes', (proxyRes, req) => {
       const status = proxyRes?.statusCode
