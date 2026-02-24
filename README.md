@@ -5,16 +5,9 @@ Alpha Earth Foundation（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 
 本目录为 `cesium_app_v6`，端口与主案例已固化，适合“快速了解现状 → 继续开发”。
 
 ## 📌 当前状态（2026-02-22）
-
-- 端口：前端 `8504`，后端 `8505`（`.env` + 启动脚本驱动）
-- 叙事主线：六章主案例 Missions（余杭 / 毛乌素 / 周口 / 亚马逊 / 盐城 / 鄱阳湖），首页默认 3 列卡片（6 卡 = 3×2）
-- LLM：可选接入 DashScope/Qwen（OpenAI-compatible）
   - `/api/report`：监测简报（模板/LLM）
   - `/api/analyze`：智能体分析控制台（模板/LLM）
 - 前端调试：地图左下角实时显示“屏幕中心经纬度 CENTER: lat, lon”（用于校准飞行/定位）
-- 主要回归：后端 `pytest` 全绿（最近一次 `90 passed, 36 skipped`）；前端 `vitest` 已接入（基础工具测试通过）
-
-## 📚 文档导航（仓库内真实存在）
 
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 常用命令与端口速查
 - [docs/oneearth_v6.md](docs/oneearth_v6.md) - V6 规格与叙事目标（实现对齐基准）
@@ -26,6 +19,9 @@ Alpha Earth Foundation（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 
 ```text
 Frontend (8504)                 Backend API (8505)                    Google Earth Engine
 ┌─────────────────────┐         ┌─────────────────────────┐          ┌───────────────────┐
+
+- Runtime deps: `pip install -r backend/requirements.txt`
+- Dev/test deps (needed for `make test-fast`): `pip install -r backend/requirements-dev.txt`
 │ Vue3 + CesiumJS      │◄──────► │ FastAPI                 │◄────────►│ AEF Dataset        │
 │ - Missions/叙事      │  JSON    │ - 图层/瓦片 URL 生成     │   ee API  │ - Embeddings       │
 │ - AI Console         │         │ - reduceRegion 统计      │          │ - Sentinel-2 etc.  │
