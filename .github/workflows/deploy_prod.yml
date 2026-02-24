@@ -155,13 +155,7 @@ jobs:
           # Add key to agent (supports optional passphrase via SSH_ASKPASS).
           if [ -n "${PROD_SSH_PASSPHRASE}" ]; then
             askpass="$RUNNER_TEMP/ssh-askpass.sh"
-            python - <<'PY'
-            import os
-            import pathlib
-
-            askpass_path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "ssh-askpass.sh"
-            askpass_path.write_text('#!/usr/bin/env sh\necho "$PROD_SSH_PASSPHRASE"\n')
-            PY
+            printf '%s\n' '#!/usr/bin/env sh' 'echo "$PROD_SSH_PASSPHRASE"' > "$askpass"
             chmod 700 "$askpass"
             DISPLAY=:0 SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force ssh-add "$key_path" </dev/null
           else
