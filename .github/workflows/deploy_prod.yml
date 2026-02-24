@@ -150,7 +150,26 @@ jobs:
 
           # Normalize possible CRLF (common when copying secrets from Windows).
           sed -i 's/\r$//' "$key_path"
+
+          # If the secret was stored as a single line with literal \n sequences, fix it.
+          python -c 'import pathlib; p=pathlib.Path("'"$key_path"'"); s=p.read_text(); s=s.replace("\\\\n","\n"); p.write_text(s)'
+
+          # Ensure trailing newline (some copy/paste paths may omit it).
+          tail -c 1 "$key_path" | read -r _ || echo >> "$key_path"
           chmod 600 "$key_path"
+
+          # Validate key format early for clearer errors.
+          if [ -z "${PROD_SSH_PASSPHRASE}" ]; then
+            if ! ssh-keygen -y -f "$key_path" >/dev/null 2>&1; then
+              echo "❌ SSH private key could not be parsed (common causes: encrypted key without passphrase, pasted .pub instead of private key, key stored with literal \\n, or truncated key)."
+              echo "   First line: $(head -n 1 "$key_path" | tr -d '\r')"
+              echo "   Last line:  $(tail -n 1 "$key_path" | tr -d '\r')"
+              echo "   Fix options:"
+              echo "    - Prefer setting PROD_SSH_KEY_B64 (base64 of the full private key)"
+              echo "    - If the key is encrypted, set PROD_SSH_PASSPHRASE or use an unencrypted deploy key"
+              exit 1
+            fi
+          fi
 
           # Add key to agent (supports optional passphrase via SSH_ASKPASS).
           if [ -n "${PROD_SSH_PASSPHRASE}" ]; then

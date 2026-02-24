@@ -206,6 +206,13 @@ GitHub 有两套“作用域”可以存放 Secrets/Variables：
 - `PROD_FRONTEND_URL`：前端健康检查 URL（默认 `http://127.0.0.1:8506/`）
 - `PROD_KNOWN_HOSTS`：ssh known_hosts（可选；不填则 workflow 会用 `ssh-keyscan` 自动写入）
 
+常见坑（`ssh-add` 报 `error in libcrypto`）：
+
+- `PROD_SSH_KEY` 误填成了 `.pub` 公钥（必须是私钥，包含 `BEGIN ... PRIVATE KEY`）
+- 私钥是“带口令(passphrase)”的，但没有设置 `PROD_SSH_PASSPHRASE`（CI 无法交互输入）
+- 私钥内容被粘贴成单行且包含字面量 `\n`（建议改用 `PROD_SSH_KEY_B64`）
+- 私钥被截断/少了 `END ...` 结尾行
+
 建议放在 **Repository（Variables）**（非敏感默认值，团队可见）：
 
 - `PROD_SSH_PORT`（如果你不想把端口当 secret）
