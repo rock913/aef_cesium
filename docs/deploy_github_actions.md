@@ -194,6 +194,8 @@ GitHub 有两套“作用域”可以存放 Secrets/Variables：
 - `PROD_HOST`：生产服务器 IP / 域名
 - `PROD_USER`：SSH 用户
 - `PROD_SSH_KEY`：私钥（建议专用 deploy key）
+- （可选）`PROD_SSH_KEY_B64`：把私钥内容 base64 后保存（更不容易因为换行/CRLF 导致 `ssh-add` 解析失败；设置了它会优先使用）
+- （可选）`PROD_SSH_PASSPHRASE`：如果私钥带 passphrase，需要配置该 secret（否则请使用无口令私钥）
 - `PROD_PATH`：`/opt/oneearth/cesium_app_v6`
 - （可选）`PROD_SSH_PORT`：SSH 端口（默认 22）
 
