@@ -26,7 +26,7 @@ FRONTEND_URL="http://127.0.0.1:8506/"
 RELOAD_NGINX="0"
 KEEP_RELEASES="5"
 
-SUDO=""
+SUDO="sudo"
 
 _init_sudo() {
   # Prefer non-interactive sudo when running as a non-root deploy user.
