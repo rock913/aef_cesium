@@ -145,7 +145,7 @@ class Settings(BaseModel):
         {
             "id": "ch5_yancheng",
             "name": "红线",
-            "title": "江苏盐城 · 海岸线生态离任审计 (2023-2024)",
+            "title": "江苏盐城 · 海岸线红线审计 (2023-2024)",
             "location": "yancheng",
             "api_mode": "ch5_coastline_audit",
             "formula": "AEF × JRC (Generalized RF)",

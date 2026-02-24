@@ -129,7 +129,7 @@
 在 chapters 数组中追加以下两段 JSON 剧本：
 
   {
-    id: '第五章 : 红线', name: '海岸线生态离任审计',
+    id: '第五章 : 红线', name: '海岸线红线审计',
     brief: '严守 35% 自然岸线保有率，拒绝视觉假象。',
     locationName: '江苏盐城 · 黄金海岸带', locationId: 'yancheng', apiMode: 'ch5_coastline_audit', operator: 'K-Means(A00, A02)',
     lng: 120.50, lat: 33.38, height: 40000, pitch: -45,

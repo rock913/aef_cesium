@@ -1,79 +1,106 @@
 <template>
   <div class="app-container">
-    <CesiumViewer
-      ref="cesiumViewer"
-      :initial-location="initialLocation"
-      @viewer-ready="onViewerReady"
-      @map-center-changed="onMapCenterChanged"
-    />
+        <!-- Access gate: enabled only when VITE_ACCESS_PASSWORD is non-empty.
+          NOTE: This is not strong security; it is a UI gate only. -->
+        <div v-if="accessEnabled && !accessGranted" class="access-gate">
+      <div class="access-card">
+        <div class="access-title">Access Required</div>
+        <div class="access-sub">请输入访问密码以进入系统</div>
 
-    <!-- Debug HUD: map screen-center coordinates (bottom-left) -->
-    <div v-if="viewerReady" class="debug-center">
-      CENTER: {{ mapCenterText }}
+        <form class="access-form" @submit.prevent="submitAccess">
+          <input
+            v-model="accessInput"
+            class="access-input"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Password"
+            aria-label="Access password"
+          />
+          <button class="access-btn" type="submit">Enter</button>
+        </form>
+
+        <div v-if="accessError" class="access-error">{{ accessError }}</div>
+        <div class="access-hint">提示：通过后会在本机浏览器记住</div>
+      </div>
     </div>
 
-    <!-- Global exit: Abort & Orbit -->
-    <transition name="slide-down">
-      <button
-        v-if="appState !== 'standby'"
-        class="abort-btn"
-        :disabled="!viewerReady"
-        @click="abortAndOrbit"
-        title="清理图层并返回全球轨道视角"
-      >
-        Abort & Orbit
-      </button>
-    </transition>
+    <template v-else>
+      <CesiumViewer
+        ref="cesiumViewer"
+        :initial-location="initialLocation"
+        @viewer-ready="onViewerReady"
+        @map-center-changed="onMapCenterChanged"
+      />
 
-    <!-- Act 1: Orbit Lobby (mission-only interaction) -->
-    <transition name="fade-up">
-      <div v-if="appState === 'standby'" class="lobby">
-        <div class="lobby-hero">
-          <div class="hero-title">ALPHA EARTH</div>
-          <div class="subtitle">场景验证系统</div>
-          <div class="lobby-hint">
-            点击任务包，智能体将自动锁定目标并展开研判。
-          </div>
-        </div>
-
-        <div class="mission-deck">
-          <div class="deck-title">行星级任务包（Missions）</div>
-          <div v-if="!missions?.length" class="mission-empty">正在加载 Missions…</div>
-
-          <div class="mission-row">
-            <button
-              v-for="m in missions"
-              :key="m.id"
-              class="mission-card"
-              @click="lockMission(m)"
-              :disabled="!viewerReady"
-            >
-              <div class="mission-card-top">
-                <span class="tag">{{ getChapterCode(m.id) || m.name }}</span>
-                <span class="tag secondary">{{ locations?.[m.location]?.name || m.location }}</span>
-                <span v-if="m.formula" class="tag tertiary formula">{{ m.formula }}</span>
-              </div>
-              <div class="mission-card-title">{{ m.title }}</div>
-              <div class="mission-card-foot">
-                <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
-                <span class="foot-text">
-                  <template v-if="prefetchState[m.id]?.done">
-                    {{ prefetchState[m.id]?.ok ? '预热完成' : '预热失败（仍可点击执行）' }}
-                  </template>
-                  <template v-else>
-                    {{ viewerReady ? '待机中：后台静默预热' : '地球引擎初始化中…' }}
-                  </template>
-                </span>
-              </div>
-            </button>
-          </div>
-        </div>
+      <!-- Debug HUD: map screen-center coordinates (bottom-left) -->
+      <div v-if="viewerReady" class="debug-center">
+        CENTER: {{ mapCenterText }}
       </div>
-    </transition>
 
-    <!-- Act 3: Agentic Analysis Console -->
-    <transition name="slide-left">
-      <div v-if="appState === 'analyzing'" class="ai-panel" ref="aiPanelEl">
+      <button v-if="accessEnabled" class="access-logout" title="锁定" @click="logoutAccess">Lock</button>
+
+      <!-- Global exit: Abort & Orbit -->
+      <transition name="slide-down">
+        <button
+          v-if="appState !== 'standby'"
+          class="abort-btn"
+          :disabled="!viewerReady"
+          @click="abortAndOrbit"
+          title="清理图层并返回全球轨道视角"
+        >
+          Abort & Orbit
+        </button>
+      </transition>
+
+      <!-- Act 1: Orbit Lobby (mission-only interaction) -->
+      <transition name="fade-up">
+        <div v-if="appState === 'standby'" class="lobby">
+          <div class="lobby-hero">
+            <div class="hero-title">ALPHA EARTH</div>
+            <div class="subtitle">场景验证系统</div>
+            <div class="lobby-hint">
+              点击任务包，智能体将自动锁定目标并展开研判。
+            </div>
+          </div>
+
+          <div class="mission-deck">
+            <div class="deck-title">行星级任务包（Missions）</div>
+            <div v-if="!missions?.length" class="mission-empty">正在加载 Missions…</div>
+
+            <div class="mission-row">
+              <button
+                v-for="m in missions"
+                :key="m.id"
+                class="mission-card"
+                @click="lockMission(m)"
+                :disabled="!viewerReady"
+              >
+                <div class="mission-card-top">
+                  <span class="tag">{{ getChapterCode(m.id) || m.name }}</span>
+                  <span class="tag secondary">{{ locations?.[m.location]?.name || m.location }}</span>
+                  <span v-if="m.formula" class="tag tertiary formula">{{ m.formula }}</span>
+                </div>
+                <div class="mission-card-title">{{ m.title }}</div>
+                <div class="mission-card-foot">
+                  <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
+                  <span class="foot-text">
+                    <template v-if="prefetchState[m.id]?.done">
+                      {{ prefetchState[m.id]?.ok ? '预热完成' : '预热失败（仍可点击执行）' }}
+                    </template>
+                    <template v-else>
+                      {{ viewerReady ? '待机中：后台静默预热' : '地球引擎初始化中…' }}
+                    </template>
+                  </span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Act 3: Agentic Analysis Console -->
+      <transition name="slide-left">
+        <div v-if="appState === 'analyzing'" class="ai-panel" ref="aiPanelEl">
         <div class="ai-header">
           <div class="ai-title-row">
             <div class="ai-title">ALPHA EARTH <span>INTEL</span></div>
@@ -156,24 +183,25 @@
             </details>
           </div>
         </div>
-      </div>
-    </transition>
+        </div>
+      </transition>
 
-    <!-- Swipe Compare slider overlay (drag ONLY on handle; does not block AI panel clicks) -->
-    <div v-if="appState === 'analyzing' && splitCompareEnabled" class="split-compare">
-      <div class="split-line" :style="{ left: (splitPosition * 100) + '%' }">
-        <div
-          class="split-handle"
-          title="拖动把手以对比"
-          @pointerdown.stop.prevent="onSplitHandleDown"
-        ></div>
+      <!-- Swipe Compare slider overlay (drag ONLY on handle; does not block AI panel clicks) -->
+      <div v-if="appState === 'analyzing' && splitCompareEnabled" class="split-compare">
+        <div class="split-line" :style="{ left: (splitPosition * 100) + '%' }">
+          <div
+            class="split-handle"
+            title="拖动把手以对比"
+            @pointerdown.stop.prevent="onSplitHandleDown"
+          ></div>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
@@ -191,6 +219,86 @@ export default {
   },
   
   setup() {
+    // Simple access gate (UI only). For stronger protection, enforce auth/rate-limit on backend/nginx.
+    const ACCESS_STORAGE_KEY = 'aef_access_granted_v1'
+    const accessGranted = ref(false)
+    const accessEnabled = ref(false)
+    const accessInput = ref('')
+    const accessError = ref('')
+    const accessPasswordRaw = import.meta.env.VITE_ACCESS_PASSWORD
+    const accessPassword = (typeof accessPasswordRaw === 'string' ? accessPasswordRaw.trim() : '')
+    accessEnabled.value = !!accessPassword
+
+    function _loadStoredAccess() {
+      if (!accessEnabled.value) {
+        accessGranted.value = true
+        return
+      }
+      try {
+        if (localStorage.getItem(ACCESS_STORAGE_KEY) === '1') {
+          accessGranted.value = true
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    function submitAccess() {
+      if (!accessEnabled.value) {
+        accessGranted.value = true
+        return
+      }
+      accessError.value = ''
+      const input = (accessInput.value || '').trim()
+      if (!input) {
+        accessError.value = '请输入密码'
+        return
+      }
+      if (input !== accessPassword) {
+        accessError.value = '密码错误'
+        return
+      }
+      accessGranted.value = true
+      try {
+        localStorage.setItem(ACCESS_STORAGE_KEY, '1')
+      } catch (_) {
+        // ignore
+      }
+      accessInput.value = ''
+    }
+
+    function logoutAccess() {
+      if (!accessEnabled.value) return
+      try {
+        localStorage.removeItem(ACCESS_STORAGE_KEY)
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        window.removeEventListener('resize', _onResize)
+      } catch (_) {
+        // ignore
+      }
+
+      accessGranted.value = false
+      accessInput.value = ''
+      accessError.value = ''
+
+      // Best-effort cleanup (stop tile requests)
+      try {
+        cesiumViewer.value?.clearAILayer?.()
+      } catch (_) {
+        // ignore
+      }
+      try {
+        cesiumViewer.value?.stopGlobalRotation?.()
+      } catch (_) {
+        // ignore
+      }
+      viewerReady.value = false
+    }
+
     const cesiumViewer = ref(null)
     const aiPanelEl = ref(null)
     const locations = ref({})
@@ -292,9 +400,8 @@ export default {
       return { lat: 35.0, lon: 105.0, height: 20000000 }
     })
     
-    onMounted(async () => {
+    async function _initAppData() {
       try {
-        // 加载地点/模式/Missions 列表
         const [locs, ms, missionsData] = await Promise.all([
           apiService.getLocations(),
           apiService.getModes(),
@@ -308,11 +415,24 @@ export default {
         alert('后端连接失败：请确保 API 服务已启动（默认端口 8505），且前端 /api 代理可用。')
       }
 
-      // keep split bounds in sync with responsive right panel
       try {
         window.addEventListener('resize', _onResize, { passive: true })
       } catch (_) {
         // ignore
+      }
+    }
+
+    onMounted(async () => {
+      _loadStoredAccess()
+      if (accessGranted.value) {
+        await _initAppData()
+      }
+    })
+
+    watch(accessGranted, async (v) => {
+      if (!v) return
+      if (!missions.value?.length) {
+        await _initAppData()
       }
     })
 
@@ -965,6 +1085,12 @@ export default {
     }
     
     return {
+      accessGranted,
+      accessEnabled,
+      accessInput,
+      accessError,
+      submitAccess,
+      logoutAccess,
       cesiumViewer,
       aiPanelEl,
       locations,
@@ -1017,6 +1143,108 @@ export default {
   height: 100vh;
   position: relative;
   overflow: hidden;
+}
+
+.access-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(0, 245, 255, 0.08), rgba(0, 0, 0, 0.92));
+}
+
+.access-card {
+  width: min(520px, 92vw);
+  background: rgba(10, 15, 25, 0.88);
+  border: 1px solid rgba(0, 245, 255, 0.22);
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+.access-title {
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.access-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.access-form {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+}
+
+.access-input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 245, 255, 0.25);
+  outline: none;
+  background: rgba(0, 245, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.access-input:focus {
+  border-color: rgba(0, 245, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(0, 245, 255, 0.12);
+}
+
+.access-btn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 245, 255, 0.25);
+  background: rgba(0, 245, 255, 0.14);
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.access-btn:hover {
+  background: rgba(0, 245, 255, 0.22);
+}
+
+.access-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255, 110, 110, 0.95);
+}
+
+.access-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.access-logout {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 2500;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 245, 255, 0.22);
+  background: rgba(10, 15, 25, 0.62);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.access-logout:hover {
+  background: rgba(0, 245, 255, 0.12);
 }
 
 .debug-center {

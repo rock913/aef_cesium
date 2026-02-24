@@ -19,6 +19,7 @@ Alpha Earth Foundation（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 常用命令与端口速查
 - [docs/oneearth_v6.md](docs/oneearth_v6.md) - V6 规格与叙事目标（实现对齐基准）
 - [docs/oneearth_v6.6.md](docs/oneearth_v6.6.md) - 最新迭代说明（如与 v6 有差异以该文档为准）
+- [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布 + 8506/8507 生产部署指南
 
 ## 🏗️ 技术架构
 
@@ -60,6 +61,15 @@ cesium_app_v6/
 ```
 
 ## 🚀 快速开始
+
+### 访问密码（前端轻量闸门）
+
+为避免公开访问导致大量瓦片/分析请求影响速度，前端增加了一个“简单密码闸门”（UI 级别，并非强安全认证）：
+
+- 当 `VITE_ACCESS_PASSWORD` 为空/未设置时：不启用密码管控（直接放行）
+- 当 `VITE_ACCESS_PASSWORD` 为非空字符串时：启用密码管控（输入该密码才进入）
+- 通过后会记住本机浏览器状态（localStorage）
+- 注意：Vite 的 `VITE_*` 变量在构建时注入；生产环境修改该值需要重新构建前端产物
 
 ### 环境要求
 
