@@ -181,6 +181,9 @@ jobs:
             ssh-add "$key_path"
           fi
 
+          echo "SSH agent keys:"
+          ssh-add -l || true
+
       - name: Add known hosts
         run: |
           set -euo pipefail
@@ -197,14 +200,17 @@ jobs:
           rid="${{ steps.rel.outputs.release_id }}"
           archive="${{ steps.pkg.outputs.archive }}"
           remote_incoming="${PROD_PATH}/incoming"
-          ssh -p "${PROD_SSH_PORT}" "${PROD_USER}@${PROD_HOST}" "mkdir -p '${remote_incoming}' '${PROD_PATH}/releases'"
-          scp -P "${PROD_SSH_PORT}" "$archive" "${PROD_USER}@${PROD_HOST}:${remote_incoming}/${rid}.tar.gz"
+          key_path="$HOME/.ssh/id_oneearth_deploy"
+          echo "PROD_USER${PROD_USER}@PROD_HOST${PROD_HOST}remote_incoming${remote_incoming}"
+          ssh -vvv -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" "mkdir -p '${remote_incoming}' '${PROD_PATH}/releases'"
+          scp -P "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "$archive" "${PROD_USER}@${PROD_HOST}:${remote_incoming}/${rid}.tar.gz"
 
       - name: Deploy on server (extract + switch + restart + healthcheck)
         run: |
           set -euo pipefail
           rid="${{ steps.rel.outputs.release_id }}"
-          ssh -p "${PROD_SSH_PORT}" "${PROD_USER}@${PROD_HOST}" "set -euo pipefail; \
+          key_path="$HOME/.ssh/id_oneearth_deploy"
+          ssh -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" "set -euo pipefail; \
             base='${PROD_PATH}'; \
             release_id='${rid}'; \
             archive=\"${PROD_PATH}/incoming/${rid}.tar.gz\"; \
