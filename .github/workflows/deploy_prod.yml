@@ -215,7 +215,7 @@ jobs:
           ssh -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" "set -euo pipefail; \
             export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; \
             echo '== remote context =='; \
-            echo "REMOTE_USER=\$(whoami)"; \
+            echo REMOTE_USER=\$(whoami); \
             id || true; \
             groups || true; \
             echo '== sudo check (force no timestamp) =='; \
