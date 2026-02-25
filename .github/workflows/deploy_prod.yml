@@ -238,8 +238,17 @@ jobs:
             printf '%s' "$raw" > "$tmp_key_json"
           else
             # Strip all whitespace to tolerate line-wrapped base64.
-            # --ignore-garbage handles occasional non-base64 chars from copy/paste.
-            printf '%s' "$raw" | tr -d '[:space:]' | base64 --decode --ignore-garbage > "$tmp_key_json"
+            # Try standard base64 first, then URL-safe base64 (common copy/paste variant).
+            b64="$(printf '%s' "$raw" | tr -d '[:space:]')"
+            if ! printf '%s' "$b64" | base64 --decode > "$tmp_key_json" 2>/dev/null; then
+              if ! printf '%s' "$b64" | tr '_-' '/+' | base64 --decode > "$tmp_key_json" 2>/dev/null; then
+                echo "❌ EE_PRIVATE_KEY_JSON_B64 is neither raw JSON nor valid base64 JSON"
+                echo "   Fix options:"
+                echo "   - Paste the full service-account JSON as the secret value (raw JSON), OR"
+                echo "   - Set the secret to: base64 -w 0 <key.json>"
+                exit 1
+              fi
+            fi
           fi
           if [ ! -s "$tmp_key_json" ]; then
             echo "❌ Decoded key JSON is empty (check EE_PRIVATE_KEY_JSON_B64 secret)"
