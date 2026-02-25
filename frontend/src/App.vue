@@ -1529,6 +1529,11 @@ export default {
   touch-action: pan-y;
 }
 
+/* Hide hold-to-compare in browser UI (keep the internal logic available). */
+.ai-actions .ai-btn-hold {
+  display: none;
+}
+
 .ai-drawer-handle {
   display: none;
 }
@@ -1900,6 +1905,11 @@ export default {
     max-height: 62vh;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Mobile: hide debug center coordinates */
+  .debug-center {
+    display: none;
   }
 
   /* Mobile: convert right-side panel to bottom-sheet drawer so it doesn't cover the scene. */

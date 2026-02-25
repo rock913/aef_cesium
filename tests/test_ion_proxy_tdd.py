@@ -141,7 +141,11 @@ def test_streaming_proxy_strips_content_length_to_avoid_mismatch(client_and_main
 def test_google_tiles_root_json_uses_buffered_proxy_mode(client_and_main):
     client, main = client_and_main
 
-    payload = {"hello": "tiles"}
+    payload = {
+        "hello": "tiles",
+        # Absolute-path URIs must be rewritten to stay within /api/google-tiles.
+        "content": {"uri": "/v1/3dtiles/datasets/AAA/files/BBB.glb?key=xyz"},
+    }
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert "tile.googleapis.com" in str(request.url)
@@ -155,5 +159,8 @@ def test_google_tiles_root_json_uses_buffered_proxy_mode(client_and_main):
 
     resp = client.get("/api/google-tiles/v1/3dtiles/root.json?key=xyz")
     assert resp.status_code == 200
-    assert resp.headers.get("x-oneearth-proxy-mode") == "buffered"
-    assert resp.json() == payload
+    assert resp.headers.get("x-oneearth-proxy-mode") == "buffered-json-rewrite"
+
+    data = resp.json()
+    assert data["hello"] == "tiles"
+    assert data["content"]["uri"].startswith("/api/google-tiles/v1/3dtiles/")

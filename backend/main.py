@@ -16,6 +16,7 @@ from pydantic import BaseModel
 import ee
 from typing import Optional, Any, Dict, List
 import base64
+import json
 import hashlib
 import time
 import asyncio
@@ -661,6 +662,162 @@ async def _proxy_buffered(
                     headers=out_headers,
                     media_type=media_type,
                 )
+            except httpx.TimeoutException as e:
+                last_error = e
+                _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
+            except httpx.RequestError as e:
+                last_error = e
+                _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
+            except Exception as e:
+                last_error = e
+                _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"exception: {e}")
+
+        if isinstance(last_error, httpx.TimeoutException):
+            raise HTTPException(status_code=504, detail="Upstream timeout")
+        raise HTTPException(status_code=502, detail="Upstream request error")
+    finally:
+        try:
+            _ion_upstream_sem.release()
+        except Exception:
+            pass
+
+
+async def _proxy_google_tiles_json_with_rewrite(
+    request: Request,
+    *,
+    upstream_url: str,
+    acquire_timeout_s: float = 1.5,
+    timeout_s: Optional[float] = None,
+    retries: int = 1,
+) -> Response:
+    """Fetch Google tiles JSON and rewrite embedded URIs to remain same-origin.
+
+    Google 3D Tiles metadata can contain absolute-path URIs like `/v1/3dtiles/...`.
+    When the root JSON is served from `/api/google-tiles/...`, those absolute-path
+    references escape the proxy and the browser requests `/v1/3dtiles/...` directly
+    from our origin, often receiving `index.html`/404, leading Cesium to report
+    `Invalid tile content`.
+    """
+
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    method = request.method.upper()
+    if method not in {"GET", "HEAD"}:
+        raise HTTPException(status_code=405, detail="Method not allowed")
+
+    timeout_val = float(timeout_s) if timeout_s is not None else float(_ion_upstream_timeout_s)
+    diag_key = _diag_key_for_upstream_url(upstream_url)
+
+    try:
+        try:
+            await asyncio.wait_for(_ion_upstream_sem.acquire(), timeout=max(0.1, float(acquire_timeout_s)))
+        except Exception:
+            raise HTTPException(status_code=503, detail="Upstream busy")
+
+        headers = _proxy_request_headers(request, accept_encoding_identity=True)
+        params = dict(request.query_params)
+
+        last_error: Optional[Exception] = None
+        for attempt in range(max(0, int(retries)) + 1):
+            if attempt > 0:
+                await asyncio.sleep(min(0.8, 0.2 * (2 ** (attempt - 1))))
+
+            t0 = time.perf_counter()
+            try:
+                if method == "HEAD":
+                    resp = await http_client.request(
+                        "HEAD",
+                        upstream_url,
+                        params=params,
+                        headers=headers,
+                        timeout=timeout_val,
+                        follow_redirects=True,
+                    )
+                    _record_upstream_diag(
+                        diag_key,
+                        status=int(resp.status_code),
+                        latency_ms=(time.perf_counter() - t0) * 1000.0,
+                        error=None,
+                    )
+                    out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+                    out_headers["X-OneEarth-Proxy-Mode"] = "buffered-json-rewrite"
+                    return Response(status_code=int(resp.status_code), headers=out_headers)
+
+                resp = await http_client.get(
+                    upstream_url,
+                    params=params,
+                    headers=headers,
+                    timeout=timeout_val,
+                    follow_redirects=True,
+                )
+                _record_upstream_diag(
+                    diag_key,
+                    status=int(resp.status_code),
+                    latency_ms=(time.perf_counter() - t0) * 1000.0,
+                    error=None,
+                )
+
+                # Pass through non-JSON or non-200 responses as buffered bytes.
+                content_type = (resp.headers.get("content-type") or "").lower()
+                if int(resp.status_code) != 200 or "json" not in content_type:
+                    out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+                    out_headers = {
+                        k: v
+                        for k, v in out_headers.items()
+                        if k.lower() not in {"content-length", "content-encoding", "transfer-encoding", "content-type"}
+                    }
+                    out_headers["X-OneEarth-Proxy-Mode"] = "buffered"
+                    media_type = (resp.headers.get("content-type") or "application/octet-stream").split(";")[0].strip()
+                    return Response(
+                        content=resp.content,
+                        status_code=int(resp.status_code),
+                        headers=out_headers,
+                        media_type=media_type or "application/octet-stream",
+                    )
+
+                try:
+                    upstream_json = resp.json()
+                except Exception:
+                    # If JSON parsing fails, return bytes as-is.
+                    out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+                    out_headers = {
+                        k: v
+                        for k, v in out_headers.items()
+                        if k.lower() not in {"content-length", "content-encoding", "transfer-encoding", "content-type"}
+                    }
+                    out_headers["X-OneEarth-Proxy-Mode"] = "buffered"
+                    return Response(
+                        content=resp.content,
+                        status_code=int(resp.status_code),
+                        headers=out_headers,
+                        media_type="application/json",
+                    )
+
+                # Rewrite absolute-path and upstream-host references to the proxy.
+                replacements = [
+                    ("https://tile.googleapis.com", "/api/google-tiles"),
+                    ("http://tile.googleapis.com", "/api/google-tiles"),
+                    ("//tile.googleapis.com", "/api/google-tiles"),
+                    ("/v1/3dtiles", "/api/google-tiles/v1/3dtiles"),
+                ]
+                rewritten = _rewrite_urls_in_json(upstream_json, replacements)
+                body = json.dumps(rewritten, ensure_ascii=False).encode("utf-8")
+
+                out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+                out_headers = {
+                    k: v
+                    for k, v in out_headers.items()
+                    if k.lower() not in {"content-length", "content-encoding", "transfer-encoding", "content-type"}
+                }
+                out_headers["X-OneEarth-Proxy-Mode"] = "buffered-json-rewrite"
+                return Response(
+                    content=body,
+                    status_code=200,
+                    headers=out_headers,
+                    media_type="application/json",
+                )
+
             except httpx.TimeoutException as e:
                 last_error = e
                 _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
@@ -1940,7 +2097,7 @@ async def proxy_google_tiles(path: str, request: Request):
     # mid-stream disconnects; buffering+retry avoids browser-side
     # ERR_INCOMPLETE_CHUNKED_ENCODING.
     if request.method.upper() == "GET" and str(path).lower().endswith(".json"):
-        return await _proxy_buffered(
+        return await _proxy_google_tiles_json_with_rewrite(
             request,
             upstream_url=upstream_url,
             timeout_s=float(_google_tiles_timeout_s),

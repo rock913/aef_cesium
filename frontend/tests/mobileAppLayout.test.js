@@ -24,6 +24,21 @@ describe('Mobile layout & gesture isolation (TDD)', () => {
     expect(s).toMatch(/ai-drawer-handle/)
   })
 
+  it('hides CENTER debug coords on mobile', () => {
+    const s = readAppVue()
+    expect(s).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.debug-center[\s\S]*display:\s*none/)
+  })
+
+  it('hides Hold Compare control on desktop too', () => {
+    const s = readAppVue()
+    const holdRuleIdx = s.indexOf('.ai-actions .ai-btn-hold')
+    const mediaIdx = s.indexOf('@media (max-width: 720px)')
+    expect(holdRuleIdx).toBeGreaterThan(-1)
+    expect(mediaIdx).toBeGreaterThan(-1)
+    expect(holdRuleIdx).toBeLessThan(mediaIdx)
+    expect(s).toMatch(/\.ai-actions\s+\.ai-btn-hold[\s\S]*display:\s*none/)
+  })
+
   it('hides compare controls on mobile (keep only AI Layer)', () => {
     const s = readAppVue()
     expect(s).toMatch(/\.ai-actions\s+\.ai-btn-swipe[\s\S]*display:\s*none/)
