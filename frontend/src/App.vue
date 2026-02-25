@@ -100,7 +100,24 @@
 
       <!-- Act 3: Agentic Analysis Console -->
       <transition name="slide-left">
-        <div v-if="appState === 'analyzing'" class="ai-panel" ref="aiPanelEl">
+        <div
+          v-if="appState === 'analyzing'"
+          class="ai-panel"
+          :class="{ expanded: aiPanelExpanded }"
+          ref="aiPanelEl"
+          @pointerdown.capture.stop
+          @pointermove.capture.stop
+          @pointerup.capture.stop
+          @wheel.capture.stop
+          @touchstart.capture.stop
+          @touchmove.capture.stop
+        >
+        <button
+          class="ai-drawer-handle"
+          type="button"
+          aria-label="切换分析面板展开/收起"
+          @click="toggleAiPanel"
+        />
         <div class="ai-header">
           <div class="ai-title-row">
             <div class="ai-title">ALPHA EARTH <span>INTEL</span></div>
@@ -301,6 +318,7 @@ export default {
 
     const cesiumViewer = ref(null)
     const aiPanelEl = ref(null)
+    const aiPanelExpanded = ref(false)
     const locations = ref({})
     const modes = ref({})
     const missions = ref([])
@@ -1091,6 +1109,10 @@ export default {
       draggingSplit.value = false
       _removeSplitDragListeners()
     }
+
+    function toggleAiPanel() {
+      aiPanelExpanded.value = !aiPanelExpanded.value
+    }
     
     return {
       accessGranted,
@@ -1101,6 +1123,8 @@ export default {
       logoutAccess,
       cesiumViewer,
       aiPanelEl,
+      aiPanelExpanded,
+      toggleAiPanel,
       locations,
       modes,
       missions,
@@ -1286,6 +1310,10 @@ export default {
   flex-direction: column;
   justify-content: space-between;
   padding: 64px 24px 28px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .lobby-hero {
@@ -1498,6 +1526,11 @@ export default {
   backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
+  touch-action: pan-y;
+}
+
+.ai-drawer-handle {
+  display: none;
 }
 
 .ai-header {
@@ -1851,6 +1884,52 @@ export default {
 @media (max-width: 720px) {
   .mission-row {
     grid-template-columns: 1fr;
+  }
+
+  .lobby {
+    padding: 42px 14px 18px;
+  }
+
+  .hero-title {
+    font-size: 56px;
+    letter-spacing: 6px;
+  }
+
+  .mission-deck {
+    width: min(1060px, 96vw);
+    max-height: 62vh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Mobile: convert right-side panel to bottom-sheet drawer so it doesn't cover the scene. */
+  .ai-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 35vh;
+    border-left: none;
+    border-top: 1px solid rgba(0, 245, 255, 0.16);
+    border-radius: 18px 18px 0 0;
+  }
+
+  .ai-panel.expanded {
+    height: 85vh;
+  }
+
+  .ai-drawer-handle {
+    display: block;
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    margin: 8px auto 2px;
+    background: rgba(255, 255, 255, 0.35);
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation;
   }
 }
 </style>
