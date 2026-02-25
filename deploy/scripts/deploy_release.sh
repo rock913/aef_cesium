@@ -40,20 +40,15 @@ _init_sudo() {
     exit 1
   fi
 
-  if sudo -n true >/dev/null 2>&1; then
-    SUDO="sudo -n"
-    return 0
-  fi
-
   # In CI/non-interactive shells, sudo cannot prompt for a password.
-  if [ ! -t 0 ]; then
-    echo "❌ Passwordless sudo is required for non-interactive deploys (sudo -n)."
-    echo "   Grant NOPASSWD for: systemctl restart ${BACKEND_SERVICE}, systemctl reload nginx, nginx -t"
-    exit 1
+  # Note: we intentionally do NOT probe with `sudo -n true` here, because many
+  # sudoers setups allow only specific commands (e.g. systemctl restart) and
+  # `true` would still require a password.
+  if [ -t 0 ]; then
+    SUDO="sudo"
+  else
+    SUDO="sudo -n"
   fi
-
-  # Interactive fallback (manual runs only).
-  SUDO="sudo"
 }
 
 while [ $# -gt 0 ]; do

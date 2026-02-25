@@ -213,6 +213,16 @@ jobs:
           rid="${{ steps.rel.outputs.release_id }}"
           key_path="$HOME/.ssh/id_oneearth_deploy"
           ssh -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" "set -euo pipefail; \
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; \
+            echo '== remote context =='; \
+            echo "REMOTE_USER=\$(whoami)"; \
+            id || true; \
+            groups || true; \
+            echo '== sudo check (force no timestamp) =='; \
+            sudo -k || true; \
+            if sudo -n -l >/dev/null 2>&1; then echo 'SUDO_N_L_OK=1'; else echo 'SUDO_N_L_OK=0'; fi; \
+            sudo -n -l || true; \
+            echo '== deploy =='; \
             base='${PROD_PATH}'; \
             release_id='${rid}'; \
             archive=\"${PROD_PATH}/incoming/${rid}.tar.gz\"; \
