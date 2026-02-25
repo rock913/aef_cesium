@@ -9,7 +9,7 @@ Cesium(WebGL texture) 会因此拒绝加载瓦片并表现为“地图空白”�
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -291,6 +291,407 @@ def _require_gee() -> None:
 
 # Global async HTTP client (connection pool) for high-concurrency tile proxying
 http_client: Optional[httpx.AsyncClient] = None
+
+# --- Cesium Ion / Google photorealistic 3D tiles proxy ---
+# Motivation: client networks (e.g. mainland China) may not reach Cesium Ion / Google tile
+# domains reliably, while the backend server can. We proxy through same-origin `/api/*`.
+_ION_API_BASE = str(os.getenv("ION_API_BASE", "https://api.cesium.com")).strip().rstrip("/")
+_ION_ASSETS_BASE = str(os.getenv("ION_ASSETS_BASE", "https://assets.cesium.com")).strip().rstrip("/")
+_GOOGLE_TILES_BASE = str(os.getenv("GOOGLE_TILES_BASE", "https://tile.googleapis.com")).strip().rstrip("/")
+
+# Optional server-side Ion token for diagnostics (avoid relying on browser-provided token).
+# If set, `/api/debug/ion` can validate upstream reachability without requiring
+# callers to provide `Authorization`.
+_ION_ACCESS_TOKEN = str(os.getenv("ION_ACCESS_TOKEN", "")).strip()
+
+_ion_upstream_timeout_s = float(os.getenv("ION_UPSTREAM_TIMEOUT_S", "25"))
+_ion_upstream_max_concurrency = int(os.getenv("ION_UPSTREAM_MAX_CONCURRENCY", "32"))
+_ion_upstream_sem = asyncio.Semaphore(max(1, _ion_upstream_max_concurrency))
+
+
+# --- Upstream diagnostics (Ion API / Ion assets / Google tiles) ---
+_upstream_diag_lock = threading.Lock()
+_upstream_diag: Dict[str, Dict[str, Any]] = {
+    "ion_api": {"last_ts": None, "last_ok_ts": None, "last_status": None, "last_latency_ms": None, "last_error": None},
+    "ion_assets": {"last_ts": None, "last_ok_ts": None, "last_status": None, "last_latency_ms": None, "last_error": None},
+    "google_tiles": {"last_ts": None, "last_ok_ts": None, "last_status": None, "last_latency_ms": None, "last_error": None},
+}
+
+
+def _diag_key_for_upstream_url(upstream_url: str) -> Optional[str]:
+    try:
+        u = str(upstream_url or "")
+        if not u:
+            return None
+        if u.startswith(_ION_API_BASE):
+            return "ion_api"
+        if u.startswith(_ION_ASSETS_BASE):
+            return "ion_assets"
+        if u.startswith(_GOOGLE_TILES_BASE):
+            return "google_tiles"
+    except Exception:
+        return None
+    return None
+
+
+def _record_upstream_diag(
+    key: Optional[str],
+    *,
+    status: Optional[int] = None,
+    latency_ms: Optional[float] = None,
+    error: Optional[str] = None,
+) -> None:
+    if not key:
+        return
+    now = time.time()
+    with _upstream_diag_lock:
+        entry = _upstream_diag.get(key) or {}
+        entry["last_ts"] = now
+        if status is not None:
+            entry["last_status"] = int(status)
+        if latency_ms is not None:
+            try:
+                entry["last_latency_ms"] = float(latency_ms)
+            except Exception:
+                entry["last_latency_ms"] = None
+        if error:
+            entry["last_error"] = str(error)[:500]
+        if status is not None and 200 <= int(status) < 300 and not error:
+            entry["last_ok_ts"] = now
+            entry["last_error"] = None
+        _upstream_diag[key] = entry
+
+
+def _strip_hop_by_hop_headers(headers: Dict[str, str]) -> Dict[str, str]:
+    hop_by_hop = {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+    }
+    out: Dict[str, str] = {}
+    for k, v in (headers or {}).items():
+        if k.lower() in hop_by_hop:
+            continue
+        out[k] = v
+    return out
+
+
+def _rewrite_urls_in_json(value: Any, replacements: List[tuple]) -> Any:
+    if isinstance(value, str):
+        s = value
+        for old, new in replacements:
+            if old in s:
+                s = s.replace(old, new)
+        return s
+    if isinstance(value, list):
+        return [_rewrite_urls_in_json(v, replacements) for v in value]
+    if isinstance(value, dict):
+        return {k: _rewrite_urls_in_json(v, replacements) for k, v in value.items()}
+    return value
+
+
+def _proxy_request_headers(request: Request, *, accept_encoding_identity: bool) -> Dict[str, str]:
+    # Keep it tight: forward only what we need; especially important for Range.
+    want = {
+        # Cesium Ion API uses Bearer tokens; without forwarding this header
+        # the proxy will always get 401 and the frontend shows blank 3D tiles.
+        "authorization",
+        "range",
+        "if-none-match",
+        "if-modified-since",
+        "accept",
+        "accept-language",
+        "user-agent",
+        "referer",
+    }
+    out: Dict[str, str] = {}
+    for k in want:
+        v = request.headers.get(k)
+        if v:
+            out[k] = v
+    if accept_encoding_identity:
+        # Avoid transparent decompression that can confuse Content-Length/Range.
+        out["accept-encoding"] = "identity"
+    return out
+
+
+async def _proxy_stream(
+    request: Request,
+    *,
+    upstream_url: str,
+    acquire_timeout_s: float = 1.5,
+    timeout_s: Optional[float] = None,
+) -> Response:
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    method = request.method.upper()
+    if method not in {"GET", "HEAD"}:
+        raise HTTPException(status_code=405, detail="Method not allowed")
+
+    timeout_val = float(timeout_s) if timeout_s is not None else float(_ion_upstream_timeout_s)
+
+    diag_key = _diag_key_for_upstream_url(upstream_url)
+    try:
+        try:
+            await asyncio.wait_for(_ion_upstream_sem.acquire(), timeout=max(0.1, float(acquire_timeout_s)))
+        except Exception:
+            raise HTTPException(status_code=503, detail="Upstream busy")
+
+        headers = _proxy_request_headers(request, accept_encoding_identity=True)
+        params = dict(request.query_params)
+
+        t0 = time.perf_counter()
+
+        if method == "HEAD":
+            resp = await http_client.request(
+                "HEAD",
+                upstream_url,
+                params=params,
+                headers=headers,
+                timeout=timeout_val,
+                follow_redirects=True,
+            )
+            _record_upstream_diag(
+                diag_key,
+                status=int(resp.status_code),
+                latency_ms=(time.perf_counter() - t0) * 1000.0,
+                error=None,
+            )
+            out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+            return Response(status_code=int(resp.status_code), headers=out_headers)
+
+        async with http_client.stream(
+            "GET",
+            upstream_url,
+            params=params,
+            headers=headers,
+            timeout=timeout_val,
+            follow_redirects=True,
+        ) as upstream_resp:
+            _record_upstream_diag(
+                diag_key,
+                status=int(upstream_resp.status_code),
+                latency_ms=(time.perf_counter() - t0) * 1000.0,
+                error=None,
+            )
+            out_headers = _strip_hop_by_hop_headers(dict(upstream_resp.headers))
+            status = int(upstream_resp.status_code)
+            return StreamingResponse(
+                upstream_resp.aiter_bytes(),
+                status_code=status,
+                headers=out_headers,
+            )
+    except httpx.RequestError as e:
+        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
+        raise HTTPException(status_code=502, detail="Upstream request error")
+    except httpx.TimeoutException as e:
+        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
+        raise HTTPException(status_code=504, detail="Upstream timeout")
+    except Exception as e:
+        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"exception: {e}")
+        raise
+    finally:
+        try:
+            _ion_upstream_sem.release()
+        except Exception:
+            pass
+
+
+async def _proxy_json_with_rewrite(request: Request, *, upstream_url: str) -> Response:
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    diag_key = _diag_key_for_upstream_url(upstream_url)
+    headers = _proxy_request_headers(request, accept_encoding_identity=True)
+    params = dict(request.query_params)
+
+    try:
+        try:
+            await asyncio.wait_for(_ion_upstream_sem.acquire(), timeout=1.5)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Upstream busy")
+
+        t0 = time.perf_counter()
+        try:
+            resp = await http_client.get(
+                upstream_url,
+                params=params,
+                headers=headers,
+                timeout=float(_ion_upstream_timeout_s),
+                follow_redirects=True,
+            )
+        except httpx.TimeoutException as e:
+            _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
+            raise HTTPException(status_code=504, detail="Upstream timeout")
+        except httpx.RequestError as e:
+            _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
+            raise HTTPException(status_code=502, detail="Upstream request error")
+        finally:
+            pass
+    finally:
+        try:
+            _ion_upstream_sem.release()
+        except Exception:
+            pass
+
+    _record_upstream_diag(
+        diag_key,
+        status=int(resp.status_code),
+        latency_ms=(time.perf_counter() - t0) * 1000.0,
+        error=None,
+    )
+
+    status = int(resp.status_code)
+    content_type = str(resp.headers.get("Content-Type", "application/json"))
+
+    # Only rewrite JSON bodies. For non-JSON, just return as-is.
+    if "application/json" not in content_type.lower():
+        out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+        body = resp.content
+        return Response(content=body, status_code=status, headers=out_headers)
+
+    try:
+        data = resp.json()
+    except Exception:
+        # If upstream returns invalid JSON, just pass through.
+        out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+        return Response(content=resp.content, status_code=status, headers=out_headers)
+
+    # Rewrite upstream absolute URLs into our same-origin proxy endpoints.
+    # Use relative URLs so they automatically stick to :8506.
+    replacements = [
+        ("https://assets.cesium.com", "/api/ion-assets"),
+        ("http://assets.cesium.com", "/api/ion-assets"),
+        ("https://tile.googleapis.com", "/api/google-tiles"),
+        ("http://tile.googleapis.com", "/api/google-tiles"),
+    ]
+    data2 = _rewrite_urls_in_json(data, replacements)
+
+    out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+    # Ensure correct content-type for rewritten JSON.
+    out_headers["Content-Type"] = "application/json; charset=utf-8"
+    # Body length changes after rewrite; never forward upstream content-length.
+    for hk in list(out_headers.keys()):
+        if hk.lower() == "content-length":
+            out_headers.pop(hk, None)
+
+    import json as _json
+
+    body = _json.dumps(data2, ensure_ascii=False).encode("utf-8")
+    return Response(content=body, status_code=status, headers=out_headers)
+
+
+@app.get("/api/debug/ion")
+async def debug_ion(request: Request, timeout_s: float = Query(default=3.0, ge=0.2, le=20.0)):
+    """Runtime diagnostic for Cesium Ion upstream.
+
+    Returns whether the backend can reach Ion API (200/401), upstream latency,
+    and the last recorded proxy error.
+
+    Auth sourcing order:
+    1) Forward caller-provided `Authorization` header (recommended when debugging).
+    2) Use server-side `ION_ACCESS_TOKEN` if configured.
+
+    NEVER returns the token.
+    """
+
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    auth = request.headers.get("authorization")
+    auth_source = "request" if auth else None
+    if not auth and _ION_ACCESS_TOKEN:
+        auth = _ION_ACCESS_TOKEN
+        if not auth.lower().startswith("bearer "):
+            auth = f"Bearer {auth}"
+        auth_source = "env"
+
+    if not auth:
+        return {
+            "ok": False,
+            "error": "missing_authorization",
+            "hint": "Provide Authorization: Bearer <ion_token> or set server env ION_ACCESS_TOKEN",
+            "ion": {
+                "api_base": _ION_API_BASE,
+                "auth_source": None,
+            },
+            "last": dict(_upstream_diag.get("ion_api") or {}),
+            "ts": time.time(),
+        }
+
+    headers = {
+        "Authorization": auth,
+        "Accept": "application/json",
+        "User-Agent": "AlphaEarthCesium/2.0 debug",
+    }
+
+    upstream_url = f"{_ION_API_BASE}/v1/me"
+    t0 = time.perf_counter()
+    status = None
+    err = None
+
+    try:
+        try:
+            await asyncio.wait_for(_ion_upstream_sem.acquire(), timeout=1.5)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Upstream busy")
+
+        resp = await http_client.get(upstream_url, headers=headers, timeout=float(timeout_s), follow_redirects=True)
+        status = int(resp.status_code)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        _record_upstream_diag("ion_api", status=status, latency_ms=latency_ms, error=None)
+
+        ok = 200 <= status < 300
+        return {
+            "ok": bool(ok),
+            "ts": time.time(),
+            "ion": {
+                "api_base": _ION_API_BASE,
+                "endpoint": "/v1/me",
+                "auth_source": auth_source,
+            },
+            "upstream": {
+                "status": status,
+                "latency_ms": round(float(latency_ms), 2),
+                "content_type": str(resp.headers.get("Content-Type", ""))[:80],
+            },
+            "last": dict(_upstream_diag.get("ion_api") or {}),
+        }
+    except httpx.TimeoutException as e:
+        err = f"timeout: {e}"
+        _record_upstream_diag("ion_api", status=None, latency_ms=None, error=err)
+        return {
+            "ok": False,
+            "ts": time.time(),
+            "ion": {"api_base": _ION_API_BASE, "endpoint": "/v1/me", "auth_source": auth_source},
+            "upstream": {"status": status, "latency_ms": None},
+            "error": "upstream_timeout",
+            "detail": str(e)[:200],
+            "last": dict(_upstream_diag.get("ion_api") or {}),
+        }
+    except httpx.RequestError as e:
+        err = f"request_error: {e}"
+        _record_upstream_diag("ion_api", status=None, latency_ms=None, error=err)
+        return {
+            "ok": False,
+            "ts": time.time(),
+            "ion": {"api_base": _ION_API_BASE, "endpoint": "/v1/me", "auth_source": auth_source},
+            "upstream": {"status": status, "latency_ms": None},
+            "error": "upstream_request_error",
+            "detail": str(e)[:200],
+            "last": dict(_upstream_diag.get("ion_api") or {}),
+        }
+    finally:
+        try:
+            _ion_upstream_sem.release()
+        except Exception:
+            pass
 
 # Basemap proxy (OSM). Motivation: some client networks cannot reach public OSM tiles
 # (timeouts), while the server can. Proxying via same-origin keeps Cesium usable.
@@ -1319,6 +1720,45 @@ async def proxy_osm_tile(z: int, x: int, y: int):
         return await _fallback("request-error")
     except Exception:
         return await _fallback("exception")
+
+
+@app.api_route("/api/ion/{path:path}", methods=["GET", "HEAD"])
+async def proxy_cesium_ion_api(path: str, request: Request):
+    """Same-origin proxy for Cesium Ion API (api.cesium.com).
+
+    We rewrite JSON responses to ensure returned asset URLs are also same-origin
+    (pointing to /api/ion-assets and /api/google-tiles), so the browser never
+    needs to reach external domains directly.
+    """
+
+    upstream_url = f"{_ION_API_BASE}/{str(path).lstrip('/')}"
+    # Ion API responses are typically small JSON; rewrite when applicable.
+    if request.method.upper() == "GET":
+        return await _proxy_json_with_rewrite(request, upstream_url=upstream_url)
+    return await _proxy_stream(request, upstream_url=upstream_url)
+
+
+@app.api_route("/api/ion-assets/{path:path}", methods=["GET", "HEAD"])
+async def proxy_cesium_ion_assets(path: str, request: Request):
+    """Same-origin proxy for Cesium Ion asset content (assets.cesium.com).
+
+    Must support large binary payloads and Range requests.
+    """
+
+    upstream_url = f"{_ION_ASSETS_BASE}/{str(path).lstrip('/')}"
+    return await _proxy_stream(request, upstream_url=upstream_url)
+
+
+@app.api_route("/api/google-tiles/{path:path}", methods=["GET", "HEAD"])
+async def proxy_google_tiles(path: str, request: Request):
+    """Same-origin proxy for Google tiles (tile.googleapis.com).
+
+    Photorealistic 3D tiles can reference tile.googleapis.com; proxying keeps the
+    client within the same origin.
+    """
+
+    upstream_url = f"{_GOOGLE_TILES_BASE}/{str(path).lstrip('/')}"
+    return await _proxy_stream(request, upstream_url=upstream_url)
 
 
 @app.get("/api/tiles/{tile_id}/{z}/{x}/{y}")

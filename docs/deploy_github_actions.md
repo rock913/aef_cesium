@@ -62,6 +62,10 @@ GEE_USER_PATH=users/your_username/aef_demo
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_API_KEY=***
 LLM_MODEL=qwen-plus
+
+# Cesium Ion（用于 Photorealistic 3D Tiles）
+# 说明：前端构建时需要 VITE_*；后端运行时可选 ION_ACCESS_TOKEN（用于 /api/debug/ion 诊断）
+# ION_ACCESS_TOKEN=your_ion_token_here
 ```
 
 > 说明：后端读取 `API_HOST/API_PORT`，前端生产不需要 `FRONTEND_PORT`（Nginx listen 决定），但保留无害。
@@ -205,6 +209,16 @@ GitHub 有两套“作用域”可以存放 Secrets/Variables：
 - `PROD_HEALTH_URL`：后端健康检查 URL（默认 `http://127.0.0.1:8507/health`）
 - `PROD_FRONTEND_URL`：前端健康检查 URL（默认 `http://127.0.0.1:8506/`）
 - `PROD_KNOWN_HOSTS`：ssh known_hosts（可选；不填则 workflow 会用 `ssh-keyscan` 自动写入）
+
+前端（Vite）构建注入（建议也放在 **Environment: production（Secrets）**）：
+
+- `VITE_CESIUM_TOKEN`：Cesium Ion Access Token（必需，用于拉取 Ion 资产）
+- `VITE_ION_PHOTOREALISTIC_ASSET_ID`：Photorealistic 3D Tiles 对应的 Ion Asset ID（必需，纯数字）
+- `VITE_ION_PROXY`：建议固定为 `1`（强制前端通过后端同源代理访问 Ion API/Assets/Google tiles）
+
+后端运行时（服务器 `.env.prod` / systemd EnvironmentFile）：
+
+- `ION_ACCESS_TOKEN`：可选；用于 `/api/debug/ion` 在不提供请求头的情况下直接诊断 Ion（不回显 token）
 
 常见坑（`ssh-add` 报 `error in libcrypto`）：
 

@@ -340,6 +340,7 @@ export default {
   color: #00F5FF;
   font-size: 12px;
   margin-top: 5px;
+}
 
 .mission-title {
   font-weight: 800;
@@ -382,7 +383,6 @@ export default {
   font-size: 12px;
   color: #eaeaea;
 }
-}
 
 .status-cached {
   color: #00FF00;
@@ -401,12 +401,50 @@ export default {
   right: 20px;
   width: 350px;
   max-height: calc(100vh - 140px);
+  max-height: calc(100dvh - 140px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: rgba(0, 0, 0, 0.9);
   border-top: 3px solid #FF00FF;
   padding: 20px;
   color: #EEE;
   backdrop-filter: blur(10px);
+}
+
+/* Mobile: convert to bottom drawer and keep it scrollable.
+   The page-level body/html often has overflow:hidden in full-screen Cesium apps,
+   so we must enable scrolling inside the HUD panel itself. */
+@media screen and (max-width: 768px) {
+  .hud-header {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    padding: 12px 14px;
+    border-radius: 8px;
+  }
+
+  .hud-title {
+    font-size: 18px;
+  }
+
+  .hud-panel {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 60vh;
+    border-top: none;
+    border-radius: 18px 18px 0 0;
+    padding: 14px;
+    box-sizing: border-box;
+  }
+
+  .stats {
+    flex-direction: column;
+    gap: 10px;
+  }
 }
 
 .panel-section {

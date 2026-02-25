@@ -12,6 +12,8 @@ WorkingDirectory=/opt/oneearth/cesium_app_v6/current
 Environment=ONEEARTH_PROFILE=v6
 Environment=ENV_FILE=/opt/oneearth/cesium_app_v6/.env.prod
 
+# Optional: set ION_ACCESS_TOKEN in ENV_FILE to enable `/api/debug/ion` without passing Authorization header
+
 ExecStart=/bin/bash -lc '/opt/oneearth/cesium_app_v6/current/run_backend.sh'
 Restart=always
 RestartSec=2

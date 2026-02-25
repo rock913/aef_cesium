@@ -93,6 +93,20 @@ export default {
       const hasIonToken = !!(ionToken && String(ionToken).trim())
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
+
+        // Some client networks cannot reach Cesium Ion / Google endpoints directly.
+        // When enabled, proxy all Ion API + assets through our own backend (/api/*).
+        try {
+          const ionProxyFlag = String(import.meta.env.VITE_ION_PROXY || '').trim()
+          const useIonProxy = (ionProxyFlag === '1') || (import.meta.env.PROD && ionProxyFlag !== '0')
+          if (useIonProxy && Cesium?.Ion && Cesium?.Resource) {
+            Cesium.Ion.defaultServer = new Cesium.Resource({
+              url: '/api/ion/'
+            })
+          }
+        } catch (_) {
+          // ignore
+        }
       }
 
       if (!cesiumContainer.value) {
@@ -260,10 +274,32 @@ export default {
           }
         }
         
-        // Optional 3D buildings (requires network; works best with Ion token)
+        // Optional 3D buildings / photorealistic 3D tiles (requires Ion token + network)
         try {
           if (hasIonToken) {
-            viewer.scene.primitives.add(Cesium.createOsmBuildings())
+            const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
+            const enablePhotorealistic = Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
+
+            if (enablePhotorealistic) {
+              let tileset = null
+              if (Cesium?.Cesium3DTileset?.fromIonAssetId) {
+                tileset = await Cesium.Cesium3DTileset.fromIonAssetId(photorealisticAssetId)
+              } else {
+                const resource = await Cesium.IonResource.fromAssetId(photorealisticAssetId)
+                tileset = await Cesium.Cesium3DTileset.fromUrl(resource)
+              }
+              if (tileset) {
+                viewer.scene.primitives.add(tileset)
+                try {
+                  viewer.scene.globe.depthTestAgainstTerrain = true
+                } catch (_) {
+                  // ignore
+                }
+              }
+            } else {
+              // Lightweight fallback: OSM buildings (not photorealistic, but provides 3D cues)
+              viewer.scene.primitives.add(Cesium.createOsmBuildings())
+            }
           }
         } catch (_) {
           // ignore

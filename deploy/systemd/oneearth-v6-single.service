@@ -8,6 +8,8 @@ Type=simple
 WorkingDirectory=/opt/oneearth/cesium_app_v6
 Environment=ONEEARTH_PROFILE=v6
 Environment=ENV_FILE=/opt/oneearth/cesium_app_v6/.env.v6
+# Optional: set ION_ACCESS_TOKEN in ENV_FILE to enable `/api/debug/ion` without passing Authorization header
+
 # Default: 1 worker for low memory usage
 Environment=UVICORN_WORKERS=1
 ExecStart=/bin/bash -lc '/opt/oneearth/cesium_app_v6/run_prod_single.sh'

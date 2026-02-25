@@ -93,6 +93,10 @@ jobs:
         working-directory: frontend
         env:
           VITE_ACCESS_PASSWORD: ${{ secrets.VITE_ACCESS_PASSWORD }}
+          # Cesium Ion / Photorealistic 3D Tiles (build-time injection)
+          VITE_CESIUM_TOKEN: ${{ secrets.VITE_CESIUM_TOKEN }}
+          VITE_ION_PHOTOREALISTIC_ASSET_ID: ${{ secrets.VITE_ION_PHOTOREALISTIC_ASSET_ID }}
+          VITE_ION_PROXY: ${{ secrets.VITE_ION_PROXY }}
         run: npm run build
 
       - name: Create release archive
