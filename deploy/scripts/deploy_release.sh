@@ -40,6 +40,12 @@ _init_sudo() {
       SUDO="sudo -n"
       return 0
     fi
+
+    # Fallback to interactive sudo (will fail fast in non-interactive shells).
+    # This keeps behavior explicit: system-level operations should run via sudo
+    # when not root.
+    SUDO="sudo"
+    return 0
   fi
 
   SUDO=""
