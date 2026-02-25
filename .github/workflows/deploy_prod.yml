@@ -242,7 +242,7 @@ jobs:
             raw_unquoted="$raw_trimmed"
           fi
 
-          first_non_ws="$(printf '%s' "$raw_unquoted" | sed -E 's/^[[:space:]]+//' | cut -c1 || true)"
+          first_non_ws="$(printf '%s' "$raw_unquoted" | tr '\n' ' ' | sed -E 's/^[[:space:]]+//' | cut -c1 || true)"
           echo "GEE key secret: first_char='${first_non_ws:-?}', length=${#raw_unquoted}"
 
           if [ "$first_non_ws" = "{" ]; then
@@ -251,6 +251,9 @@ jobs:
             # Strip all whitespace to tolerate line-wrapped base64.
             # Try standard base64 first, then URL-safe base64 (common copy/paste variant).
             b64="$(printf '%s' "$raw_unquoted" | tr -d '[:space:]')"
+            # Some pastes wrap base64 in quotes or add other non-base64 characters.
+            # Keep only base64/base64url alphabet + '='.
+            b64="$(printf '%s' "$b64" | tr -cd 'A-Za-z0-9+/=_-')"
             # If someone pasted the secret with surrounding quotes, strip a single pair.
             if [ "${b64#\"}" != "$b64" ] && [ "${b64%\"}" != "$b64" ]; then
               b64="${b64#\"}"
