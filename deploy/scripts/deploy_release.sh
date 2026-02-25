@@ -27,6 +27,8 @@ RELOAD_NGINX="0"
 KEEP_RELEASES="5"
 
 SUDO="sudo"
+SYSTEMCTL="systemctl"
+NGINX_BIN="nginx"
 
 _init_sudo() {
   # Prefer non-interactive sudo when running as a non-root deploy user.
@@ -40,14 +42,29 @@ _init_sudo() {
     exit 1
   fi
 
-  # In CI/non-interactive shells, sudo cannot prompt for a password.
-  # Note: we intentionally do NOT probe with `sudo -n true` here, because many
-  # sudoers setups allow only specific commands (e.g. systemctl restart) and
-  # `true` would still require a password.
-  if [ -t 0 ]; then
+  # Deploy scripts often run in CI over SSH with a pseudo-tty allocated.
+  # Even if a TTY exists, there is still no human to type a password.
+  # Therefore default to non-interactive sudo.
+  #
+  # If a server requires interactive sudo, operators can override by exporting:
+  #   DEPLOY_SUDO_INTERACTIVE=1
+  if [ "${DEPLOY_SUDO_INTERACTIVE:-0}" = "1" ]; then
     SUDO="sudo"
   else
     SUDO="sudo -n"
+  fi
+
+  # Use absolute paths where possible so sudoers command matching is reliable.
+  if [ -x /bin/systemctl ]; then
+    SYSTEMCTL="/bin/systemctl"
+  elif [ -x /usr/bin/systemctl ]; then
+    SYSTEMCTL="/usr/bin/systemctl"
+  fi
+
+  if [ -x /usr/sbin/nginx ]; then
+    NGINX_BIN="/usr/sbin/nginx"
+  elif command -v nginx >/dev/null 2>&1; then
+    NGINX_BIN="$(command -v nginx)"
   fi
 }
 
@@ -164,7 +181,7 @@ _wait_http_ok() {
 
 _restart_services() {
   _echo_step "Restarting backend service: $BACKEND_SERVICE"
-  if ! ${SUDO} systemctl restart "$BACKEND_SERVICE"; then
+  if ! ${SUDO} ${SYSTEMCTL} restart "$BACKEND_SERVICE"; then
     echo "❌ Failed to restart backend service: $BACKEND_SERVICE"
     echo "   If deploying as a non-root user, grant passwordless sudo for: systemctl restart ${BACKEND_SERVICE}"
     return 1
@@ -172,17 +189,17 @@ _restart_services() {
 
   if [ "$RELOAD_NGINX" = "1" ]; then
     _echo_step "Reloading nginx"
-    if command -v nginx >/dev/null 2>&1; then
-      ${SUDO} nginx -t
+    if [ -n "${NGINX_BIN:-}" ] && command -v "${NGINX_BIN}" >/dev/null 2>&1; then
+      ${SUDO} ${NGINX_BIN} -t
     fi
     # Prefer systemd reload when available.
-    if systemctl list-unit-files | grep -q '^nginx\.service'; then
-      if ! ${SUDO} systemctl reload nginx; then
+    if ${SYSTEMCTL} list-unit-files | grep -q '^nginx\.service'; then
+      if ! ${SUDO} ${SYSTEMCTL} reload nginx; then
         echo "❌ Failed to reload nginx via systemd"
         return 1
       fi
     else
-      if ! ${SUDO} nginx -s reload; then
+      if ! ${SUDO} ${NGINX_BIN} -s reload; then
         echo "❌ Failed to reload nginx"
         return 1
       fi
