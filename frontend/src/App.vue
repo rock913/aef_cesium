@@ -478,10 +478,18 @@ export default {
 
     function normalizeTileUrl(url) {
       if (!url || typeof url !== 'string') return url
-      const apiBase = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8505'
-      if (url.startsWith(apiBase + '/')) {
-        return url.slice(apiBase.length)
-      }
+      if (url.startsWith('/')) return url
+
+      // If backend returns an absolute URL (e.g. http://<ip>/api/tiles/...)
+      // strip the origin so Cesium requests same-origin via :8506.
+      // NOTE: avoid URL() parsing because it percent-encodes {z}/{x}/{y}.
+      const m = url.match(/^https?:\/\/[^/]+(\/api\/.*)$/)
+      if (m && m[1]) return m[1]
+
+      // Back-compat: allow explicit VITE_API_BASE stripping.
+      const apiBase = import.meta.env.VITE_API_BASE || ''
+      if (apiBase && url.startsWith(apiBase + '/')) return url.slice(apiBase.length)
+
       return url
     }
 

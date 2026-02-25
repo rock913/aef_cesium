@@ -1053,10 +1053,13 @@ async def get_layer(
             upstream_tile_url = await run_in_threadpool(get_tile_url, layer_img, vis_params)
             _layer_template_cache_set(template_cache_key, upstream_tile_url)
         tile_id = _register_tile_template(upstream_tile_url)
-        base_url = str(request.base_url).rstrip("/")
+        # Always return a same-origin URL template.
+        # IMPORTANT: do not include scheme/host/port here. In production, nginx may pass
+        # `Host` without port (e.g. using `$host`), which would accidentally produce
+        # `http://<ip>/api/...` (port 80) and trigger CORS failures from `:8506`.
         # Critical fix: use standard XYZ {y}. Using Cesium {reverseY} will flip Y,
         # causing upstream GEE to miss tiles (400/404) and render black blocks.
-        tile_url = f"{base_url}/api/tiles/{tile_id}/{{z}}/{{x}}/{{y}}"
+        tile_url = f"/api/tiles/{tile_id}/{{z}}/{{x}}/{{y}}"
         
         # 计算边界框 (基于缓冲区)
         buffer_km = max(1, int(buffer_m / 1000))
@@ -1210,12 +1213,11 @@ async def get_sentinel2_layer(request: Request, location: str):
         
         upstream_tile_url = await run_in_threadpool(get_tile_url, s2_image, vis_params)
         tile_id = _register_tile_template(upstream_tile_url)
-        base_url = str(request.base_url).rstrip("/")
         # IMPORTANT:
         # Sentinel-2 is used as an *optional* true-color overlay in the frontend.
         # The app always keeps a stable basemap (Ion/OSM/Grid) underneath, so we
         # prefer the default `fallback=transparent` to avoid 504/502 console storms.
-        tile_url = f"{base_url}/api/tiles/{tile_id}/{{z}}/{{x}}/{{y}}"
+        tile_url = f"/api/tiles/{tile_id}/{{z}}/{{x}}/{{y}}"
         
         return {
             "tile_url": tile_url,
