@@ -19,6 +19,10 @@ old_version/
 .env.*
 !.env.example
 
+# Secrets (do not commit)
+docs/aef-project-*.json
+docs/aef.txt
+
 # Logs
 logs/
 *.log
