@@ -12,7 +12,22 @@
     </div>
 
     <!-- Control Panel -->
-    <div class="hud-panel">
+    <div
+      class="hud-panel"
+      :class="{ expanded: drawerExpanded }"
+      @pointerdown.stop
+      @pointermove.stop
+      @pointerup.stop
+      @wheel.stop
+      @touchstart.stop
+      @touchmove.stop
+    >
+      <button
+        class="drawer-handle"
+        type="button"
+        aria-label="切换面板展开/收起"
+        @click="toggleDrawer"
+      />
       <div class="panel-section">
         <h3 class="section-title">🎯 监测场景</h3>
         <div class="mode-selector">
@@ -206,7 +221,7 @@
 </template>
 
 <script>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 export default {
   name: 'HudPanel',
@@ -229,6 +244,8 @@ export default {
   emits: ['mode-change', 'location-change', 'cache-export', 'debug-toggle', 'debug-test-tile', 'debug-clear-errors'],
   
   setup(props) {
+    const drawerExpanded = ref(false)
+
     const modeInfo = {
       dna: {
         title: '🧬 地表 DNA 解析',
@@ -288,8 +305,14 @@ export default {
       if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
       return Number(v).toFixed(2)
     }
+
+    function toggleDrawer() {
+      drawerExpanded.value = !drawerExpanded.value
+    }
     
     return {
+      drawerExpanded,
+      toggleDrawer,
       currentModeInfo,
       statusText,
       statusClass,
@@ -405,11 +428,16 @@ export default {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   background: rgba(0, 0, 0, 0.9);
   border-top: 3px solid #FF00FF;
   padding: 20px;
   color: #EEE;
   backdrop-filter: blur(10px);
+}
+
+.drawer-handle {
+  display: none;
 }
 
 /* Mobile: convert to bottom drawer and keep it scrollable.
@@ -434,11 +462,30 @@ export default {
     left: 0;
     bottom: 0;
     width: 100%;
-    max-height: 60vh;
+    height: 30vh;
+    max-height: 80vh;
+    transition: height 0.25s ease;
     border-top: none;
     border-radius: 18px 18px 0 0;
     padding: 14px;
     box-sizing: border-box;
+  }
+
+  .hud-panel.expanded {
+    height: 80vh;
+  }
+
+  .drawer-handle {
+    display: block;
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    margin: 2px auto 10px;
+    background: rgba(255, 255, 255, 0.35);
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation;
   }
 
   .stats {

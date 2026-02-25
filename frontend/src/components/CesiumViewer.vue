@@ -783,6 +783,10 @@ export default {
 #cesiumContainer {
   width: 100%;
   height: 100%;
+  /* Let Cesium handle gestures inside the canvas container.
+     HUD overlays can opt into vertical scrolling with touch-action: pan-y. */
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .loading-overlay {
