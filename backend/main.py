@@ -292,6 +292,17 @@ def _require_gee() -> None:
 # Global async HTTP client (connection pool) for high-concurrency tile proxying
 http_client: Optional[httpx.AsyncClient] = None
 
+# Basemap proxy (OSM). Motivation: some client networks cannot reach public OSM tiles
+# (timeouts), while the server can. Proxying via same-origin keeps Cesium usable.
+_OSM_TILE_URL_TEMPLATE = os.getenv(
+    "OSM_TILE_URL_TEMPLATE",
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+)
+
+_basemap_upstream_max_concurrency = int(os.getenv("BASEMAP_UPSTREAM_MAX_CONCURRENCY", "16"))
+_basemap_upstream_sem = asyncio.Semaphore(max(1, _basemap_upstream_max_concurrency))
+_basemap_upstream_timeout_s = float(os.getenv("BASEMAP_UPSTREAM_TIMEOUT_S", "5"))
+
 # 临时注册表：把上游 GEE tile URL 模板映射为一个短 ID
 # /api/layers 返回的 tile_url 指向 /api/tiles/{tile_id}/{z}/{x}/{y}
 _tile_registry_lock = threading.Lock()
@@ -1228,6 +1239,86 @@ async def get_sentinel2_layer(request: Request, location: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail={"error": str(e)})
+
+
+@app.get("/api/basemap/osm/{z}/{x}/{y}.png")
+async def proxy_osm_tile(z: int, x: int, y: int):
+    """Same-origin proxy for OpenStreetMap raster tiles.
+
+    Does NOT require GEE.
+
+    When the upstream is unreachable, returns a transparent PNG so the grid layer
+    (or other basemap layers) can show through without spamming errors.
+    """
+
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    cache_key = ("osm", int(z), int(x), int(y))
+    cached = _tile_cache_get(cache_key)
+    if cached:
+        body, media_type, headers, _stored_at, _nbytes = cached
+        resp_headers = dict(headers or {})
+        resp_headers["X-AEF-Tile-Cache"] = "HIT"
+        resp_headers["X-AEF-Basemap"] = "osm"
+        return Response(content=body, media_type=media_type, headers=resp_headers)
+
+    upstream_url = str(_OSM_TILE_URL_TEMPLATE).format(z=int(z), x=int(x), y=int(y))
+
+    async def _fallback(reason: str, upstream_status: Optional[int] = None) -> Response:
+        resp = _tile_fallback_response(
+            cache_key,
+            max_age_s=30,
+            reason=f"osm-{reason}",
+            upstream_status=upstream_status,
+        )
+        resp.headers["X-AEF-Basemap"] = "osm"
+        return resp
+
+    try:
+        try:
+            await asyncio.wait_for(_basemap_upstream_sem.acquire(), timeout=1.5)
+        except Exception:
+            return await _fallback("busy")
+
+        try:
+            resp = await http_client.get(upstream_url, timeout=float(_basemap_upstream_timeout_s))
+        finally:
+            try:
+                _basemap_upstream_sem.release()
+            except Exception:
+                pass
+
+        status = int(resp.status_code)
+        if not (200 <= status < 300):
+            return await _fallback("upstream", upstream_status=status)
+
+        body = resp.content
+        content_type = resp.headers.get("Content-Type", "image/png")
+        cache_control = resp.headers.get("Cache-Control")
+        expires = resp.headers.get("Expires")
+
+        headers: Dict[str, str] = {
+            # Ensure clients can cache even if upstream headers are missing.
+            "Cache-Control": cache_control or "public, max-age=86400",
+            "X-AEF-Basemap": "osm",
+        }
+        if expires:
+            headers["Expires"] = expires
+
+        media_type = content_type.split(";")[0].strip() or "image/png"
+        _tile_cache_set(cache_key, body, media_type, headers)
+
+        resp_headers = dict(headers)
+        resp_headers["X-AEF-Tile-Cache"] = "MISS"
+        return Response(content=body, media_type=media_type, headers=resp_headers)
+
+    except httpx.TimeoutException:
+        return await _fallback("timeout")
+    except httpx.RequestError:
+        return await _fallback("request-error")
+    except Exception:
+        return await _fallback("exception")
 
 
 @app.get("/api/tiles/{tile_id}/{z}/{x}/{y}")

@@ -172,11 +172,16 @@ export default {
 
         // If we don't have an Ion token, the grid is only a last-resort visual fallback.
         // Add a real-world basemap (OSM) above it so users never see a blank/white globe.
+        // NOTE: some client networks cannot reach public OSM tile domains (timeouts).
+        // In production we prefer proxying OSM through our own /api endpoint.
         try {
           if (!hasIonToken) {
+            const osmProxyFlag = String(import.meta.env.VITE_OSM_PROXY || '').trim()
+            const useOsmProxy = (osmProxyFlag === '1') || (import.meta.env.PROD && osmProxyFlag !== '0')
+            const osmBaseUrl = useOsmProxy ? '/api/basemap/osm/' : 'https://a.tile.openstreetmap.org/'
             const osmProvider = new Cesium.OpenStreetMapImageryProvider({
               // Use default OSM tile endpoint; keep it explicit for clarity.
-              url: 'https://a.tile.openstreetmap.org/'
+              url: osmBaseUrl
             })
             const osmLayer = viewer.imageryLayers.addImageryProvider(osmProvider, 0)
             osmLayer.alpha = 1.0
