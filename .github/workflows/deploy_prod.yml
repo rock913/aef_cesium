@@ -288,7 +288,7 @@ jobs:
           export TMP_KEY_JSON="$tmp_key_json"
           python -c "import json, os; from pathlib import Path; p=Path(os.environ['TMP_KEY_JSON']); data=json.loads(p.read_text(encoding='utf-8')); t=data.get('type'); assert t=='service_account', f'Unexpected key type: {t!r}'; client=str(data.get('client_email','')).strip(); expected=str(os.environ.get('EE_SERVICE_ACCOUNT','')).strip(); assert (not expected) or (not client) or (client==expected), f'client_email mismatch: {client} != {expected}'" >/dev/null
 
-          # Upload to /tmp then install with sudo into PROD_PATH/secure
+          # Upload to /tmp then install into PROD_PATH/secure (no sudo)
           scp -P "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes \
             "$tmp_key_json" "${PROD_USER}@${PROD_HOST}:/tmp/ee-service-account.json"
 
@@ -296,6 +296,8 @@ jobs:
             "set -euo pipefail; \
              umask 077; \
              base='${PROD_PATH}'; \
+             if [ ! -d \"\$base\" ]; then echo '❌ PROD_PATH does not exist on server.'; echo \"   base=\$base\"; exit 1; fi; \
+             if [ ! -w \"\$base\" ]; then echo '❌ No write permission for PROD_PATH (cannot create secure/ or .env.prod).'; echo \"   base=\$base\"; ls -ld \"\$base\" || true; exit 1; fi; \
              key_dst=\"\$base/secure/ee-service-account.json\"; \
              env_file=\"\$base/.env.prod\"; \
              install -d -m 700 \"\$base/secure\" || { echo '❌ Cannot create secure dir. Ensure deploy user owns PROD_PATH, or grant sudo for /usr/bin/install.'; exit 1; }; \
