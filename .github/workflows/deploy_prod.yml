@@ -294,13 +294,14 @@ jobs:
 
           ssh -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" \
             "set -euo pipefail; \
+             umask 077; \
              base='${PROD_PATH}'; \
              key_dst=\"\$base/secure/ee-service-account.json\"; \
              env_file=\"\$base/.env.prod\"; \
-             sudo -n install -d -m 700 \"\$base/secure\"; \
-             sudo -n install -m 600 /tmp/ee-service-account.json \"\$key_dst\"; \
+             install -d -m 700 \"\$base/secure\" || { echo '❌ Cannot create secure dir. Ensure deploy user owns PROD_PATH, or grant sudo for /usr/bin/install.'; exit 1; }; \
+             install -m 600 /tmp/ee-service-account.json \"\$key_dst\" || { echo '❌ Cannot install key file. Check permissions under PROD_PATH/secure.'; exit 1; }; \
              rm -f /tmp/ee-service-account.json || true; \
-             sudo -n bash -lc \"set -euo pipefail; \
+             bash -lc \"set -euo pipefail; \
                touch '\$env_file'; \
                if grep -q '^EE_SERVICE_ACCOUNT=' '\$env_file'; then \
                  sed -i \\\"s|^EE_SERVICE_ACCOUNT=.*$|EE_SERVICE_ACCOUNT=${EE_SERVICE_ACCOUNT}|\\\" '\$env_file'; \
