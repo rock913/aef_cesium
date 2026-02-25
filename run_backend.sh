@@ -343,51 +343,6 @@ if [ -z "$GEE_USER_PATH" ] || [ "$GEE_USER_PATH" = "users/default/aef_demo" ]; t
     echo "   Please set it in .env file: GEE_USER_PATH=users/your_username/aef_demo"
 fi
 
-# Earth Engine 认证检查
-echo "🔐 Checking Earth Engine authentication..."
-set +e
-python -c "import ee; ee.Initialize(); print('Earth Engine: Already authenticated')" 2>/dev/null
-EE_AUTH_STATUS=$?
-set -e
-
-if [ $EE_AUTH_STATUS -ne 0 ]; then
-    echo "⚠️  Earth Engine not authenticated"
-    echo "📝 You will get a URL. Open it in your browser and paste the code back here."
-    echo ""
-    
-    # 检查是否有 earthengine 命令
-    if [ -x "backend/venv/bin/earthengine" ]; then
-        backend/venv/bin/earthengine authenticate --quiet --auth_mode=notebook
-    else
-        # 尝试全局 earthengine 命令
-        if command -v earthengine >/dev/null 2>&1; then
-            earthengine authenticate --quiet --auth_mode=notebook
-        else
-            echo "❌ earthengine command not found"
-            echo "   Please install: pip install earthengine-api"
-            echo "   Then run: earthengine authenticate"
-            echo ""
-            echo "   Or use a service account by setting in .env:"
-            echo "   EE_SERVICE_ACCOUNT=xxx@yyy.iam.gserviceaccount.com"
-            echo "   EE_PRIVATE_KEY_FILE=/path/to/key.json"
-        fi
-    fi
-    
-    # 验证认证是否成功
-    echo ""
-    echo "🔍 Validating Earth Engine authentication..."
-    set +e
-    python -c "import ee; ee.Initialize(); print('✅ Earth Engine authentication successful!')"
-    if [ $? -ne 0 ]; then
-        echo "⚠️  Authentication validation failed, but continuing..."
-        echo "   You may see warnings when the server starts."
-    fi
-    set -e
-    echo ""
-else
-    echo "✅ Earth Engine already authenticated"
-fi
-
 # Optional: Chapter 5 supervised RF classifier (assetized) bootstrap.
 # - Hard gate startup: backend will NOT start unless the asset is ready.
 # - If missing, it will auto-submit an export task and wait until ready (timeout).
@@ -395,6 +350,73 @@ CH5_RF_BOOTSTRAP="${CH5_RF_BOOTSTRAP:-1}"
 CH5_RF_AUTO_EXPORT="${CH5_RF_AUTO_EXPORT:-1}"
 CH5_RF_WAIT_TIMEOUT_S="${CH5_RF_WAIT_TIMEOUT_S:-420}"
 CH5_RF_WAIT_INTERVAL_S="${CH5_RF_WAIT_INTERVAL_S:-8}"
+
+# Earth Engine initialization check.
+# IMPORTANT: Never attempt interactive authentication in non-interactive contexts
+# (systemd / CI / ssh without TTY). The FastAPI app can still start with
+# gee_initialized=false; it will degrade gracefully.
+NONINTERACTIVE=0
+if [ ! -t 0 ] || [ ! -t 1 ] || [ -n "${INVOCATION_ID:-}" ] || [ -n "${SYSTEMD_EXEC_PID:-}" ]; then
+    NONINTERACTIVE=1
+fi
+
+echo "🔐 Checking Earth Engine initialization (service account preferred)..."
+set +e
+python - <<'PY'
+from backend.gee_service import init_earth_engine
+
+init_earth_engine()
+print('✅ Earth Engine initialization successful')
+PY
+EE_INIT_STATUS=$?
+set -e
+
+if [ "$EE_INIT_STATUS" -ne 0 ]; then
+    echo "⚠️  Earth Engine initialization failed."
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        echo "   Non-interactive environment detected; skipping interactive Earth Engine authentication."
+        echo "   Fix options:"
+        echo "    - Configure service account: EE_SERVICE_ACCOUNT + EE_PRIVATE_KEY_FILE (recommended for production)"
+        echo "    - Or pre-authenticate the service user and ensure systemd runs as that user"
+    else
+        echo "📝 You will get a URL. Open it in your browser and paste the code back here."
+        echo ""
+
+        # Best-effort interactive authentication helper.
+        set +e
+        if [ -x "backend/venv/bin/earthengine" ]; then
+            backend/venv/bin/earthengine authenticate --auth_mode=notebook
+        elif command -v earthengine >/dev/null 2>&1; then
+            earthengine authenticate --auth_mode=notebook
+        else
+            echo "❌ earthengine command not found"
+            echo "   Please install: pip install earthengine-api"
+        fi
+
+        echo ""
+        echo "🔍 Re-checking Earth Engine initialization..."
+        python - <<'PY'
+from backend.gee_service import init_earth_engine
+
+init_earth_engine()
+print('✅ Earth Engine initialization successful')
+PY
+        EE_INIT_STATUS=$?
+        set -e
+
+        if [ "$EE_INIT_STATUS" -ne 0 ]; then
+            echo "⚠️  Earth Engine is still not initialized; continuing in degraded mode."
+        fi
+    fi
+
+    if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
+        echo "⚠️  Disabling CH5_RF_BOOTSTRAP because Earth Engine is not initialized."
+        CH5_RF_BOOTSTRAP="0"
+    fi
+else
+    echo "✅ Earth Engine initialized"
+fi
+
 if [ "$CH5_RF_BOOTSTRAP" = "1" ]; then
     echo "🧊 Checking CH5 RF classifier asset..."
 

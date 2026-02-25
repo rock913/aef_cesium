@@ -146,7 +146,7 @@ _wait_http_ok() {
 
   for i in $(seq 1 "$tries"); do
     if command -v curl >/dev/null 2>&1; then
-      if curl -fsS "$url" >/dev/null 2>&1; then
+      if curl -fsS --connect-timeout 2 --max-time 4 "$url" >/dev/null 2>&1; then
         echo "✅ ${name} OK: $url"
         return 0
       fi
@@ -246,9 +246,9 @@ fi
 
 _echo_step "Health checks"
 set +e
-_wait_http_ok "$HEALTH_URL" "backend" 30 1
+_wait_http_ok "$HEALTH_URL" "backend" 180 1
 hc1=$?
-_wait_http_ok "$FRONTEND_URL" "frontend" 30 1
+_wait_http_ok "$FRONTEND_URL" "frontend" 60 1
 hc2=$?
 set -e
 
