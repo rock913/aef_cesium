@@ -19,9 +19,15 @@ describe('Mobile layout & gesture isolation (TDD)', () => {
     const s = readAppVue()
     expect(s).toMatch(/@media\s*\(max-width:\s*720px\)/)
     expect(s).toMatch(/\.ai-panel[\s\S]*bottom:\s*0/)
-    expect(s).toMatch(/\.ai-panel[\s\S]*height:\s*35vh/)
+    expect(s).toMatch(/\.ai-panel[\s\S]*height:\s*50vh/)
     expect(s).toMatch(/\.ai-panel\.expanded[\s\S]*height:\s*85vh/)
     expect(s).toMatch(/ai-drawer-handle/)
+  })
+
+  it('hides compare controls on mobile (keep only AI Layer)', () => {
+    const s = readAppVue()
+    expect(s).toMatch(/\.ai-actions\s+\.ai-btn-swipe[\s\S]*display:\s*none/)
+    expect(s).toMatch(/\.ai-actions\s+\.ai-btn-hold[\s\S]*display:\s*none/)
   })
 
   it('stops touch/pointer events in capture phase to avoid Cesium conflicts', () => {

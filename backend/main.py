@@ -19,6 +19,7 @@ import base64
 import hashlib
 import time
 import asyncio
+import concurrent.futures
 import os
 import threading
 import uuid
@@ -212,6 +213,9 @@ _gee_last_error: Optional[str] = None
 _gee_last_attempt_ts: float = 0.0
 _gee_last_success_ts: float = 0.0
 _gee_min_retry_interval_s: float = float(os.getenv("GEE_INIT_RETRY_INTERVAL_S", "15"))
+_gee_init_timeout_s: float = float(os.getenv("GEE_INIT_TIMEOUT_S", "6"))
+_gee_init_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+_gee_init_future: Optional[concurrent.futures.Future] = None
 
 
 def _gee_unavailable_detail() -> Dict[str, Any]:
@@ -247,7 +251,7 @@ def _ensure_gee_initialized(*, force: bool = False) -> bool:
     Throttles repeated init attempts to avoid stampeding under load.
     """
 
-    global gee_initialized, _gee_last_error, _gee_last_attempt_ts, _gee_last_success_ts
+    global gee_initialized, _gee_last_error, _gee_last_attempt_ts, _gee_last_success_ts, _gee_init_future
 
     if gee_initialized and not force:
         return True
@@ -261,22 +265,49 @@ def _ensure_gee_initialized(*, force: bool = False) -> bool:
         if gee_initialized and not force:
             return True
 
+        # If an init is already running, don't block other requests.
+        if _gee_init_future is not None:
+            if not _gee_init_future.done():
+                return False
+            try:
+                _gee_init_future.result()
+                gee_initialized = True
+                _gee_last_error = None
+                _gee_last_success_ts = time.time()
+                _gee_init_future = None
+                return True
+            except Exception as e:
+                gee_initialized = False
+                _gee_last_error = f"{type(e).__name__}: {e}"
+                _gee_init_future = None
+                return False
+
         now = time.time()
         if not force and _gee_min_retry_interval_s > 0:
             if (now - float(_gee_last_attempt_ts)) < float(_gee_min_retry_interval_s):
                 return False
 
+        # Kick off init in a background thread; allow a bounded wait for fast paths.
         _gee_last_attempt_ts = now
-        try:
-            init_earth_engine()
+        _gee_init_future = _gee_init_executor.submit(init_earth_engine)
+
+    # Wait outside the lock so other requests can fail fast (503) instead of hanging.
+    try:
+        _gee_init_future.result(timeout=max(0.0, float(_gee_init_timeout_s)))
+        with _gee_init_lock:
             gee_initialized = True
             _gee_last_error = None
             _gee_last_success_ts = time.time()
-            return True
-        except Exception as e:
+            _gee_init_future = None
+        return True
+    except concurrent.futures.TimeoutError:
+        return False
+    except Exception as e:
+        with _gee_init_lock:
             gee_initialized = False
             _gee_last_error = f"{type(e).__name__}: {e}"
-            return False
+            _gee_init_future = None
+        return False
 
 
 def _require_gee() -> None:
@@ -288,6 +319,27 @@ def _require_gee() -> None:
         detail=_gee_unavailable_detail(),
         headers={"Retry-After": "5"},
     )
+
+
+@app.get("/api/debug/gee")
+async def debug_gee_status():
+    """Diagnostics for GEE-backed endpoints (e.g. /api/stats)."""
+
+    with _gee_init_lock:
+        init_in_progress = bool(_gee_init_future is not None and not _gee_init_future.done())
+        last_error = _gee_last_error
+        last_attempt_ts = _gee_last_attempt_ts
+        last_success_ts = _gee_last_success_ts
+
+    return {
+        "gee_initialized": bool(gee_initialized),
+        "init_in_progress": init_in_progress,
+        "last_error": last_error,
+        "last_attempt_ts": last_attempt_ts,
+        "last_success_ts": last_success_ts,
+        "min_retry_interval_s": float(_gee_min_retry_interval_s),
+        "init_timeout_s": float(_gee_init_timeout_s),
+    }
 
 # Global async HTTP client (connection pool) for high-concurrency tile proxying
 http_client: Optional[httpx.AsyncClient] = None
@@ -305,6 +357,7 @@ _GOOGLE_TILES_BASE = str(os.getenv("GOOGLE_TILES_BASE", "https://tile.googleapis
 _ION_ACCESS_TOKEN = str(os.getenv("ION_ACCESS_TOKEN", "")).strip()
 
 _ion_upstream_timeout_s = float(os.getenv("ION_UPSTREAM_TIMEOUT_S", "25"))
+_google_tiles_timeout_s = float(os.getenv("GOOGLE_TILES_TIMEOUT_S", str(_ion_upstream_timeout_s)))
 _ion_upstream_max_concurrency = int(os.getenv("ION_UPSTREAM_MAX_CONCURRENCY", "32"))
 _ion_upstream_sem = asyncio.Semaphore(max(1, _ion_upstream_max_concurrency))
 
@@ -464,6 +517,7 @@ async def _proxy_stream(
                 error=None,
             )
             out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+            out_headers["X-OneEarth-Proxy-Mode"] = "stream"
             return Response(status_code=int(resp.status_code), headers=out_headers)
 
         async with http_client.stream(
@@ -493,6 +547,7 @@ async def _proxy_stream(
                 for k, v in out_headers.items()
                 if k.lower() not in {"content-length", "content-encoding"}
             }
+            out_headers["X-OneEarth-Proxy-Mode"] = "stream"
             status = int(upstream_resp.status_code)
             return StreamingResponse(
                 upstream_resp.aiter_bytes(),
@@ -508,6 +563,117 @@ async def _proxy_stream(
     except Exception as e:
         _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"exception: {e}")
         raise
+    finally:
+        try:
+            _ion_upstream_sem.release()
+        except Exception:
+            pass
+
+
+async def _proxy_buffered(
+    request: Request,
+    *,
+    upstream_url: str,
+    acquire_timeout_s: float = 1.5,
+    timeout_s: Optional[float] = None,
+    retries: int = 1,
+) -> Response:
+    """Buffer upstream response fully before responding.
+
+    This avoids browser-visible `ERR_INCOMPLETE_CHUNKED_ENCODING` when the upstream
+    disconnects mid-stream (common on some networks) by retrying and only sending
+    bytes once the full body is available.
+    """
+
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    method = request.method.upper()
+    if method not in {"GET", "HEAD"}:
+        raise HTTPException(status_code=405, detail="Method not allowed")
+
+    timeout_val = float(timeout_s) if timeout_s is not None else float(_ion_upstream_timeout_s)
+    diag_key = _diag_key_for_upstream_url(upstream_url)
+
+    try:
+        try:
+            await asyncio.wait_for(_ion_upstream_sem.acquire(), timeout=max(0.1, float(acquire_timeout_s)))
+        except Exception:
+            raise HTTPException(status_code=503, detail="Upstream busy")
+
+        headers = _proxy_request_headers(request, accept_encoding_identity=True)
+        params = dict(request.query_params)
+
+        last_error: Optional[Exception] = None
+        for attempt in range(max(0, int(retries)) + 1):
+            if attempt > 0:
+                await asyncio.sleep(min(0.8, 0.2 * (2** (attempt - 1))))
+
+            t0 = time.perf_counter()
+            try:
+                if method == "HEAD":
+                    resp = await http_client.request(
+                        "HEAD",
+                        upstream_url,
+                        params=params,
+                        headers=headers,
+                        timeout=timeout_val,
+                        follow_redirects=True,
+                    )
+                    _record_upstream_diag(
+                        diag_key,
+                        status=int(resp.status_code),
+                        latency_ms=(time.perf_counter() - t0) * 1000.0,
+                        error=None,
+                    )
+                    out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+                    out_headers["X-OneEarth-Proxy-Mode"] = "buffered"
+                    return Response(status_code=int(resp.status_code), headers=out_headers)
+
+                resp = await http_client.get(
+                    upstream_url,
+                    params=params,
+                    headers=headers,
+                    timeout=timeout_val,
+                    follow_redirects=True,
+                )
+
+                _record_upstream_diag(
+                    diag_key,
+                    status=int(resp.status_code),
+                    latency_ms=(time.perf_counter() - t0) * 1000.0,
+                    error=None,
+                )
+
+                out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+                out_headers = {
+                    k: v
+                    for k, v in out_headers.items()
+                    if k.lower() not in {"content-length", "content-encoding", "transfer-encoding", "content-type"}
+                }
+                out_headers["X-OneEarth-Proxy-Mode"] = "buffered"
+
+                content_type = resp.headers.get("content-type") or "application/octet-stream"
+                media_type = content_type.split(";")[0].strip() or "application/octet-stream"
+                return Response(
+                    content=resp.content,
+                    status_code=int(resp.status_code),
+                    headers=out_headers,
+                    media_type=media_type,
+                )
+            except httpx.TimeoutException as e:
+                last_error = e
+                _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
+            except httpx.RequestError as e:
+                last_error = e
+                _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
+            except Exception as e:
+                last_error = e
+                _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"exception: {e}")
+
+        if isinstance(last_error, httpx.TimeoutException):
+            raise HTTPException(status_code=504, detail="Upstream timeout")
+        raise HTTPException(status_code=502, detail="Upstream request error")
     finally:
         try:
             _ion_upstream_sem.release()
@@ -1770,7 +1936,17 @@ async def proxy_google_tiles(path: str, request: Request):
     """
 
     upstream_url = f"{_GOOGLE_TILES_BASE}/{str(path).lstrip('/')}"
-    return await _proxy_stream(request, upstream_url=upstream_url)
+    # `root.json` (and other small JSON metadata) is especially sensitive to
+    # mid-stream disconnects; buffering+retry avoids browser-side
+    # ERR_INCOMPLETE_CHUNKED_ENCODING.
+    if request.method.upper() == "GET" and str(path).lower().endswith(".json"):
+        return await _proxy_buffered(
+            request,
+            upstream_url=upstream_url,
+            timeout_s=float(_google_tiles_timeout_s),
+            retries=1,
+        )
+    return await _proxy_stream(request, upstream_url=upstream_url, timeout_s=float(_google_tiles_timeout_s))
 
 
 @app.get("/api/tiles/{tile_id}/{z}/{x}/{y}")

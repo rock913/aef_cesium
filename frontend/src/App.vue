@@ -125,11 +125,11 @@
               <button class="ai-btn" @click="toggleAILayer" :disabled="!viewerReady" title="开关 AI 叠加图层（不重新加载瓦片）">
                 AI Layer: {{ aiLayerVisible ? 'ON' : 'OFF' }}
               </button>
-              <button class="ai-btn" @click="toggleSplitCompare" :disabled="!viewerReady" title="开启分屏滑杆对比（左底图/右AI）">
+              <button class="ai-btn ai-btn-swipe" @click="toggleSplitCompare" :disabled="!viewerReady" title="开启分屏滑杆对比（左底图/右AI）">
                 Swipe: {{ splitCompareEnabled ? 'ON' : 'OFF' }}
               </button>
               <button
-                class="ai-btn secondary"
+                class="ai-btn secondary ai-btn-hold"
                 :class="{ active: holdingCompare }"
                 @pointerdown.prevent="beginHoldCompare"
                 @pointerup.prevent="endHoldCompare"
@@ -1909,7 +1909,7 @@ export default {
     right: 0;
     bottom: 0;
     width: 100%;
-    height: 35vh;
+    height: 50vh;
     border-left: none;
     border-top: 1px solid rgba(0, 245, 255, 0.16);
     border-radius: 18px 18px 0 0;
@@ -1930,6 +1930,12 @@ export default {
     padding: 0;
     cursor: pointer;
     touch-action: manipulation;
+  }
+
+  /* Mobile simplification: keep only AI Layer control */
+  .ai-actions .ai-btn-swipe,
+  .ai-actions .ai-btn-hold {
+    display: none;
   }
 }
 </style>

@@ -136,3 +136,24 @@ def test_streaming_proxy_strips_content_length_to_avoid_mismatch(client_and_main
     # Avoid browser-side net::ERR_CONTENT_LENGTH_MISMATCH by not forwarding Content-Length on streamed bodies.
     assert "content-length" not in {k.lower() for k in resp.headers.keys()}
     assert resp.content == body
+
+
+def test_google_tiles_root_json_uses_buffered_proxy_mode(client_and_main):
+    client, main = client_and_main
+
+    payload = {"hello": "tiles"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "tile.googleapis.com" in str(request.url)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=json.dumps(payload).encode("utf-8"),
+        )
+
+    main.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resp = client.get("/api/google-tiles/v1/3dtiles/root.json?key=xyz")
+    assert resp.status_code == 200
+    assert resp.headers.get("x-oneearth-proxy-mode") == "buffered"
+    assert resp.json() == payload
