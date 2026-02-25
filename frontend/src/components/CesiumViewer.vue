@@ -49,7 +49,13 @@ export default {
     let lastCenterLon = null
     
     onMounted(() => {
-      initViewer()
+      Promise.resolve()
+        .then(() => initViewer())
+        .catch((error) => {
+          console.error('Cesium初始化失败:', error)
+          loading.value = false
+          loadingText.value = '初始化失败: ' + (error?.message || String(error))
+        })
     })
     
     onBeforeUnmount(() => {
@@ -82,13 +88,39 @@ export default {
       }
     })
     
-    function initViewer() {
+    async function initViewer() {
       const ionToken = import.meta.env.VITE_CESIUM_TOKEN
       const hasIonToken = !!(ionToken && String(ionToken).trim())
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
       }
-      
+
+      if (!cesiumContainer.value) {
+        throw new Error('Cesium container element not found')
+      }
+
+      // IMPORTANT: `Viewer` expects a TerrainProvider on `terrainProvider`.
+      // Passing a TerrainProvider into `terrain` can crash with:
+      //   Cannot read properties of undefined (reading 'addEventListener')
+      // because providers like EllipsoidTerrainProvider don't have `readyEvent`.
+      let terrainProvider = new Cesium.EllipsoidTerrainProvider()
+      if (hasIonToken) {
+        try {
+          if (typeof Cesium.createWorldTerrainAsync === 'function') {
+            terrainProvider = await Cesium.createWorldTerrainAsync({
+              requestWaterMask: true,
+              requestVertexNormals: true
+            })
+          } else {
+            // Fallback: keep ellipsoid if this build doesn't expose the async helper.
+            terrainProvider = new Cesium.EllipsoidTerrainProvider()
+          }
+        } catch (e) {
+          console.warn('⚠️  Failed to load world terrain; falling back to ellipsoid.', e)
+          terrainProvider = new Cesium.EllipsoidTerrainProvider()
+        }
+      }
+
       try {
         // Basemap strategy:
         // - If Ion token exists, do NOT override imageryProvider/baseLayer so Cesium loads its stable default imagery.
@@ -98,12 +130,7 @@ export default {
 
         viewer = new Cesium.Viewer(cesiumContainer.value, {
           creditContainer: creditContainer.value,
-          terrain: hasIonToken
-            ? Cesium.Terrain.fromWorldTerrain({
-                requestWaterMask: true,
-                requestVertexNormals: true
-              })
-            : new Cesium.EllipsoidTerrainProvider(),
+          terrainProvider,
 
           baseLayerPicker: false,
           ...(hasIonToken
