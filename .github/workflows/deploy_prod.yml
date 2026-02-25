@@ -11,6 +11,10 @@ on:
         description: "Release id (leave empty to auto-generate)"
         required: false
         default: ""
+      configure_gee:
+        description: "Auto-configure GEE service account on server (requires secrets EE_SERVICE_ACCOUNT + EE_PRIVATE_KEY_JSON_B64)"
+        required: false
+        default: "true"
 
 concurrency:
   group: deploy-prod
@@ -30,6 +34,8 @@ jobs:
       BACKEND_SERVICE: ${{ secrets.PROD_BACKEND_SERVICE || 'oneearth-v6-backend-8507' }}
       HEALTH_URL: ${{ secrets.PROD_HEALTH_URL || 'http://127.0.0.1:8507/health' }}
       FRONTEND_URL: ${{ secrets.PROD_FRONTEND_URL || 'http://127.0.0.1:8506/' }}
+      EE_SERVICE_ACCOUNT: ${{ secrets.EE_SERVICE_ACCOUNT }}
+      EE_PRIVATE_KEY_JSON_B64: ${{ secrets.EE_PRIVATE_KEY_JSON_B64 }}
 
     steps:
       - name: Checkout
@@ -206,6 +212,48 @@ jobs:
           ssh -vvv -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no "${PROD_USER}@${PROD_HOST}" "echo ok" || true
           ssh -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" "mkdir -p '${remote_incoming}' '${PROD_PATH}/releases'"
           scp -P "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "$archive" "${PROD_USER}@${PROD_HOST}:${remote_incoming}/${rid}.tar.gz"
+
+      - name: Configure GEE service account (optional)
+        if: ${{ inputs.configure_gee == 'true' && env.EE_SERVICE_ACCOUNT != '' && env.EE_PRIVATE_KEY_JSON_B64 != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_path="$HOME/.ssh/id_oneearth_deploy"
+
+          tmp_key_json="$RUNNER_TEMP/ee-service-account.json"
+          if [ -z "${EE_SERVICE_ACCOUNT:-}" ] || [ -z "${EE_PRIVATE_KEY_JSON_B64:-}" ]; then
+            echo "❌ Missing EE_SERVICE_ACCOUNT / EE_PRIVATE_KEY_JSON_B64 secrets"
+            exit 1
+          fi
+
+          # Decode base64 without printing secrets.
+          printf '%s' "$EE_PRIVATE_KEY_JSON_B64" | base64 -d > "$tmp_key_json"
+          chmod 600 "$tmp_key_json"
+
+          # Upload to /tmp then install with sudo into PROD_PATH/secure
+          scp -P "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes \
+            "$tmp_key_json" "${PROD_USER}@${PROD_HOST}:/tmp/ee-service-account.json"
+
+          ssh -p "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes "${PROD_USER}@${PROD_HOST}" \
+            "set -euo pipefail; \
+             base='${PROD_PATH}'; \
+             key_dst=\"\$base/secure/ee-service-account.json\"; \
+             env_file=\"\$base/.env.prod\"; \
+             sudo -n install -d -m 700 \"\$base/secure\"; \
+             sudo -n install -m 600 /tmp/ee-service-account.json \"\$key_dst\"; \
+             rm -f /tmp/ee-service-account.json || true; \
+             sudo -n bash -lc \"set -euo pipefail; \
+               touch '\$env_file'; \
+               if grep -q '^EE_SERVICE_ACCOUNT=' '\$env_file'; then \
+                 sed -i \\\"s|^EE_SERVICE_ACCOUNT=.*$|EE_SERVICE_ACCOUNT=${EE_SERVICE_ACCOUNT}|\\\" '\$env_file'; \
+               else \
+                 printf '\\nEE_SERVICE_ACCOUNT=%s\\n' '${EE_SERVICE_ACCOUNT}' >> '\$env_file'; \
+               fi; \
+               if grep -q '^EE_PRIVATE_KEY_FILE=' '\$env_file'; then \
+                 sed -i \\\"s|^EE_PRIVATE_KEY_FILE=.*$|EE_PRIVATE_KEY_FILE=\\\"\$key_dst\\\"|\\\" '\$env_file'; \
+               else \
+                 printf 'EE_PRIVATE_KEY_FILE=%s\\n' '\$key_dst' >> '\$env_file'; \
+               fi\""
 
       - name: Deploy on server (extract + switch + restart + healthcheck)
         run: |

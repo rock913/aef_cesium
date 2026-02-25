@@ -4,6 +4,9 @@ GEE Service Layer for Cesium App
 """
 import ee
 import os
+import base64
+import hashlib
+import tempfile
 from typing import Dict, Tuple, Any
 
 
@@ -538,9 +541,30 @@ def init_earth_engine():
         # 尝试服务账号认证
         service_account = os.getenv('EE_SERVICE_ACCOUNT')
         key_file = os.getenv('EE_PRIVATE_KEY_FILE')
+        key_json_b64 = os.getenv('EE_PRIVATE_KEY_JSON_B64')
         
-        if service_account and key_file:
-            credentials = ee.ServiceAccountCredentials(service_account, key_file)
+        if service_account and (key_file or key_json_b64):
+            key_path = None
+            if key_file:
+                key_path = os.path.expanduser(str(key_file))
+                if not os.path.isfile(key_path):
+                    raise FileNotFoundError(f"EE_PRIVATE_KEY_FILE not found: {key_path}")
+
+            if (not key_path) and key_json_b64:
+                raw = base64.b64decode(str(key_json_b64).strip())
+                digest = hashlib.sha256(raw).hexdigest()[:16]
+                tmp_dir = os.path.join(tempfile.gettempdir(), "oneearth")
+                os.makedirs(tmp_dir, exist_ok=True)
+                key_path = os.path.join(tmp_dir, f"ee-key-{digest}.json")
+                if not os.path.isfile(key_path):
+                    with open(key_path, "wb") as f:
+                        f.write(raw)
+                    try:
+                        os.chmod(key_path, 0o600)
+                    except Exception:
+                        pass
+
+            credentials = ee.ServiceAccountCredentials(service_account, key_path)
             ee.Initialize(credentials)
             print(f"✅ GEE initialized with service account: {service_account}")
         else:

@@ -13,6 +13,32 @@ const api = axios.create({
   timeout: 30000
 })
 
+// Normalize error messages so the UI can show actionable backend details.
+api.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    try {
+      const status = error?.response?.status
+      const data = error?.response?.data
+      const detail = (data && (data.detail ?? data.error ?? data)) || null
+      const detailText = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : ''
+      const baseMsg = error?.message || 'Request failed'
+
+      const msg = status
+        ? `${baseMsg} (HTTP ${status})${detailText ? `: ${detailText}` : ''}`
+        : baseMsg
+
+      const e2 = new Error(msg)
+      e2.status = status
+      e2.detail = detail
+      throw e2
+    } catch (_) {
+      // Fallback to original error
+      throw error
+    }
+  }
+)
+
 export const apiService = {
   /**
    * 获取所有可用地点

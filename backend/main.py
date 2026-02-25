@@ -207,6 +207,88 @@ class Mission(BaseModel):
 # 全局状态
 gee_initialized = False
 
+_gee_init_lock = threading.Lock()
+_gee_last_error: Optional[str] = None
+_gee_last_attempt_ts: float = 0.0
+_gee_last_success_ts: float = 0.0
+_gee_min_retry_interval_s: float = float(os.getenv("GEE_INIT_RETRY_INTERVAL_S", "15"))
+
+
+def _gee_unavailable_detail() -> Dict[str, Any]:
+    """Structured error payload for endpoints that require GEE."""
+
+    # Do not leak secrets; only surface presence and basic guidance.
+    service_account = str(os.getenv("EE_SERVICE_ACCOUNT", "")).strip()
+    key_file = str(os.getenv("EE_PRIVATE_KEY_FILE", "")).strip()
+    key_b64 = str(os.getenv("EE_PRIVATE_KEY_JSON_B64", "")).strip()
+
+    return {
+        "error": "gee_not_initialized",
+        "message": "GEE not initialized",
+        "gee_initialized": bool(gee_initialized),
+        "last_error": _gee_last_error,
+        "hint": (
+            "Configure a service account for production via EE_SERVICE_ACCOUNT and "
+            "EE_PRIVATE_KEY_FILE (recommended), or EE_PRIVATE_KEY_JSON_B64. "
+            "Then restart the backend (or wait for lazy re-init)."
+        ),
+        "env": {
+            "EE_SERVICE_ACCOUNT_set": bool(service_account),
+            "EE_PRIVATE_KEY_FILE_set": bool(key_file),
+            "EE_PRIVATE_KEY_JSON_B64_set": bool(key_b64),
+        },
+    }
+
+
+def _ensure_gee_initialized(*, force: bool = False) -> bool:
+    """Best-effort GEE init.
+
+    Returns True if initialized; False otherwise.
+    Throttles repeated init attempts to avoid stampeding under load.
+    """
+
+    global gee_initialized, _gee_last_error, _gee_last_attempt_ts, _gee_last_success_ts
+
+    if gee_initialized and not force:
+        return True
+
+    now = time.time()
+    if not force and _gee_min_retry_interval_s > 0:
+        if (now - float(_gee_last_attempt_ts)) < float(_gee_min_retry_interval_s):
+            return False
+
+    with _gee_init_lock:
+        if gee_initialized and not force:
+            return True
+
+        now = time.time()
+        if not force and _gee_min_retry_interval_s > 0:
+            if (now - float(_gee_last_attempt_ts)) < float(_gee_min_retry_interval_s):
+                return False
+
+        _gee_last_attempt_ts = now
+        try:
+            init_earth_engine()
+            gee_initialized = True
+            _gee_last_error = None
+            _gee_last_success_ts = time.time()
+            return True
+        except Exception as e:
+            gee_initialized = False
+            _gee_last_error = f"{type(e).__name__}: {e}"
+            return False
+
+
+def _require_gee() -> None:
+    if _ensure_gee_initialized(force=False):
+        return
+    # Use a small retry-after; callers can back off and retry.
+    raise HTTPException(
+        status_code=503,
+        detail=_gee_unavailable_detail(),
+        headers={"Retry-After": "5"},
+    )
+
 # Global async HTTP client (connection pool) for high-concurrency tile proxying
 http_client: Optional[httpx.AsyncClient] = None
 
@@ -524,8 +606,7 @@ async def startup_event():
     """应用启动时初始化 GEE"""
     global gee_initialized, http_client
     try:
-        init_earth_engine()
-        gee_initialized = True
+        _ensure_gee_initialized(force=True)
     except Exception as e:
         print(f"Warning: GEE initialization failed: {e}")
         gee_initialized = False
@@ -551,6 +632,7 @@ async def health_check():
     return {
         "status": "healthy",
         "gee_initialized": gee_initialized,
+        "gee_last_error": _gee_last_error,
         "version": "1.0.0"
     }
 
@@ -614,8 +696,7 @@ async def get_stats(req: StatsRequest):
     V5 goal: replace HUD mockStats with real Earth Engine reduceRegion results.
     """
 
-    if not gee_initialized:
-        raise HTTPException(status_code=503, detail="GEE not initialized")
+    _require_gee()
 
     if req.mode not in settings.modes:
         raise HTTPException(
@@ -671,8 +752,7 @@ async def generate_report(req: ReportRequest):
     computed = False
 
     if stats is None:
-        if not gee_initialized:
-            raise HTTPException(status_code=503, detail="GEE not initialized")
+        _require_gee()
 
         mode_id = req.mode or mission.get("api_mode")
         location_id = req.location or mission.get("location")
@@ -849,8 +929,7 @@ async def analyze_mission(req: AnalyzeRequest):
     computed = False
 
     if stats is None:
-        if not gee_initialized:
-            raise HTTPException(status_code=503, detail="GEE not initialized")
+        _require_gee()
 
         mode_id = req.mode or mission.get("api_mode")
         location_id = req.location or mission.get("location")
@@ -930,8 +1009,7 @@ async def get_layer(
             "vis_params": {...}
         }
     """
-    if not gee_initialized:
-        raise HTTPException(status_code=503, detail="GEE not initialized")
+    _require_gee()
     
     # 验证地点
     if location not in settings.locations:
@@ -1038,8 +1116,7 @@ async def export_cache(request: ExportRequest):
             "asset_id": "..."
         }
     """
-    if not gee_initialized:
-        raise HTTPException(status_code=503, detail="GEE not initialized")
+    _require_gee()
     
     # 验证模式
     if request.mode not in settings.modes:
@@ -1097,8 +1174,7 @@ async def get_sentinel2_layer(request: Request, location: str):
     Returns:
         Sentinel-2 影像的 Tile URL
     """
-    if not gee_initialized:
-        raise HTTPException(status_code=503, detail="GEE not initialized")
+    _require_gee()
     
     if location not in settings.locations:
         raise HTTPException(status_code=400, detail=f"Invalid location: {location}")
@@ -1164,8 +1240,7 @@ async def proxy_gee_tile(
     ),
 ):
     """同源代理 Earth Engine 瓦片（完全异步），避免并发瓦片请求阻塞导致黑块。"""
-    if not gee_initialized:
-        raise HTTPException(status_code=503, detail="GEE not initialized")
+    _require_gee()
 
     fallback_mode = str(fallback or "transparent").strip().lower()
     if fallback_mode not in {"transparent", "error"}:
