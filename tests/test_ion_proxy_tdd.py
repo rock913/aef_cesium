@@ -111,3 +111,28 @@ def test_ion_assets_proxy_preserves_range_header(client_and_main, monkeypatch: p
     assert resp.status_code == 206
     assert resp.headers.get("content-range")
     assert len(resp.content) == 1024
+
+
+def test_streaming_proxy_strips_content_length_to_avoid_mismatch(client_and_main):
+    client, main = client_and_main
+
+    body = b"x" * 1024
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Even if upstream provides a Content-Length, our StreamingResponse should not forward it.
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(body)),
+            },
+            content=body,
+        )
+
+    main.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resp = client.get("/api/ion-assets/123/some.bin")
+    assert resp.status_code == 200
+    # Avoid browser-side net::ERR_CONTENT_LENGTH_MISMATCH by not forwarding Content-Length on streamed bodies.
+    assert "content-length" not in {k.lower() for k in resp.headers.keys()}
+    assert resp.content == body

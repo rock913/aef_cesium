@@ -481,6 +481,18 @@ async def _proxy_stream(
                 error=None,
             )
             out_headers = _strip_hop_by_hop_headers(dict(upstream_resp.headers))
+            # For streamed bodies we must not forward upstream Content-Length.
+            # Any mid-stream disconnect or buffering can result in fewer bytes than
+            # advertised and triggers `net::ERR_CONTENT_LENGTH_MISMATCH` in browsers.
+            #
+            # Also strip Content-Encoding defensively: if any upstream ignores our
+            # `accept-encoding: identity`, httpx may decode the body but we would
+            # otherwise still forward the encoding header.
+            out_headers = {
+                k: v
+                for k, v in out_headers.items()
+                if k.lower() not in {"content-length", "content-encoding"}
+            }
             status = int(upstream_resp.status_code)
             return StreamingResponse(
                 upstream_resp.aiter_bytes(),
