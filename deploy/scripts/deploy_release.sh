@@ -187,23 +187,62 @@ _restart_services() {
     return 1
   fi
 
-  if [ "$RELOAD_NGINX" = "1" ]; then
+  _reload_nginx() {
+    local strict="${DEPLOY_STRICT_NGINX_RELOAD:-0}"
+
     _echo_step "Reloading nginx"
     if [ -n "${NGINX_BIN:-}" ] && command -v "${NGINX_BIN}" >/dev/null 2>&1; then
-      ${SUDO} ${NGINX_BIN} -t
-    fi
-    # Prefer systemd reload when available.
-    if ${SYSTEMCTL} list-unit-files | grep -q '^nginx\.service'; then
-      if ! ${SUDO} ${SYSTEMCTL} reload nginx; then
-        echo "❌ Failed to reload nginx via systemd"
-        return 1
-      fi
-    else
-      if ! ${SUDO} ${NGINX_BIN} -s reload; then
-        echo "❌ Failed to reload nginx"
+      # Validate config first (fast-fail if broken).
+      if ! ${SUDO} "${NGINX_BIN}" -t; then
+        echo "❌ nginx -t failed"
         return 1
       fi
     fi
+
+    # Prefer systemd reload, but be robust about command path matching in sudoers.
+    local reloaded=0
+    if command -v systemctl >/dev/null 2>&1; then
+      if [ -x /bin/systemctl ]; then
+        if ${SUDO} /bin/systemctl reload nginx; then reloaded=1; fi
+      fi
+      if [ "$reloaded" -eq 0 ] && [ -x /usr/bin/systemctl ]; then
+        if ${SUDO} /usr/bin/systemctl reload nginx; then reloaded=1; fi
+      fi
+      if [ "$reloaded" -eq 0 ]; then
+        if ${SUDO} systemctl reload nginx; then reloaded=1; fi
+      fi
+    fi
+
+    # Fallback: nginx signal reload.
+    if [ "$reloaded" -eq 0 ]; then
+      if [ -n "${NGINX_BIN:-}" ] && command -v "${NGINX_BIN}" >/dev/null 2>&1; then
+        if ${SUDO} "${NGINX_BIN}" -s reload; then reloaded=1; fi
+      fi
+    fi
+
+    if [ "$reloaded" -eq 1 ]; then
+      echo "✅ nginx reloaded"
+      return 0
+    fi
+
+    # In this repo's release model, switching the <base>/current symlink updates static files immediately.
+    # Reloading nginx is only required when nginx config changes (which is not part of a release bundle).
+    echo "⚠️  nginx reload failed (often due to sudoers command/arg mismatch)."
+    echo "   Continuing without rollback because current symlink is already switched."
+    echo "   To make this step passwordless, allow one of these commands in sudoers:"
+    echo "     /bin/systemctl reload nginx"
+    echo "     /usr/bin/systemctl reload nginx"
+    echo "     /usr/sbin/nginx -t"
+    echo "     /usr/sbin/nginx -s reload"
+    if [ "$strict" = "1" ]; then
+      echo "❌ DEPLOY_STRICT_NGINX_RELOAD=1: failing deploy due to nginx reload failure"
+      return 1
+    fi
+    return 0
+  }
+
+  if [ "$RELOAD_NGINX" = "1" ]; then
+    _reload_nginx
   fi
 }
 
