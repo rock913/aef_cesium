@@ -35,20 +35,25 @@ _init_sudo() {
     return 0
   fi
 
-  if command -v sudo >/dev/null 2>&1; then
-    if sudo -n true >/dev/null 2>&1; then
-      SUDO="sudo -n"
-      return 0
-    fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "❌ sudo not found, but deploying as non-root requires sudo for systemctl/nginx."
+    exit 1
+  fi
 
-    # Fallback to interactive sudo (will fail fast in non-interactive shells).
-    # This keeps behavior explicit: system-level operations should run via sudo
-    # when not root.
-    SUDO="sudo"
+  if sudo -n true >/dev/null 2>&1; then
+    SUDO="sudo -n"
     return 0
   fi
 
-  SUDO=""
+  # In CI/non-interactive shells, sudo cannot prompt for a password.
+  if [ ! -t 0 ]; then
+    echo "❌ Passwordless sudo is required for non-interactive deploys (sudo -n)."
+    echo "   Grant NOPASSWD for: systemctl restart ${BACKEND_SERVICE}, systemctl reload nginx, nginx -t"
+    exit 1
+  fi
+
+  # Interactive fallback (manual runs only).
+  SUDO="sudo"
 }
 
 while [ $# -gt 0 ]; do
@@ -100,9 +105,37 @@ if [ ! -d "$RELEASE_DIR/frontend/dist" ]; then
   exit 1
 fi
 
+if [ ! -f "$RELEASE_DIR/run_backend.sh" ]; then
+  echo "Invalid release (missing run_backend.sh): $RELEASE_DIR"
+  exit 1
+fi
+
 PREV_TARGET=""
 if [ -L "$CURRENT_LINK" ]; then
   PREV_TARGET="$(readlink -f "$CURRENT_LINK" || true)"
+fi
+
+_is_valid_release_dir() {
+  local dir="$1"
+
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    return 1
+  fi
+  if [ ! -d "$dir/backend" ]; then
+    return 1
+  fi
+  if [ ! -d "$dir/frontend/dist" ]; then
+    return 1
+  fi
+  if [ ! -f "$dir/run_backend.sh" ]; then
+    return 1
+  fi
+  return 0
+}
+
+if [ -n "$PREV_TARGET" ] && ! _is_valid_release_dir "$PREV_TARGET"; then
+  echo "⚠️  Previous current target is not a valid release; disabling rollback to it: $PREV_TARGET"
+  PREV_TARGET=""
 fi
 
 _echo_step() {
