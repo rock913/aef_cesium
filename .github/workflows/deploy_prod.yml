@@ -226,9 +226,30 @@ jobs:
             exit 1
           fi
 
-          # Decode base64 without printing secrets.
-          printf '%s' "$EE_PRIVATE_KEY_JSON_B64" | base64 -d > "$tmp_key_json"
+          umask 077
+
+          # Decode secret WITHOUT printing it.
+          # Supported formats for EE_PRIVATE_KEY_JSON_B64:
+          #  - Base64 of the JSON file (recommended)
+          #  - Raw JSON (if you accidentally pasted JSON into the secret)
+          raw="$EE_PRIVATE_KEY_JSON_B64"
+          first_non_ws="$(printf '%s' "$raw" | tr -d '\r' | sed -E 's/^[[:space:]]+//' | cut -c1 || true)"
+          if [ "$first_non_ws" = "{" ]; then
+            printf '%s' "$raw" > "$tmp_key_json"
+          else
+            # Strip all whitespace to tolerate line-wrapped base64.
+            # --ignore-garbage handles occasional non-base64 chars from copy/paste.
+            printf '%s' "$raw" | tr -d '[:space:]' | base64 --decode --ignore-garbage > "$tmp_key_json"
+          fi
+          if [ ! -s "$tmp_key_json" ]; then
+            echo "❌ Decoded key JSON is empty (check EE_PRIVATE_KEY_JSON_B64 secret)"
+            exit 1
+          fi
           chmod 600 "$tmp_key_json"
+
+          # Sanity check: valid JSON + matches service account email.
+          export TMP_KEY_JSON="$tmp_key_json"
+          python -c "import json, os; from pathlib import Path; p=Path(os.environ['TMP_KEY_JSON']); data=json.loads(p.read_text(encoding='utf-8')); t=data.get('type'); assert t=='service_account', f'Unexpected key type: {t!r}'; client=str(data.get('client_email','')).strip(); expected=str(os.environ.get('EE_SERVICE_ACCOUNT','')).strip(); assert (not expected) or (not client) or (client==expected), f'client_email mismatch: {client} != {expected}'" >/dev/null
 
           # Upload to /tmp then install with sudo into PROD_PATH/secure
           scp -P "${PROD_SSH_PORT}" -i "$key_path" -o IdentitiesOnly=yes -o BatchMode=yes \
@@ -254,6 +275,9 @@ jobs:
                else \
                  printf 'EE_PRIVATE_KEY_FILE=%s\\n' '\$key_dst' >> '\$env_file'; \
                fi\""
+
+        env:
+          TMP_KEY_JSON: ${{ runner.temp }}/ee-service-account.json
 
       - name: Deploy on server (extract + switch + restart + healthcheck)
         run: |
