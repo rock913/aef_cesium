@@ -9,7 +9,7 @@ cd "$SCRIPT_DIR"
 
 echo "╔════════════════════════════════════════════════╗"
 echo "║   🌍 AlphaEarth Cesium 启动器                  ║"
-echo "║   Alpha Earth Foundation 场景验证系统          ║"
+echo "║   Alpha Earth Demo 场景验证系统          ║"
 echo "╚════════════════════════════════════════════════╝"
 echo ""
 

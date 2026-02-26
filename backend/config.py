@@ -139,7 +139,7 @@ class Settings(BaseModel):
             "location": "amazon",
             "api_mode": "ch4_amazon_zeroshot",
             "formula": "ZeroShotKMeans(k=6)",
-            "narrative": "不给 AI 任何南美地理先验，直接一键聚类：自动切分‘原始林/新生砍伐区/河流’等结构单元，证明 Alpha Earth Foundation 具备全球即插即用的通用智能能力。",
+            "narrative": "不给 AI 任何南美地理先验，直接一键聚类：自动切分'原始林/新生砍伐区/河流'等结构单元，证明 Alpha Earth Demo 具备全球即插即用的通用智能能力。",
             "camera": {"lat": -10.04485, "lon": -55.42936, "height": 90000, "duration_s": 4.0},
         },
         {

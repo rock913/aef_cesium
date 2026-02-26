@@ -1,6 +1,6 @@
-# Alpha Earth Foundation 场景验证系统 (V6.6)
+# Alpha Earth Demo 场景验证系统 (V6.6)
 
-Alpha Earth Foundation（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字地球），后端 FastAPI + Google Earth Engine（AEF 表征 / 统计 / 瓦片代理）。
+Alpha Earth Demo（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字地球），后端 FastAPI + Google Earth Engine（AEF 表征 / 统计 / 瓦片代理）。
 
 本目录为 `cesium_app_v6`，端口与主案例已固化，适合“快速了解现状 → 继续开发”。
 

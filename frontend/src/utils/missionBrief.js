@@ -61,7 +61,7 @@ function _buildTechnicalOutput({ mission, modeId, operator, brief, mechanism, le
     : ['- —']
 
   return [
-    '《Alpha Earth Foundation 技术版输出》',
+    '《Alpha Earth Demo 技术版输出》',
     `任务: ${title} (${chapter} / ${loc})`,
     `核心算子: ${operator || '—'}`,
     statsLine.startsWith('区域统计:') ? statsLine : `区域统计: ${statsLine}`,
@@ -163,7 +163,7 @@ export function buildCommanderBrief(modeId, mission, stats) {
     ]
   } else if (modeId === 'ch4_amazon_zeroshot') {
     operator = 'ZeroShotKMeans(k=6)'
-    brief = '不给 AI 输入任何南美洲先验知识，直接一键聚类：系统自动切分原始林、砍伐鱼骨、水域等单元，证明 Alpha Earth Foundation 具备全球即插即用的通用智能能力。'
+    brief = '不给 AI 输入任何南美洲先验知识，直接一键聚类：系统自动切分原始林、砍伐鱼骨、水域等单元，证明 Alpha Earth Demo 具备全球即插即用的通用智能能力。'
     mechanism = '零样本聚类：未输入样本标签，直接在 64 维空间执行无监督聚类，自动切分结构单元。'
     legends = [
       { color: '#006400', label: '暗绿色图斑：连片的原始热带雨林' },
