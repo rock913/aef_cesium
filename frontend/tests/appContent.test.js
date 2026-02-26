@@ -24,6 +24,8 @@ describe('App.vue content guards', () => {
     expect(s).not.toMatch(/\bOneEarth\b/)
     expect(s).not.toMatch(/ONEEARTH\//)
     expect(s).toContain('ALPHA EARTH')
+    expect(s).not.toMatch(/\bINTEL\b/)
+    expect(s).toContain('DEMO')
   })
 
   it('updates document title branding', () => {

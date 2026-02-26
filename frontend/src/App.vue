@@ -120,7 +120,7 @@
         />
         <div class="ai-header">
           <div class="ai-title-row">
-            <div class="ai-title">ALPHA EARTH <span>INTEL</span></div>
+            <div class="ai-title">ALPHA EARTH <span>DEMO</span></div>
             <div class="ai-actions">
               <button class="ai-btn" @click="toggleAILayer" :disabled="!viewerReady" title="开关 AI 叠加图层（不重新加载瓦片）">
                 AI Layer: {{ aiLayerVisible ? 'ON' : 'OFF' }}

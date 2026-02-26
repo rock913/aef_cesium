@@ -521,40 +521,67 @@ async def _proxy_stream(
             out_headers["X-OneEarth-Proxy-Mode"] = "stream"
             return Response(status_code=int(resp.status_code), headers=out_headers)
 
-        async with http_client.stream(
+        # IMPORTANT: do NOT use `async with http_client.stream(...) as upstream_resp` here.
+        # Returning a StreamingResponse would exit the context manager immediately,
+        # closing the upstream stream before Starlette starts consuming it, which
+        # manifests as `httpx.StreamClosed` and (behind reverse proxies) 502.
+        req = http_client.build_request(
             "GET",
             upstream_url,
             params=params,
             headers=headers,
-            timeout=timeout_val,
+        )
+        try:
+            # httpx compatibility: some versions don't accept `timeout=` in `send()`.
+            # Passing it via request extensions keeps per-request timeouts.
+            req.extensions["timeout"] = httpx.Timeout(timeout_val)
+        except Exception:
+            pass
+        upstream_resp = await http_client.send(
+            req,
+            stream=True,
             follow_redirects=True,
-        ) as upstream_resp:
-            _record_upstream_diag(
-                diag_key,
-                status=int(upstream_resp.status_code),
-                latency_ms=(time.perf_counter() - t0) * 1000.0,
-                error=None,
-            )
-            out_headers = _strip_hop_by_hop_headers(dict(upstream_resp.headers))
-            # For streamed bodies we must not forward upstream Content-Length.
-            # Any mid-stream disconnect or buffering can result in fewer bytes than
-            # advertised and triggers `net::ERR_CONTENT_LENGTH_MISMATCH` in browsers.
-            #
-            # Also strip Content-Encoding defensively: if any upstream ignores our
-            # `accept-encoding: identity`, httpx may decode the body but we would
-            # otherwise still forward the encoding header.
-            out_headers = {
-                k: v
-                for k, v in out_headers.items()
-                if k.lower() not in {"content-length", "content-encoding"}
-            }
-            out_headers["X-OneEarth-Proxy-Mode"] = "stream"
-            status = int(upstream_resp.status_code)
-            return StreamingResponse(
-                upstream_resp.aiter_bytes(),
-                status_code=status,
-                headers=out_headers,
-            )
+        )
+
+        _record_upstream_diag(
+            diag_key,
+            status=int(upstream_resp.status_code),
+            latency_ms=(time.perf_counter() - t0) * 1000.0,
+            error=None,
+        )
+        out_headers = _strip_hop_by_hop_headers(dict(upstream_resp.headers))
+        # For streamed bodies we must not forward upstream Content-Length.
+        # Any mid-stream disconnect or buffering can result in fewer bytes than
+        # advertised and triggers `net::ERR_CONTENT_LENGTH_MISMATCH` in browsers.
+        #
+        # Also strip Content-Encoding defensively: if any upstream ignores our
+        # `accept-encoding: identity`, httpx may decode the body but we would
+        # otherwise still forward the encoding header.
+        out_headers = {k: v for k, v in out_headers.items() if k.lower() not in {"content-length", "content-encoding"}}
+        out_headers["X-OneEarth-Proxy-Mode"] = "stream"
+        status = int(upstream_resp.status_code)
+
+        async def _iter_bytes():
+            try:
+                async for chunk in upstream_resp.aiter_bytes():
+                    yield chunk
+            except httpx.StreamClosed:
+                # Upstream stream got closed unexpectedly.
+                return
+            except asyncio.CancelledError:
+                # Client disconnected/cancelled request.
+                return
+            finally:
+                try:
+                    await upstream_resp.aclose()
+                except Exception:
+                    pass
+
+        return StreamingResponse(
+            _iter_bytes(),
+            status_code=status,
+            headers=out_headers,
+        )
     except httpx.RequestError as e:
         _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
         raise HTTPException(status_code=502, detail="Upstream request error")

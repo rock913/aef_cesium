@@ -138,6 +138,44 @@ def test_streaming_proxy_strips_content_length_to_avoid_mismatch(client_and_main
     assert resp.content == body
 
 
+def test_streaming_proxy_keeps_upstream_open_until_body_consumed(client_and_main):
+    client, main = client_and_main
+
+    class GuardedStream(httpx.AsyncByteStream):
+        def __init__(self, chunks: list[bytes]):
+            self._chunks = chunks
+            self._closed = False
+
+        async def __aiter__(self):
+            if self._closed:
+                raise httpx.StreamClosed("stream closed")
+            for c in self._chunks:
+                yield c
+
+        async def aclose(self):
+            self._closed = True
+
+    payload = b"hello-stream" * 64
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Return a response whose body iteration fails if the stream
+        # is closed before Starlette consumes it.
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(payload)),
+            },
+            stream=GuardedStream([payload]),
+        )
+
+    main.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resp = client.get("/api/google-tiles/v1/3dtiles/datasets/AAA/files/BBB.glb?key=xyz")
+    assert resp.status_code == 200
+    assert resp.content == payload
+
+
 def test_google_tiles_root_json_uses_buffered_proxy_mode(client_and_main):
     client, main = client_and_main
 
