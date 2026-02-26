@@ -1,0 +1,12 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Base layer deps (helps caching when not bind-mounting)
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Dev container relies on bind mount for source code; keep a safe default.
+EXPOSE 8504
+
+CMD ["sh", "-lc", "if [ ! -d node_modules ]; then npm ci; fi; npm run dev -- --host 0.0.0.0 --port 8504"]

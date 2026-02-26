@@ -67,12 +67,10 @@ elif [ -f ".env" ]; then
     ENV_SOURCE_KIND="fallback"
 fi
 
-# Select Python interpreter.
+# Select Python interpreter used to (re)create the venv when needed.
 # NOTE: On some systems /usr/bin/python3 may be 3.6, while a newer python exists.
 PYTHON_BIN=""
-if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
-    PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
-elif command -v python3.11 >/dev/null 2>&1; then
+if command -v python3.11 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3.11)"
 elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python)"
@@ -83,7 +81,10 @@ else
     exit 1
 fi
 
-echo "🐍 Using Python: $($PYTHON_BIN -V) ($PYTHON_BIN)"
+# Prefer a single workspace venv to avoid "two-venv" drift (backend/venv vs .venv).
+VENV_DIR="${VENV_DIR:-$SCRIPT_DIR/.venv}"
+
+echo "🐍 Bootstrap Python: $($PYTHON_BIN -V) ($PYTHON_BIN)"
 
 # 加载环境文件（如果存在）
 if [ -n "$ENV_PATH" ] && [ -f "$ENV_PATH" ]; then
@@ -221,6 +222,22 @@ _status() {
         fi
         return 0
     fi
+
+    # If the port is open, the backend may be running but not started via this script.
+    if _port_in_use "$API_PORT"; then
+        echo "⚠️  API_PORT=${API_PORT} is in use, but no live pid in $PID_FILE"
+        echo "   (backend may be started outside this script; stop/restart here won't affect it)"
+        if command -v curl >/dev/null 2>&1; then
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://${API_HOST}:${API_PORT}/health" 2>/dev/null || echo "000")
+            echo "   /health: HTTP $code"
+            if [ "$code" = "200" ]; then
+                return 0
+            fi
+        fi
+        _print_port_owner "$API_PORT"
+        return 1
+    fi
+
     echo "❌ Backend not running"
     return 1
 }
@@ -263,14 +280,10 @@ if _port_in_use "$API_PORT"; then
     exit 1
 fi
 
-# 检查 Python 环境
-# If an existing venv was created with an old interpreter (e.g., Python 3.6), rebuild it.
-if [ -d "backend/venv" ] && [ -x "backend/venv/bin/python" ]; then
-    # If this venv was copied/moved from another directory, its activate script will
-    # embed the original absolute VIRTUAL_ENV path and you'll end up importing packages
-    # from the wrong repo (a classic cause of mysterious 502s and missing deps).
-    EXPECTED_VENV="$SCRIPT_DIR/backend/venv"
-    ACTIVATE_FILE="$SCRIPT_DIR/backend/venv/bin/activate"
+# Ensure the workspace venv exists and matches this repo path.
+if [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/python" ]; then
+    EXPECTED_VENV="$VENV_DIR"
+    ACTIVATE_FILE="$VENV_DIR/bin/activate"
     VENV_REMOVED=0
     if [ -f "$ACTIVATE_FILE" ]; then
         ACTUAL_VENV=$(grep -E '^VIRTUAL_ENV=' "$ACTIVATE_FILE" 2>/dev/null | head -n 1 | cut -d= -f2-)
@@ -280,37 +293,40 @@ if [ -d "backend/venv" ] && [ -x "backend/venv/bin/python" ]; then
         ACTUAL_VENV="${ACTUAL_VENV%\'}"
         ACTUAL_VENV="${ACTUAL_VENV#\'}"
         if [ -n "$ACTUAL_VENV" ] && [ "$ACTUAL_VENV" != "$EXPECTED_VENV" ]; then
-            echo "♻️  Recreating backend/venv (venv path mismatch)"
+            echo "♻️  Recreating venv (path mismatch)"
             echo "   expected: $EXPECTED_VENV"
             echo "   found:    $ACTUAL_VENV"
-            rm -rf backend/venv
+            rm -rf "$VENV_DIR"
             VENV_REMOVED=1
         fi
     fi
 
     if [ "$VENV_REMOVED" = "0" ]; then
-        VENV_VER_RAW=$(backend/venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
+        VENV_VER_RAW=$($VENV_DIR/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
         VENV_MAJOR=$(echo "$VENV_VER_RAW" | cut -d. -f1)
         VENV_MINOR=$(echo "$VENV_VER_RAW" | cut -d. -f2)
         if [ "$VENV_MAJOR" -lt 3 ] || [ "$VENV_MINOR" -lt 9 ]; then
-            echo "♻️  Recreating backend/venv (found Python $VENV_VER_RAW, need >= 3.9)"
-            rm -rf backend/venv
+            echo "♻️  Recreating venv (found Python $VENV_VER_RAW, need >= 3.9)"
+            rm -rf "$VENV_DIR"
         fi
     fi
 fi
 
-if [ ! -d "backend/venv" ]; then
-    echo "📦 Creating virtual environment..."
-    "$PYTHON_BIN" -m venv backend/venv
+if [ ! -d "$VENV_DIR" ]; then
+    echo "📦 Creating virtual environment at $VENV_DIR ..."
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
-# 激活虚拟环境
-source backend/venv/bin/activate
+# Activate venv
+# shellcheck disable=SC1090
+source "$VENV_DIR/bin/activate"
+
+echo "🐍 Runtime Python: $(python -V) ($(python -c 'import sys; print(sys.executable)'))"
 
 # 升级 pip 并安装依赖（使用国内镜像源加速）
 # To make restarts fast, only reinstall when requirements.txt changes.
 REQ_SHA=$(python -c 'import hashlib, pathlib; p=pathlib.Path("backend/requirements.txt"); print(hashlib.sha256(p.read_bytes()).hexdigest())' 2>/dev/null || echo "")
-REQ_STAMP_FILE="backend/venv/.requirements.sha256"
+REQ_STAMP_FILE="$VENV_DIR/.requirements.sha256"
 NEED_INSTALL=0
 
 if [ "${FORCE_PIP_INSTALL:-0}" = "1" ]; then
@@ -384,8 +400,8 @@ if [ "$EE_INIT_STATUS" -ne 0 ]; then
 
         # Best-effort interactive authentication helper.
         set +e
-        if [ -x "backend/venv/bin/earthengine" ]; then
-            backend/venv/bin/earthengine authenticate --auth_mode=notebook
+        if [ -x "$VENV_DIR/bin/earthengine" ]; then
+            "$VENV_DIR/bin/earthengine" authenticate --auth_mode=notebook
         elif command -v earthengine >/dev/null 2>&1; then
             earthengine authenticate --auth_mode=notebook
         else

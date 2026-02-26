@@ -491,6 +491,8 @@ async def _proxy_stream(
         raise HTTPException(status_code=405, detail="Method not allowed")
 
     timeout_val = float(timeout_s) if timeout_s is not None else float(_ion_upstream_timeout_s)
+    # Use explicit httpx.Timeout to avoid compatibility issues across httpx/httpcore versions.
+    timeout_cfg = httpx.Timeout(timeout_val)
 
     diag_key = _diag_key_for_upstream_url(upstream_url)
     try:
@@ -510,7 +512,7 @@ async def _proxy_stream(
                 upstream_url,
                 params=params,
                 headers=headers,
-                timeout=timeout_val,
+                timeout=timeout_cfg,
                 follow_redirects=True,
             )
             _record_upstream_diag(
@@ -532,7 +534,7 @@ async def _proxy_stream(
             upstream_url,
             params=params,
             headers=headers,
-            timeout=timeout_val,
+            timeout=timeout_cfg,
         )
         upstream_resp = await http_client.send(
             req,
@@ -579,12 +581,12 @@ async def _proxy_stream(
             status_code=status,
             headers=out_headers,
         )
-    except httpx.RequestError as e:
-        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
-        raise HTTPException(status_code=502, detail="Upstream request error")
     except httpx.TimeoutException as e:
         _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
         raise HTTPException(status_code=504, detail="Upstream timeout")
+    except httpx.RequestError as e:
+        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
+        raise HTTPException(status_code=502, detail="Upstream request error")
     except Exception as e:
         _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"exception: {e}")
         raise
@@ -1918,6 +1920,8 @@ async def get_layer(
             "mode": mode
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail={"error": str(e)})
 

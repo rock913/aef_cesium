@@ -1,0 +1,14 @@
+.git/
+.github/
+.venv/
+backend/venv/
+**/__pycache__/
+**/.pytest_cache/
+logs/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+**/*.log
+*.tar.gz
+incoming/
+releases/

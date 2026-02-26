@@ -38,6 +38,13 @@ def test_health_includes_request_id_header(test_client: TestClient):
     assert resp.headers.get("X-AEF-Request-Id")
 
 
+def test_request_id_passthrough_when_client_provides_one(test_client: TestClient):
+    rid = "tdd-fixed-request-id-123"
+    resp = test_client.get("/health", headers={"X-AEF-Request-Id": rid})
+    assert resp.status_code == 200
+    assert resp.headers.get("X-AEF-Request-Id") == rid
+
+
 def test_debug_config_exists_and_is_safe(test_client: TestClient):
     resp = test_client.get("/api/debug/config")
     assert resp.status_code == 200

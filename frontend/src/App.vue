@@ -798,6 +798,32 @@ export default {
 
       prefetchStarted.value = true
 
+      // If GEE isn't configured/initialized, skip layer prefetch entirely.
+      // This avoids spamming the console with 503s and keeps the 3D Tiles demo smooth.
+      try {
+        const health = await apiService.healthCheck()
+        if (!health?.gee_initialized) {
+          return
+        }
+      } catch (_) {
+        // If health check fails, still attempt best-effort prefetch (will back off on 503).
+      }
+
+      const _isGeeUnavailable503 = (err) => {
+        try {
+          const status = Number(err?.status)
+          if (status !== 503) return false
+          const detail = err?.detail
+          if (detail && typeof detail === 'object') {
+            return String(detail?.error || '') === 'gee_not_initialized'
+          }
+          const msg = String(err?.message || '')
+          return msg.includes('gee_not_initialized') || msg.includes('GEE not initialized')
+        } catch (_) {
+          return false
+        }
+      }
+
       for (const m of missions.value) {
         const start = Date.now()
         try {
@@ -806,6 +832,11 @@ export default {
           prefetchState.value[m.id] = { done: true, ok: true, ms: Date.now() - start }
         } catch (e) {
           prefetchState.value[m.id] = { done: true, ok: false, ms: Date.now() - start }
+
+          // If GEE isn't configured, stop prefetch to avoid spamming 503s.
+          if (_isGeeUnavailable503(e)) {
+            break
+          }
         }
         // throttle: reduce GEE API burst
         await new Promise((r) => setTimeout(r, 450))

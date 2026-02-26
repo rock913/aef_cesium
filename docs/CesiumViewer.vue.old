@@ -478,6 +478,48 @@ export default {
       return n
     }
 
+    function _ensureSurfaceForImagery() {
+      if (!viewer) return
+      try {
+        // 2D imagery layers render on the globe; if globe is hidden (Strategy A),
+        // any imagery layer will appear to "not load".
+        if (viewer.scene && viewer.scene.globe) {
+          viewer.scene.globe.show = true
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      const layers = viewer.imageryLayers
+      if (!layers) return
+
+      // If we previously removed all imagery layers for photorealistic-only,
+      // add a minimal base surface so AI/basemap overlays have something to draw on.
+      try {
+        if (layers.length > 0) return
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        const osmProxyFlag = String(import.meta.env.VITE_OSM_PROXY || '').trim()
+        const useOsmProxy = (osmProxyFlag === '1') || (import.meta.env.PROD && osmProxyFlag !== '0')
+        const osmBaseUrl = useOsmProxy ? '/api/basemap/osm/' : 'https://a.tile.openstreetmap.org/'
+        const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: osmBaseUrl })
+        layers.addImageryProvider(osmProvider, 0)
+        return
+      } catch (_) {
+        // fall back
+      }
+
+      try {
+        const gridProvider = new Cesium.GridImageryProvider()
+        layers.addImageryProvider(gridProvider, 0)
+      } catch (_) {
+        // ignore
+      }
+    }
+
     /**
      * 加载/替换底图图层（推荐：Sentinel-2 真彩底图）
      * - 始终插入到 imageryLayers 的 index=0，确保 split-compare 左侧对比稳定
@@ -489,13 +531,27 @@ export default {
 
        // Strategy A: in Photorealistic-only mode, we intentionally do not load any
        // 2D basemap imagery layers.
-       if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe) {
+       const allowInPhotorealistic = !!(arguments.length >= 3 && arguments[2] && typeof arguments[2] === 'object' && arguments[2].allowInPhotorealistic)
+       if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe && !allowInPhotorealistic) {
          try {
-           console.warn('[OneEarth Cesium] basemap disabled in photorealistic-only mode')
+           console.warn('[OneEarth Cesium] basemap disabled in photorealistic-only mode (set VITE_PHOTOREALISTIC_HIDE_GLOBE=0 or pass {allowInPhotorealistic:true})')
          } catch (_) {
            // ignore
          }
+         emit('imagery-error', {
+           layer: 'basemap',
+           ts: Date.now(),
+           message: 'Basemap imagery is disabled while photorealistic-only mode is active (globe hidden).'
+         })
          return
+       }
+
+       if (photorealisticEnabled && photorealisticHideGlobe && allowInPhotorealistic) {
+         try {
+           _ensureSurfaceForImagery()
+         } catch (_) {
+           // ignore
+         }
        }
 
       if (currentBasemapLayer) {
@@ -618,14 +674,29 @@ export default {
       // Strategy A: in Photorealistic-only mode, 2D imagery overlays are hidden
       // (they require the ellipsoid globe to be shown). Keep this blocked by default
       // to avoid confusing "why is my AI layer invisible" reports.
-      if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe) {
+      const allowInPhotorealistic = !!(options && options.allowInPhotorealistic)
+      if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe && !allowInPhotorealistic) {
         try {
-          console.warn('[OneEarth Cesium] AI imagery disabled in photorealistic-only mode')
+          console.warn('[OneEarth Cesium] AI imagery disabled in photorealistic-only mode (set VITE_PHOTOREALISTIC_HIDE_GLOBE=0 or pass {allowInPhotorealistic:true})')
         } catch (_) {
           // ignore
         }
+        emit('imagery-error', {
+          layer: 'ai',
+          ts: Date.now(),
+          message: 'AI imagery is disabled while photorealistic-only mode is active (globe hidden).'
+        })
         return
       }
+
+      if (photorealisticEnabled && photorealisticHideGlobe && allowInPhotorealistic) {
+        try {
+          _ensureSurfaceForImagery()
+        } catch (_) {
+          // ignore
+        }
+      }
+
       
       // 移除旧图层
       if (currentAILayer) {

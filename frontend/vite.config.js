@@ -71,6 +71,10 @@ function attachProxyDebug(proxy, opts) {
   }
 }
 
+const apiHost = process.env.API_HOST || '127.0.0.1'
+const apiPort = process.env.API_PORT || '8505'
+const apiTarget = `http://${apiHost}:${apiPort}`
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -96,7 +100,7 @@ export default defineConfig({
         },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8505',
+        target: apiTarget,
         changeOrigin: true,
         agent: keepAliveAgent,
         timeout: 30000,
@@ -104,7 +108,7 @@ export default defineConfig({
         configure: (proxy, options) => attachProxyDebug(proxy, options)
       },
       '/health': {
-        target: 'http://127.0.0.1:8505',
+        target: apiTarget,
         changeOrigin: true,
         agent: keepAliveAgent,
         timeout: 5000,
