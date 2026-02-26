@@ -67,3 +67,17 @@ def test_tiles_unknown_id_includes_debug_headers(test_client: TestClient):
     assert resp.headers.get("X-AEF-Tile-Fallback") == "1"
     assert resp.headers.get("X-AEF-Tile-Reason")
     assert resp.headers.get("X-AEF-Tile-Cache") in ("FALLBACK", "HIT")
+
+
+def test_debug_version_reports_runtime_env(test_client: TestClient):
+    resp = test_client.get("/api/debug/version")
+    assert resp.status_code == 200
+    payload = resp.json()
+
+    assert "python" in payload
+    assert payload["python"].get("executable")
+    assert "deps" in payload
+    assert payload["deps"].get("httpx")
+    # httpcore may be missing in some minimal envs, but in this repo it should exist.
+    assert "backend" in payload
+    assert payload["backend"].get("main_file")

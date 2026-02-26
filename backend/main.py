@@ -24,6 +24,8 @@ import concurrent.futures
 import os
 import threading
 import uuid
+import sys
+import subprocess
 from urllib.parse import urlparse, urlsplit, urlunsplit
 from collections import defaultdict
 from collections import OrderedDict
@@ -530,19 +532,8 @@ async def _proxy_stream(
             upstream_url,
             params=params,
             headers=headers,
+            timeout=timeout_val,
         )
-        try:
-            # httpx/httpcore compatibility: httpcore expects a mapping and calls
-            # `.get()` on the timeout config.
-            # Keep per-request timeouts without relying on `send(timeout=...)`.
-            req.extensions["timeout"] = {
-                "connect": timeout_val,
-                "read": timeout_val,
-                "write": timeout_val,
-                "pool": timeout_val,
-            }
-        except Exception:
-            pass
         upstream_resp = await http_client.send(
             req,
             stream=True,
@@ -1214,6 +1205,53 @@ async def debug_config():
             },
         },
         "counters": counters,
+    }
+
+
+@app.get("/api/debug/version")
+async def debug_version():
+    """Debug endpoint: report runtime version info.
+
+    Used to confirm which python/venv and which backend code is currently serving
+    requests (helps when old uvicorn workers keep running after deploy).
+    """
+
+    git_head = None
+    try:
+        git_head = (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=os.path.dirname(__file__))
+            .decode("utf-8", errors="ignore")
+            .strip()
+        )
+    except Exception:
+        git_head = None
+
+    httpcore_version = None
+    try:
+        import httpcore  # type: ignore
+
+        httpcore_version = getattr(httpcore, "__version__", None)
+    except Exception:
+        httpcore_version = None
+
+    return {
+        "ts": time.time(),
+        "git_head": git_head,
+        "python": {
+            "executable": sys.executable,
+            "version": sys.version,
+        },
+        "backend": {
+            "main_file": __file__,
+            "cwd": os.getcwd(),
+        },
+        "deps": {
+            "httpx": getattr(httpx, "__version__", None),
+            "httpcore": httpcore_version,
+        },
+        "notes": {
+            "proxy_stream_timeout": "http_client.build_request(timeout=...)",
+        },
     }
 
 
