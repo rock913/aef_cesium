@@ -91,6 +91,7 @@ export default {
     async function initViewer() {
       const ionToken = import.meta.env.VITE_CESIUM_TOKEN
       const hasIonToken = !!(ionToken && String(ionToken).trim())
+      const disableDefaultImagery = String(import.meta.env.VITE_DISABLE_DEFAULT_IMAGERY || '').trim() === '1'
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
 
@@ -140,6 +141,7 @@ export default {
         // - If Ion token exists, do NOT override imageryProvider/baseLayer so Cesium loads its stable default imagery.
         //   This fixes the "blue grid" and many third-party basemap failures.
         // - If no token, fall back to a grid so the globe is still visible.
+        // - If VITE_DISABLE_DEFAULT_IMAGERY=1, always force a local grid basemap to avoid any external Bing/CORS issues.
         const fallbackImageryProvider = new Cesium.GridImageryProvider()
 
         viewer = new Cesium.Viewer(cesiumContainer.value, {
@@ -147,9 +149,11 @@ export default {
           terrainProvider,
 
           baseLayerPicker: false,
-          ...(hasIonToken
-            ? {}
-            : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }),
+          ...(disableDefaultImagery
+            ? { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }
+            : (hasIonToken
+              ? {}
+              : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) })),
           
           // UI 控制
           animation: false,

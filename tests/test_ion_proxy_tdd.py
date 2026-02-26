@@ -176,6 +176,23 @@ def test_streaming_proxy_keeps_upstream_open_until_body_consumed(client_and_main
     assert resp.content == payload
 
 
+def test_streaming_proxy_timeout_extension_is_dict_for_httpcore_compat(client_and_main):
+    client, main = client_and_main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeout_cfg = request.extensions.get("timeout")
+        assert isinstance(timeout_cfg, dict)
+        # httpcore's connection pool uses `timeouts.get("pool")`.
+        assert "pool" in timeout_cfg
+        assert timeout_cfg.get("pool") is not None
+        return httpx.Response(200, content=b"ok")
+
+    main.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resp = client.get("/api/ion-assets/123/some.bin")
+    assert resp.status_code == 200
+
+
 def test_google_tiles_root_json_uses_buffered_proxy_mode(client_and_main):
     client, main = client_and_main
 

@@ -24,7 +24,7 @@ import concurrent.futures
 import os
 import threading
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 from collections import defaultdict
 from collections import OrderedDict
 import httpx
@@ -532,9 +532,15 @@ async def _proxy_stream(
             headers=headers,
         )
         try:
-            # httpx compatibility: some versions don't accept `timeout=` in `send()`.
-            # Passing it via request extensions keeps per-request timeouts.
-            req.extensions["timeout"] = httpx.Timeout(timeout_val)
+            # httpx/httpcore compatibility: httpcore expects a mapping and calls
+            # `.get()` on the timeout config.
+            # Keep per-request timeouts without relying on `send(timeout=...)`.
+            req.extensions["timeout"] = {
+                "connect": timeout_val,
+                "read": timeout_val,
+                "write": timeout_val,
+                "pool": timeout_val,
+            }
         except Exception:
             pass
         upstream_resp = await http_client.send(
@@ -2080,6 +2086,155 @@ async def proxy_osm_tile(z: int, x: int, y: int):
         return await _fallback("timeout")
     except httpx.RequestError:
         return await _fallback("request-error")
+    except Exception:
+        return await _fallback("exception")
+
+
+@app.api_route("/api/bing-proxy", methods=["GET", "HEAD"])
+async def proxy_bing_tile(request: Request, url: str = Query(...)):
+    """Same-origin proxy for Bing Maps raster tiles (virtualearth.net).
+
+    This endpoint is intentionally strict (allowlist) to avoid becoming an open proxy.
+    """
+
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    raw_url = str(url or "").strip()
+    if not raw_url:
+        raise HTTPException(status_code=400, detail="Missing url")
+
+    try:
+        parsed = urlsplit(raw_url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid url")
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in {"http", "https"}:
+        raise HTTPException(status_code=400, detail="Invalid url scheme")
+
+    host = (parsed.hostname or "").lower().strip(".")
+    if not host.endswith(".tiles.virtualearth.net"):
+        raise HTTPException(status_code=403, detail="Host not allowed")
+
+    path = parsed.path or ""
+    if not path.startswith("/tiles/"):
+        raise HTTPException(status_code=403, detail="Path not allowed")
+
+    # Force https to avoid mixed-content issues and improve reachability.
+    upstream_url = urlunsplit((
+        "https",
+        parsed.netloc,
+        parsed.path,
+        parsed.query,
+        "",
+    ))
+
+    cache_key = ("bing", upstream_url)
+    cached = _tile_cache_get(cache_key)
+    if cached:
+        body, media_type, headers, _stored_at, _nbytes = cached
+        resp_headers = dict(headers or {})
+        resp_headers["X-AEF-Tile-Cache"] = "HIT"
+        resp_headers["X-AEF-Basemap"] = "bing"
+        resp_headers.setdefault("Access-Control-Allow-Origin", "*")
+        return Response(content=body, media_type=media_type, headers=resp_headers)
+
+    def _proxy_headers() -> Dict[str, str]:
+        want = {
+            "range",
+            "if-none-match",
+            "if-modified-since",
+            "accept",
+            "accept-language",
+            "user-agent",
+            "referer",
+        }
+        out: Dict[str, str] = {}
+        for k in want:
+            v = request.headers.get(k)
+            if v:
+                out[k] = v
+        out["accept-encoding"] = "identity"
+        return out
+
+    async def _fallback(reason: str, upstream_status: Optional[int] = None) -> Response:
+        resp = _tile_fallback_response(
+            cache_key,
+            max_age_s=30,
+            reason=f"bing-{reason}",
+            upstream_status=upstream_status,
+        )
+        resp.headers["X-AEF-Basemap"] = "bing"
+        resp.headers.setdefault("Access-Control-Allow-Origin", "*")
+        return resp
+
+    try:
+        try:
+            await asyncio.wait_for(_basemap_upstream_sem.acquire(), timeout=1.5)
+        except Exception:
+            return await _fallback("busy")
+
+        try:
+            if request.method.upper() == "HEAD":
+                upstream_resp = await http_client.request(
+                    "HEAD",
+                    upstream_url,
+                    headers=_proxy_headers(),
+                    timeout=float(_basemap_upstream_timeout_s),
+                    follow_redirects=True,
+                )
+                status = int(upstream_resp.status_code)
+                if not (200 <= status < 300):
+                    return await _fallback("upstream", upstream_status=status)
+
+                out_headers = _strip_hop_by_hop_headers(dict(upstream_resp.headers))
+                out_headers["X-AEF-Basemap"] = "bing"
+                out_headers.setdefault("Access-Control-Allow-Origin", "*")
+                return Response(status_code=status, headers=out_headers)
+
+            upstream_resp = await http_client.get(
+                upstream_url,
+                headers=_proxy_headers(),
+                timeout=float(_basemap_upstream_timeout_s),
+                follow_redirects=True,
+            )
+        finally:
+            try:
+                _basemap_upstream_sem.release()
+            except Exception:
+                pass
+
+        status = int(upstream_resp.status_code)
+        if not (200 <= status < 300):
+            return await _fallback("upstream", upstream_status=status)
+
+        body = upstream_resp.content
+        content_type = upstream_resp.headers.get("Content-Type") or "image/jpeg"
+        cache_control = upstream_resp.headers.get("Cache-Control")
+        expires = upstream_resp.headers.get("Expires")
+
+        headers: Dict[str, str] = {
+            "Cache-Control": cache_control or "public, max-age=86400",
+            "X-AEF-Basemap": "bing",
+            "Access-Control-Allow-Origin": "*",
+        }
+        if expires:
+            headers["Expires"] = expires
+
+        media_type = content_type.split(";")[0].strip() or "image/jpeg"
+        _tile_cache_set(cache_key, body, media_type, headers)
+
+        resp_headers = dict(headers)
+        resp_headers["X-AEF-Tile-Cache"] = "MISS"
+        return Response(content=body, media_type=media_type, headers=resp_headers)
+
+    except httpx.TimeoutException:
+        return await _fallback("timeout")
+    except httpx.RequestError:
+        return await _fallback("request-error")
+    except HTTPException:
+        raise
     except Exception:
         return await _fallback("exception")
 
