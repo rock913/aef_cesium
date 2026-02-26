@@ -47,13 +47,6 @@ export default {
     let centerRafPending = false
     let lastCenterLat = null
     let lastCenterLon = null
-
-    // Photorealistic runtime flags (Strategy A)
-    let photorealisticEnabled = false
-    let photorealisticAssetId = null
-    let photorealisticHideGlobe = true
-    let photorealisticDisableImagery = true
-    let photorealisticBlock2DLayers = true
     
     onMounted(() => {
       Promise.resolve()
@@ -103,38 +96,6 @@ export default {
         .trim()
       const hasIonToken = !!ionToken
       const disableDefaultImagery = String(import.meta.env.VITE_DISABLE_DEFAULT_IMAGERY || '').trim() === '1'
-      // Strategy A: when Google Photorealistic 3D Tiles is enabled, disable 2D basemap imagery
-      // and hide the ellipsoid globe to avoid "patchwork" (Grid/Bing/OSM showing through).
-      const photorealisticAssetStr = String(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '').trim()
-      const assetMatch = photorealisticAssetStr.match(/^\d+/)
-      photorealisticAssetId = assetMatch ? Number(assetMatch[0]) : NaN
-
-      photorealisticHideGlobe = String(import.meta.env.VITE_PHOTOREALISTIC_HIDE_GLOBE || '1').trim() !== '0'
-      photorealisticDisableImagery = String(import.meta.env.VITE_PHOTOREALISTIC_DISABLE_IMAGERY || '1').trim() !== '0'
-      photorealisticBlock2DLayers = String(import.meta.env.VITE_PHOTOREALISTIC_BLOCK_2D_LAYERS || '1').trim() !== '0'
-
-      photorealisticEnabled = (
-        hasIonToken &&
-        Number.isFinite(photorealisticAssetId) &&
-        photorealisticAssetId > 0
-      )
-
-      // Make it obvious in the console why Strategy A may or may not apply.
-      try {
-        console.info('[OneEarth Cesium] photorealistic:', {
-          hasIonToken,
-          photorealisticAssetId,
-          enabled: photorealisticEnabled,
-          hideGlobe: photorealisticHideGlobe,
-          disableImagery: photorealisticDisableImagery,
-          block2DLayers: photorealisticBlock2DLayers,
-          disableDefaultImagery
-        })
-      } catch (_) {
-        // ignore
-      }
-
-      const enablePhotorealistic = photorealisticEnabled
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
 
@@ -192,13 +153,11 @@ export default {
           terrainProvider,
 
           baseLayerPicker: false,
-          ...(enablePhotorealistic && photorealisticDisableImagery
-            ? { imageryProvider: false }
-            : (disableDefaultImagery
-              ? { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }
-              : (hasIonToken
-                ? {}
-                : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }))),
+          ...(disableDefaultImagery
+            ? { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }
+            : (hasIonToken
+              ? {}
+              : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) })),
           
           // UI 控制
           animation: false,
@@ -213,16 +172,6 @@ export default {
           requestRenderMode: false,
           maximumRenderTimeChange: Infinity
         })
-
-        // If Photorealistic is enabled, ensure no imagery layers linger (some Cesium builds
-        // can still insert defaults). This keeps rendering purely 3D-tiles driven.
-        if (enablePhotorealistic && photorealisticDisableImagery) {
-          try {
-            viewer.imageryLayers.removeAll(true)
-          } catch (_) {
-            // ignore
-          }
-        }
 
         // Cesium can otherwise fire a large burst of parallel tile requests while
         // zooming/dragging, which is a common trigger for intermittent proxy-level
@@ -265,17 +214,8 @@ export default {
         
         // 光照：演示/开发阶段默认关闭，避免“黑夜=看不见地球”的经典坑
         viewer.scene.globe.enableLighting = (import.meta.env.VITE_ENABLE_LIGHTING === '1')
-        // Strategy A: hide globe when Photorealistic 3D Tiles is enabled.
-        if (enablePhotorealistic) {
-          viewer.scene.globe.show = !photorealisticHideGlobe
-        }
-        if (enablePhotorealistic && photorealisticHideGlobe) {
-          try {
-            viewer.scene.skyAtmosphere.show = false
-          } catch (_) {
-            // ignore
-          }
-        }
+        // 强制确保 globe 可见（防止外部逻辑误关导致“无形地球”）
+        viewer.scene.globe.show = true
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.0002
         
@@ -345,12 +285,10 @@ export default {
         // Optional 3D buildings / photorealistic 3D tiles (requires Ion token + network)
         try {
           if (hasIonToken) {
+            const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
+            const enablePhotorealistic = Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
+
             if (enablePhotorealistic) {
-              try {
-                loadingText.value = '加载 Google Photorealistic 3D Tiles...'
-              } catch (_) {
-                // ignore
-              }
               let tileset = null
               if (Cesium?.Cesium3DTileset?.fromIonAssetId) {
                 tileset = await Cesium.Cesium3DTileset.fromIonAssetId(photorealisticAssetId)
@@ -371,13 +309,8 @@ export default {
               viewer.scene.primitives.add(Cesium.createOsmBuildings())
             }
           }
-        } catch (e) {
-          // Surface the failure: Photorealistic failures are easy to miss otherwise.
-          try {
-            console.warn('[OneEarth Cesium] 3D tiles init failed:', e)
-          } catch (_) {
-            // ignore
-          }
+        } catch (_) {
+          // ignore
         }
 
         loading.value = false
@@ -486,17 +419,6 @@ export default {
     function loadBasemapLayer(tileUrl, opacity = 1.0) {
       if (!viewer) return
       if (!tileUrl) return
-
-       // Strategy A: in Photorealistic-only mode, we intentionally do not load any
-       // 2D basemap imagery layers.
-       if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe) {
-         try {
-           console.warn('[OneEarth Cesium] basemap disabled in photorealistic-only mode')
-         } catch (_) {
-           // ignore
-         }
-         return
-       }
 
       if (currentBasemapLayer) {
         try {
@@ -614,18 +536,6 @@ export default {
      */
     function loadAILayer(tileUrl, opacity = 0.95, options = {}) {
       if (!viewer) return
-
-      // Strategy A: in Photorealistic-only mode, 2D imagery overlays are hidden
-      // (they require the ellipsoid globe to be shown). Keep this blocked by default
-      // to avoid confusing "why is my AI layer invisible" reports.
-      if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe) {
-        try {
-          console.warn('[OneEarth Cesium] AI imagery disabled in photorealistic-only mode')
-        } catch (_) {
-          // ignore
-        }
-        return
-      }
       
       // 移除旧图层
       if (currentAILayer) {
