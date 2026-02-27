@@ -4,12 +4,21 @@ Alpha Earth Demo（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字
 
 本目录为 `cesium_app_v6`，端口与主案例已固化，适合“快速了解现状 → 继续开发”。
 
-## 📌 当前状态（2026-02-22）
-  - `/api/report`：监测简报（模板/LLM）
-  - `/api/analyze`：智能体分析控制台（模板/LLM）
+## 📌 当前状态（2026-02-27）
+
+- Dev 研发环境已 Docker 化并固化端口：前端 8504 / 后端 8505（推荐使用 `make docker-dev-up`）。
+- 一键验收门禁：`make docker-dev-check`（smoke + pytest + vitest + build）。
+- 后端提供可观测/排障入口：`/health`、`/api/debug/version`、以及若干瓦片代理诊断接口。
+- 前端地图：支持 2D 底图切换（含 Google XYZ 测试模式/Google 官方会话模式）+ Cesium Ion Photorealistic 3D Tiles。
+- 视觉一致性：Photorealistic 3D Tiles 支持“按相机高度 LOD 自动显隐”，并支持 AI 图层激活时自动遮挡（hide/dim）。
+
+功能接口：
+- `/api/report`：监测简报（模板/LLM）
+- `/api/analyze`：智能体分析控制台（模板/LLM）
 - 前端调试：地图左下角实时显示“屏幕中心经纬度 CENTER: lat, lon”（用于校准飞行/定位）
 
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 常用命令与端口速查
+- [docs/架构升级与敏捷开发.md](docs/架构升级与敏捷开发.md) - 基于仓库真实现状的工程化/Dev Docker/TDD 指南
 - [docs/oneearth_v6.md](docs/oneearth_v6.md) - V6 规格与叙事目标（实现对齐基准）
 - [docs/oneearth_v6.6.md](docs/oneearth_v6.6.md) - 最新迭代说明（如与 v6 有差异以该文档为准）
 - [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布 + 8506/8507 生产部署指南
@@ -57,6 +66,23 @@ cesium_app_v6/
 ```
 
 ## 🚀 快速开始
+
+### 推荐：Docker Dev 一键跑通（8504/8505）
+
+适用于“团队多人协作/避免宿主依赖污染/保证可复现”。
+
+```bash
+cd cesium_app_v6
+cp .env.example .env
+
+make docker-dev-up
+make docker-dev-check
+```
+
+启动后：
+
+- 前端：`http://127.0.0.1:8504`
+- 后端：`http://127.0.0.1:8505`（Swagger：`/docs`）
 
 ### 访问密码（前端轻量闸门）
 
@@ -125,6 +151,38 @@ cd cesium_app_v6
 ```
 
 前端：`http://127.0.0.1:8504`
+
+## 🗺️ 地图与底图配置（常用）
+
+### 2D 底图选择
+
+在 `.env` 设置：
+
+- `VITE_BASEMAP=google_xyz`：Google XYZ 卫星底图（测试/对比用途）
+- `VITE_BASEMAP=google_official`：Google Map Tiles API（官方 2D，会话模式）
+- `VITE_BASEMAP=osm`：OSM 底图（可配合后端同源代理）
+- `VITE_BASEMAP=grid`：本地网格底图（兜底）
+
+Google XYZ（测试模式）常用：
+
+- `VITE_GOOGLE_XYZ_ENABLE=1`
+- `VITE_GOOGLE_XYZ_LYRS=s`（卫星）
+
+### Photorealistic 3D Tiles（Cesium Ion）
+
+- `VITE_CESIUM_TOKEN=...`
+- `VITE_ION_PHOTOREALISTIC_ASSET_ID=2275207`（示例）
+- `VITE_ION_PROXY=1`（可选：通过后端同源代理 Ion API/Assets）
+
+为避免“远景外太空视角根瓦片粗糙马赛克”的观感，默认开启相机高度 LOD：
+
+- `VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M=2000000`（默认 2000km；高于阈值自动隐藏 tileset）
+
+当 AI 业务图层激活时，默认优先保证业务可读性（遮挡 3D tiles）：
+
+- `VITE_PHOTOREALISTIC_AI_OCCLUSION=hide`（默认）
+- `VITE_PHOTOREALISTIC_AI_OCCLUSION=dim`（半透明）
+- `VITE_PHOTOREALISTIC_AI_OCCLUSION=none`（从不遮挡）
 
 ## 🧪 测试（TDD）
 
