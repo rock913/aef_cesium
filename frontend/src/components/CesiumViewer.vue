@@ -38,6 +38,12 @@ export default {
     let currentAIProviderUnsub = null
     let currentBasemapLayer = null
     let currentBasemapProviderUnsub = null
+    let photorealisticTileset = null
+    let photorealisticTilesetBaseStyle = null
+    let photorealisticTilesetDimStyle = null
+    let isAILayerActive = false
+    let lastAppliedTilesetShow = null
+    let lastAppliedTilesetStyle = null
     let hiddenBaseLayers = []
     let tileLoadUnsub = null
     let ionBaseProviderUnsub = null
@@ -87,6 +93,55 @@ export default {
         viewer.destroy()
       }
     })
+
+    function _updatePhotorealisticTilesetVisibility() {
+      if (!viewer || !photorealisticTileset) return
+
+      const occlusionMode = String(import.meta.env.VITE_PHOTOREALISTIC_AI_OCCLUSION || 'hide')
+        .trim()
+        .toLowerCase()
+
+      const rawThreshold = String(import.meta.env.VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M || '').trim()
+      const thresholdM = Number(rawThreshold)
+      const visibilityThresholdM = Number.isFinite(thresholdM) && thresholdM > 0 ? thresholdM : 2000000
+
+      const cameraHeight = Number(viewer.camera?.positionCartographic?.height)
+      const isFarView = Number.isFinite(cameraHeight) ? (cameraHeight >= visibilityThresholdM) : false
+
+      let desiredShow = true
+      let desiredStyle = photorealisticTilesetBaseStyle
+
+      // Rule 1 (highest priority): AI overlay active -> occlude tileset.
+      if (isAILayerActive && occlusionMode !== 'none' && occlusionMode !== 'off') {
+        if (occlusionMode === 'dim') {
+          if (!photorealisticTilesetDimStyle) {
+            photorealisticTilesetDimStyle = new Cesium.Cesium3DTileStyle({
+              color: "color('white', 0.25)"
+            })
+          }
+          desiredShow = true
+          desiredStyle = photorealisticTilesetDimStyle
+        } else {
+          desiredShow = false
+          desiredStyle = photorealisticTilesetBaseStyle
+        }
+      } else {
+        // Rule 2: Far (homepage / space view) -> hide tileset to avoid coarse root-tile patchwork.
+        desiredShow = !isFarView
+        desiredStyle = photorealisticTilesetBaseStyle
+      }
+
+      if (lastAppliedTilesetShow === desiredShow && lastAppliedTilesetStyle === desiredStyle) return
+
+      try {
+        photorealisticTileset.show = desiredShow
+        photorealisticTileset.style = desiredStyle
+        lastAppliedTilesetShow = desiredShow
+        lastAppliedTilesetStyle = desiredStyle
+      } catch (_) {
+        // ignore
+      }
+    }
     
     async function initViewer() {
       const rawIonToken = String(import.meta.env.VITE_CESIUM_TOKEN || '').trim()
@@ -97,7 +152,6 @@ export default {
       const hasIonToken = !!ionToken
       const disableDefaultImagery = String(import.meta.env.VITE_DISABLE_DEFAULT_IMAGERY || '').trim() === '1'
       const basemapMode = String(import.meta.env.VITE_BASEMAP || '').trim().toLowerCase()
-      const photorealisticOnly = String(import.meta.env.VITE_PHOTOREALISTIC_ONLY || '').trim() === '1'
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
 
@@ -221,12 +275,6 @@ export default {
         // - You can also force a mode via VITE_BASEMAP=osm|grid|default.
         const fallbackImageryProvider = new Cesium.GridImageryProvider()
 
-        // Photorealistic-only mode: avoid any 2D imagery entirely to prevent the
-        // visual "patchwork" caused by mixing partial 3D coverage with 2D basemaps.
-        // (This is intentionally a simple, explicit switch: VITE_PHOTOREALISTIC_ONLY=1)
-        const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
-        const enablePhotorealistic = hasIonToken && Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
-
         let forcedBaseLayer = null
         let forcedBaseProvider = null
         try {
@@ -234,9 +282,7 @@ export default {
           const wantGrid = (basemapMode === 'grid')
           const wantGoogleOfficial = (basemapMode === 'google_official') || (basemapMode === 'google-official')
           const wantGoogleXyz = (basemapMode === 'google_xyz') || (basemapMode === 'google-xyz') || (basemapMode === 'google_unofficial')
-          if (photorealisticOnly && enablePhotorealistic) {
-            forcedBaseLayer = false
-          } else if (wantGoogleOfficial) {
+          if (wantGoogleOfficial) {
             const provider = await _createOfficialGoogle2DSatelliteProvider()
             forcedBaseProvider = provider
             forcedBaseLayer = new Cesium.ImageryLayer(provider)
@@ -388,22 +434,12 @@ export default {
         
         // 光照：演示/开发阶段默认关闭，避免“黑夜=看不见地球”的经典坑
         viewer.scene.globe.enableLighting = (import.meta.env.VITE_ENABLE_LIGHTING === '1')
-        // Photorealistic-only mode: hide globe so only 3D tiles are visible.
-        if (photorealisticOnly && enablePhotorealistic) {
-          try {
-            viewer.imageryLayers.removeAll(true)
-          } catch (_) {
-            // ignore
-          }
-          viewer.scene.globe.show = false
-          try {
-            viewer.scene.skyAtmosphere.show = false
-          } catch (_) {
-            // ignore
-          }
-        } else {
-          // 强制确保 globe 可见（防止外部逻辑误关导致“无形地球”）
-          viewer.scene.globe.show = true
+        // 强制确保 globe 可见（防止外部逻辑误关导致“无形地球”）
+        viewer.scene.globe.show = true
+        try {
+          viewer.scene.skyAtmosphere.show = true
+        } catch (_) {
+          // ignore
         }
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.0002
@@ -437,6 +473,12 @@ export default {
           } catch (_) {
             // ignore
           }
+
+          try {
+            _updatePhotorealisticTilesetVisibility()
+          } catch (_) {
+            // ignore
+          }
         })
 
         // Real-time "screen center" updates while the user drags/zooms.
@@ -448,6 +490,7 @@ export default {
             requestAnimationFrame(() => {
               centerRafPending = false
               _emitMapCenter()
+              _updatePhotorealisticTilesetVisibility()
             })
           } catch (_) {
             centerRafPending = false
@@ -487,8 +530,19 @@ export default {
               }
               if (tileset) {
                 viewer.scene.primitives.add(tileset)
+                photorealisticTileset = tileset
+                photorealisticTilesetBaseStyle = tileset.style || null
+                lastAppliedTilesetShow = null
+                lastAppliedTilesetStyle = null
                 try {
-                  viewer.scene.globe.depthTestAgainstTerrain = true
+                  // Avoid Z-fighting / flickering when mixing imagery + terrain + photorealistic tiles.
+                  viewer.scene.globe.depthTestAgainstTerrain = false
+                } catch (_) {
+                  // ignore
+                }
+
+                try {
+                  _updatePhotorealisticTilesetVisibility()
                 } catch (_) {
                   // ignore
                 }
@@ -725,6 +779,9 @@ export default {
      */
     function loadAILayer(tileUrl, opacity = 0.95, options = {}) {
       if (!viewer) return
+
+      isAILayerActive = true
+      _updatePhotorealisticTilesetVisibility()
       
       // 移除旧图层
       if (currentAILayer) {
@@ -793,6 +850,7 @@ export default {
       } else {
         currentAILayer.alpha = opacity
       }
+      _updatePhotorealisticTilesetVisibility()
     }
 
     function clearAILayer() {
@@ -813,6 +871,9 @@ export default {
         currentAIProviderUnsub()
         currentAIProviderUnsub = null
       }
+
+      isAILayerActive = false
+      _updatePhotorealisticTilesetVisibility()
     }
 
     function setAILayerVisible(visible) {
@@ -820,6 +881,9 @@ export default {
       if (currentAILayer) {
         currentAILayer.show = !!visible
       }
+
+      isAILayerActive = !!visible
+      _updatePhotorealisticTilesetVisibility()
     }
 
     function enableSplitCompare(enabled, position = 0.5) {
