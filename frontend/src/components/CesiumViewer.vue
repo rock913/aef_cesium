@@ -165,7 +165,6 @@ export default {
       function _createUnofficialGoogleXyzSatelliteProvider() {
         // NOTE: This is intentionally a "test-only" option.
         // It uses an undocumented URL pattern and may be subject to change or terms.
-        const lyrs = String(import.meta.env.VITE_GOOGLE_XYZ_LYRS || 's').trim() || 's'
         const enabled = String(import.meta.env.VITE_GOOGLE_XYZ_ENABLE || '').trim() === '1'
         if (!enabled) {
           throw new Error('Google XYZ basemap is disabled (set VITE_GOOGLE_XYZ_ENABLE=1)')
@@ -184,6 +183,10 @@ export default {
         return new Cesium.UrlTemplateImageryProvider({
           url,
           ...(useSubdomains ? { subdomains: ['0', '1', '2', '3'] } : {}),
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 20,
+          enablePickFeatures: false
+        })
       }
 
       // IMPORTANT: `Viewer` expects a TerrainProvider on `terrainProvider`.
