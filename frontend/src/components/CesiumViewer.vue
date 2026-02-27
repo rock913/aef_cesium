@@ -166,14 +166,24 @@ export default {
         // NOTE: This is intentionally a "test-only" option.
         // It uses an undocumented URL pattern and may be subject to change or terms.
         const lyrs = String(import.meta.env.VITE_GOOGLE_XYZ_LYRS || 's').trim() || 's'
-        const server = String(import.meta.env.VITE_GOOGLE_XYZ_SERVER || 'mt1').trim() || 'mt1'
-        const url = `https://${server}.google.com/vt/lyrs=${encodeURIComponent(lyrs)}&x={x}&y={y}&z={z}`
+        const enabled = String(import.meta.env.VITE_GOOGLE_XYZ_ENABLE || '').trim() === '1'
+        if (!enabled) {
+          throw new Error('Google XYZ basemap is disabled (set VITE_GOOGLE_XYZ_ENABLE=1)')
+        }
+
+        const lyrs = String(import.meta.env.VITE_GOOGLE_XYZ_LYRS || 's').trim() || 's'
+
+        // Prefer subdomain rotation by default for resilience (mt0..mt3).
+        // Allow pinning a single host via VITE_GOOGLE_XYZ_SERVER=mt1|mt2|mt3.
+        const server = String(import.meta.env.VITE_GOOGLE_XYZ_SERVER || '').trim()
+        const useSubdomains = !server || server === 'auto'
+        const url = useSubdomains
+          ? `https://mt{s}.google.com/vt/lyrs=${encodeURIComponent(lyrs)}&x={x}&y={y}&z={z}`
+          : `https://${server}.google.com/vt/lyrs=${encodeURIComponent(lyrs)}&x={x}&y={y}&z={z}`
+
         return new Cesium.UrlTemplateImageryProvider({
           url,
-          tilingScheme: new Cesium.WebMercatorTilingScheme(),
-          maximumLevel: 20,
-          enablePickFeatures: false
-        })
+          ...(useSubdomains ? { subdomains: ['0', '1', '2', '3'] } : {}),
       }
 
       // IMPORTANT: `Viewer` expects a TerrainProvider on `terrainProvider`.
@@ -215,6 +225,7 @@ export default {
         const enablePhotorealistic = hasIonToken && Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
 
         let forcedBaseLayer = null
+        let forcedBaseProvider = null
         try {
           const wantOsm = (basemapMode === 'osm') || disableDefaultImagery
           const wantGrid = (basemapMode === 'grid')
@@ -224,17 +235,21 @@ export default {
             forcedBaseLayer = false
           } else if (wantGoogleOfficial) {
             const provider = await _createOfficialGoogle2DSatelliteProvider()
+            forcedBaseProvider = provider
             forcedBaseLayer = new Cesium.ImageryLayer(provider)
           } else if (wantGoogleXyz) {
             const provider = _createUnofficialGoogleXyzSatelliteProvider()
+            forcedBaseProvider = provider
             forcedBaseLayer = new Cesium.ImageryLayer(provider)
           } else if (wantOsm) {
             const osmProvider = new Cesium.OpenStreetMapImageryProvider({
               // Backend route is `/api/basemap/osm/{z}/{x}/{y}.png`
               url: '/api/basemap/osm/'
             })
+            forcedBaseProvider = osmProvider
             forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
           } else if (wantGrid) {
+            forcedBaseProvider = fallbackImageryProvider
             forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
           }
         } catch (e) {
@@ -242,8 +257,10 @@ export default {
             console.warn('[OneEarth Cesium] Google XYZ basemap init failed; falling back to OSM.', e)
             try {
               const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: '/api/basemap/osm/' })
+              forcedBaseProvider = osmProvider
               forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
             } catch (_) {
+              forcedBaseProvider = fallbackImageryProvider
               forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
             }
           }
@@ -252,14 +269,17 @@ export default {
             console.warn('[OneEarth Cesium] Google official 2D basemap init failed; falling back to OSM.', e)
             try {
               const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: '/api/basemap/osm/' })
+              forcedBaseProvider = osmProvider
               forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
             } catch (_) {
+              forcedBaseProvider = fallbackImageryProvider
               forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
             }
           }
           // If user explicitly disabled default imagery but OSM provider creation fails,
           // fall back to a local grid rather than re-enabling default Bing.
           if (disableDefaultImagery) {
+            forcedBaseProvider = fallbackImageryProvider
             forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
           }
         }
@@ -270,7 +290,7 @@ export default {
 
           baseLayerPicker: false,
           ...(forcedBaseLayer === false
-            ? { imageryProvider: false }
+            ? { baseLayer: false }
             : (forcedBaseLayer
               ? { baseLayer: forcedBaseLayer }
               : (hasIonToken
@@ -290,6 +310,39 @@ export default {
           requestRenderMode: false,
           maximumRenderTimeChange: Infinity
         })
+
+        // Enforce explicit basemap selection.
+        // In some Cesium builds, providing an Ion token can still result in a default
+        // imagery layer being installed. If the user explicitly selected a basemap
+        // (google_xyz/google_official/osm/grid/photorealistic-only), ensure it actually
+        // becomes the visible base layer.
+        try {
+          if (forcedBaseLayer === false) {
+            try {
+              viewer.imageryLayers.removeAll(true)
+            } catch (_) {
+              // ignore
+            }
+          } else if (forcedBaseProvider) {
+            try {
+              viewer.imageryLayers.removeAll(true)
+            } catch (_) {
+              // ignore
+            }
+            try {
+              const layer = viewer.imageryLayers.addImageryProvider(forcedBaseProvider, 0)
+              try {
+                layer.alpha = 1.0
+              } catch (_) {
+                // ignore
+              }
+            } catch (_) {
+              // ignore
+            }
+          }
+        } catch (_) {
+          // ignore
+        }
 
         // Cesium can otherwise fire a large burst of parallel tile requests while
         // zooming/dragging, which is a common trigger for intermittent proxy-level
