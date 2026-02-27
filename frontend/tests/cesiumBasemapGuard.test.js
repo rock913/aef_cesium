@@ -11,7 +11,7 @@ describe('Cesium basemap production guard', () => {
   it('supports disabling default imagery via env toggle', () => {
     const s = readCesiumViewerVue()
     expect(s).toContain('VITE_DISABLE_DEFAULT_IMAGERY')
-    // Ensure we explicitly set baseLayer when the toggle is enabled.
-    expect(s).toMatch(/disableDefaultImagery[\s\S]*\?\s*\{\s*baseLayer:/)
+    // Guard: disabling default imagery must affect basemap choice (avoid default Bing).
+    expect(s).toMatch(/const\s+wantOsm\s*=\s*\(basemapMode\s*===\s*'osm'\)\s*\|\|\s*disableDefaultImagery/)
   })
 })

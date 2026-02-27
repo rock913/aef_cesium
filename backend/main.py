@@ -353,6 +353,7 @@ http_client: Optional[httpx.AsyncClient] = None
 _ION_API_BASE = str(os.getenv("ION_API_BASE", "https://api.cesium.com")).strip().rstrip("/")
 _ION_ASSETS_BASE = str(os.getenv("ION_ASSETS_BASE", "https://assets.cesium.com")).strip().rstrip("/")
 _GOOGLE_TILES_BASE = str(os.getenv("GOOGLE_TILES_BASE", "https://tile.googleapis.com")).strip().rstrip("/")
+_GOOGLE_MAPS_API_KEY = str(os.getenv("GOOGLE_MAPS_API_KEY", "")).strip()
 
 # Optional server-side Ion token for diagnostics (avoid relying on browser-provided token).
 # If set, `/api/debug/ion` can validate upstream reachability without requiring
@@ -482,6 +483,7 @@ async def _proxy_stream(
     upstream_url: str,
     acquire_timeout_s: float = 1.5,
     timeout_s: Optional[float] = None,
+    extra_params: Optional[Dict[str, str]] = None,
 ) -> Response:
     if http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
@@ -503,6 +505,12 @@ async def _proxy_stream(
 
         headers = _proxy_request_headers(request, accept_encoding_identity=True)
         params = dict(request.query_params)
+        if extra_params:
+            for k, v in extra_params.items():
+                if v is None:
+                    continue
+                if k not in params and str(v).strip() != "":
+                    params[k] = v
 
         t0 = time.perf_counter()
 
@@ -715,6 +723,7 @@ async def _proxy_google_tiles_json_with_rewrite(
     acquire_timeout_s: float = 1.5,
     timeout_s: Optional[float] = None,
     retries: int = 1,
+    extra_params: Optional[Dict[str, str]] = None,
 ) -> Response:
     """Fetch Google tiles JSON and rewrite embedded URIs to remain same-origin.
 
@@ -743,6 +752,12 @@ async def _proxy_google_tiles_json_with_rewrite(
 
         headers = _proxy_request_headers(request, accept_encoding_identity=True)
         params = dict(request.query_params)
+        if extra_params:
+            for k, v in extra_params.items():
+                if v is None:
+                    continue
+                if k not in params and str(v).strip() != "":
+                    params[k] = v
 
         last_error: Optional[Exception] = None
         for attempt in range(max(0, int(retries)) + 1):
@@ -2317,6 +2332,16 @@ async def proxy_google_tiles(path: str, request: Request):
     """
 
     upstream_url = f"{_GOOGLE_TILES_BASE}/{str(path).lstrip('/')}"
+
+    # Optional server-side API key injection.
+    # - Recommended: set GOOGLE_MAPS_API_KEY on the backend so clients never need to embed keys.
+    # - If clients explicitly provide ?key=..., we preserve it.
+    extra_params: Optional[Dict[str, str]] = None
+    try:
+        if "key" not in request.query_params and _GOOGLE_MAPS_API_KEY:
+            extra_params = {"key": _GOOGLE_MAPS_API_KEY}
+    except Exception:
+        extra_params = None
     # `root.json` (and other small JSON metadata) is especially sensitive to
     # mid-stream disconnects; buffering+retry avoids browser-side
     # ERR_INCOMPLETE_CHUNKED_ENCODING.
@@ -2326,8 +2351,112 @@ async def proxy_google_tiles(path: str, request: Request):
             upstream_url=upstream_url,
             timeout_s=float(_google_tiles_timeout_s),
             retries=1,
+            extra_params=extra_params,
         )
-    return await _proxy_stream(request, upstream_url=upstream_url, timeout_s=float(_google_tiles_timeout_s))
+    return await _proxy_stream(
+        request,
+        upstream_url=upstream_url,
+        timeout_s=float(_google_tiles_timeout_s),
+        extra_params=extra_params,
+    )
+
+
+@app.post("/api/google-tiles/v1/createSession")
+async def google_tiles_create_session(request: Request):
+    """Create a Google Map Tiles API session (official flow).
+
+    This endpoint exists because Google Map Tiles API requires a POST createSession
+    call before 2D tiles can be fetched.
+
+    Auth:
+    - Prefer server-side env GOOGLE_MAPS_API_KEY.
+    - For dev, you may pass ?key=... (not recommended for production).
+    """
+
+    key = str(request.query_params.get("key") or "").strip() or _GOOGLE_MAPS_API_KEY
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "missing_google_maps_api_key",
+                "hint": "Set backend env GOOGLE_MAPS_API_KEY (recommended) or pass ?key=... for dev.",
+            },
+        )
+
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    upstream_url = f"{_GOOGLE_TILES_BASE}/v1/createSession"
+    diag_key = _diag_key_for_upstream_url(upstream_url)
+
+    # Preserve caller-sent query params, but ensure key is present.
+    params = dict(request.query_params)
+    params.setdefault("key", key)
+
+    headers = _proxy_request_headers(request, accept_encoding_identity=True)
+    headers.setdefault("accept", "application/json")
+    # Content-Type is required by the upstream; keep caller value when provided.
+    if "content-type" not in {k.lower(): v for k, v in headers.items()}:
+        ct = request.headers.get("content-type")
+        if ct:
+            headers["content-type"] = ct
+        else:
+            headers["content-type"] = "application/json"
+
+    body = await request.body()
+    timeout_cfg = httpx.Timeout(float(_google_tiles_timeout_s))
+
+    try:
+        try:
+            await asyncio.wait_for(_ion_upstream_sem.acquire(), timeout=1.5)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Upstream busy")
+
+        t0 = time.perf_counter()
+        resp = await http_client.request(
+            "POST",
+            upstream_url,
+            params=params,
+            headers=headers,
+            content=body,
+            timeout=timeout_cfg,
+            follow_redirects=True,
+        )
+        _record_upstream_diag(
+            diag_key,
+            status=int(resp.status_code),
+            latency_ms=(time.perf_counter() - t0) * 1000.0,
+            error=None,
+        )
+
+        out_headers = _strip_hop_by_hop_headers(dict(resp.headers))
+        out_headers = {
+            k: v
+            for k, v in out_headers.items()
+            if k.lower() not in {"content-length", "content-encoding", "transfer-encoding"}
+        }
+        out_headers["X-OneEarth-Proxy-Mode"] = "buffered"
+
+        content_type = resp.headers.get("content-type") or "application/json"
+        media_type = content_type.split(";")[0].strip() or "application/json"
+        return Response(
+            content=resp.content,
+            status_code=int(resp.status_code),
+            headers=out_headers,
+            media_type=media_type,
+        )
+
+    except httpx.TimeoutException as e:
+        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"timeout: {e}")
+        raise HTTPException(status_code=504, detail="Upstream timeout")
+    except httpx.RequestError as e:
+        _record_upstream_diag(diag_key, status=None, latency_ms=None, error=f"request_error: {e}")
+        raise HTTPException(status_code=502, detail="Upstream request error")
+    finally:
+        try:
+            _ion_upstream_sem.release()
+        except Exception:
+            pass
 
 
 @app.get("/api/tiles/{tile_id}/{z}/{x}/{y}")

@@ -96,6 +96,8 @@ export default {
         .trim()
       const hasIonToken = !!ionToken
       const disableDefaultImagery = String(import.meta.env.VITE_DISABLE_DEFAULT_IMAGERY || '').trim() === '1'
+      const basemapMode = String(import.meta.env.VITE_BASEMAP || '').trim().toLowerCase()
+      const photorealisticOnly = String(import.meta.env.VITE_PHOTOREALISTIC_ONLY || '').trim() === '1'
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
 
@@ -116,6 +118,62 @@ export default {
 
       if (!cesiumContainer.value) {
         throw new Error('Cesium container element not found')
+      }
+
+      async function _createOfficialGoogle2DSatelliteProvider() {
+        const googleKey = String(import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '').trim()
+        const sessionUrl = googleKey
+          ? `/api/google-tiles/v1/createSession?key=${encodeURIComponent(googleKey)}`
+          : '/api/google-tiles/v1/createSession'
+
+        const resp = await fetch(sessionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            mapType: 'satellite',
+            language: 'zh-CN',
+            region: 'CN'
+          })
+        })
+
+        if (!resp.ok) {
+          throw new Error(`Google createSession failed: ${resp.status}`)
+        }
+
+        const data = await resp.json()
+        const session = String(data?.session || data?.sessionToken || '').trim()
+        if (!session) {
+          throw new Error('Google createSession did not return session')
+        }
+
+        // Prefer NOT embedding key in the tile URL for production.
+        // If backend has GOOGLE_MAPS_API_KEY set, it will inject ?key automatically.
+        const tileUrl = googleKey
+          ? `/api/google-tiles/v1/2dtiles/{z}/{x}/{y}?session=${encodeURIComponent(session)}&key=${encodeURIComponent(googleKey)}`
+          : `/api/google-tiles/v1/2dtiles/{z}/{x}/{y}?session=${encodeURIComponent(session)}`
+
+        return new Cesium.UrlTemplateImageryProvider({
+          url: tileUrl,
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 20,
+          enablePickFeatures: false
+        })
+      }
+
+      function _createUnofficialGoogleXyzSatelliteProvider() {
+        // NOTE: This is intentionally a "test-only" option.
+        // It uses an undocumented URL pattern and may be subject to change or terms.
+        const lyrs = String(import.meta.env.VITE_GOOGLE_XYZ_LYRS || 's').trim() || 's'
+        const server = String(import.meta.env.VITE_GOOGLE_XYZ_SERVER || 'mt1').trim() || 'mt1'
+        const url = `https://${server}.google.com/vt/lyrs=${encodeURIComponent(lyrs)}&x={x}&y={y}&z={z}`
+        return new Cesium.UrlTemplateImageryProvider({
+          url,
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 20,
+          enablePickFeatures: false
+        })
       }
 
       // IMPORTANT: `Viewer` expects a TerrainProvider on `terrainProvider`.
@@ -145,19 +203,79 @@ export default {
         // - If Ion token exists, do NOT override imageryProvider/baseLayer so Cesium loads its stable default imagery.
         //   This fixes the "blue grid" and many third-party basemap failures.
         // - If no token, fall back to a grid so the globe is still visible.
-        // - If VITE_DISABLE_DEFAULT_IMAGERY=1, always force a local grid basemap to avoid any external Bing/CORS issues.
+        // - If VITE_DISABLE_DEFAULT_IMAGERY=1, avoid Cesium default imagery (Bing). Prefer a same-origin OSM basemap
+        //   via backend `/api/basemap/osm/` to prevent client-side network blocks (virtualearth.net, CORS, etc).
+        // - You can also force a mode via VITE_BASEMAP=osm|grid|default.
         const fallbackImageryProvider = new Cesium.GridImageryProvider()
+
+        // Photorealistic-only mode: avoid any 2D imagery entirely to prevent the
+        // visual "patchwork" caused by mixing partial 3D coverage with 2D basemaps.
+        // (This is intentionally a simple, explicit switch: VITE_PHOTOREALISTIC_ONLY=1)
+        const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
+        const enablePhotorealistic = hasIonToken && Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
+
+        let forcedBaseLayer = null
+        try {
+          const wantOsm = (basemapMode === 'osm') || disableDefaultImagery
+          const wantGrid = (basemapMode === 'grid')
+          const wantGoogleOfficial = (basemapMode === 'google_official') || (basemapMode === 'google-official')
+          const wantGoogleXyz = (basemapMode === 'google_xyz') || (basemapMode === 'google-xyz') || (basemapMode === 'google_unofficial')
+          if (photorealisticOnly && enablePhotorealistic) {
+            forcedBaseLayer = false
+          } else if (wantGoogleOfficial) {
+            const provider = await _createOfficialGoogle2DSatelliteProvider()
+            forcedBaseLayer = new Cesium.ImageryLayer(provider)
+          } else if (wantGoogleXyz) {
+            const provider = _createUnofficialGoogleXyzSatelliteProvider()
+            forcedBaseLayer = new Cesium.ImageryLayer(provider)
+          } else if (wantOsm) {
+            const osmProvider = new Cesium.OpenStreetMapImageryProvider({
+              // Backend route is `/api/basemap/osm/{z}/{x}/{y}.png`
+              url: '/api/basemap/osm/'
+            })
+            forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
+          } else if (wantGrid) {
+            forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+          }
+        } catch (e) {
+          if ((basemapMode === 'google_xyz') || (basemapMode === 'google-xyz') || (basemapMode === 'google_unofficial')) {
+            console.warn('[OneEarth Cesium] Google XYZ basemap init failed; falling back to OSM.', e)
+            try {
+              const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: '/api/basemap/osm/' })
+              forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
+            } catch (_) {
+              forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+            }
+          }
+          // If the official Google basemap fails (missing key/session/network), fall back.
+          if ((basemapMode === 'google_official') || (basemapMode === 'google-official')) {
+            console.warn('[OneEarth Cesium] Google official 2D basemap init failed; falling back to OSM.', e)
+            try {
+              const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: '/api/basemap/osm/' })
+              forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
+            } catch (_) {
+              forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+            }
+          }
+          // If user explicitly disabled default imagery but OSM provider creation fails,
+          // fall back to a local grid rather than re-enabling default Bing.
+          if (disableDefaultImagery) {
+            forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+          }
+        }
 
         viewer = new Cesium.Viewer(cesiumContainer.value, {
           creditContainer: creditContainer.value,
           terrainProvider,
 
           baseLayerPicker: false,
-          ...(disableDefaultImagery
-            ? { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }
-            : (hasIonToken
-              ? {}
-              : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) })),
+          ...(forcedBaseLayer === false
+            ? { imageryProvider: false }
+            : (forcedBaseLayer
+              ? { baseLayer: forcedBaseLayer }
+              : (hasIonToken
+                ? {}
+                : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }))),
           
           // UI 控制
           animation: false,
@@ -214,8 +332,23 @@ export default {
         
         // 光照：演示/开发阶段默认关闭，避免“黑夜=看不见地球”的经典坑
         viewer.scene.globe.enableLighting = (import.meta.env.VITE_ENABLE_LIGHTING === '1')
-        // 强制确保 globe 可见（防止外部逻辑误关导致“无形地球”）
-        viewer.scene.globe.show = true
+        // Photorealistic-only mode: hide globe so only 3D tiles are visible.
+        if (photorealisticOnly && enablePhotorealistic) {
+          try {
+            viewer.imageryLayers.removeAll(true)
+          } catch (_) {
+            // ignore
+          }
+          viewer.scene.globe.show = false
+          try {
+            viewer.scene.skyAtmosphere.show = false
+          } catch (_) {
+            // ignore
+          }
+        } else {
+          // 强制确保 globe 可见（防止外部逻辑误关导致“无形地球”）
+          viewer.scene.globe.show = true
+        }
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.0002
         
