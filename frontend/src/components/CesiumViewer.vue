@@ -47,13 +47,6 @@ export default {
     let centerRafPending = false
     let lastCenterLat = null
     let lastCenterLon = null
-
-    // Photorealistic runtime flags (Strategy A)
-    let photorealisticEnabled = false
-    let photorealisticAssetId = null
-    let photorealisticHideGlobe = true
-    let photorealisticDisableImagery = true
-    let photorealisticBlock2DLayers = true
     
     onMounted(() => {
       Promise.resolve()
@@ -103,38 +96,8 @@ export default {
         .trim()
       const hasIonToken = !!ionToken
       const disableDefaultImagery = String(import.meta.env.VITE_DISABLE_DEFAULT_IMAGERY || '').trim() === '1'
-      // Strategy A: when Google Photorealistic 3D Tiles is enabled, disable 2D basemap imagery
-      // and hide the ellipsoid globe to avoid "patchwork" (Grid/Bing/OSM showing through).
-      const photorealisticAssetStr = String(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '').trim()
-      const assetMatch = photorealisticAssetStr.match(/^\d+/)
-      photorealisticAssetId = assetMatch ? Number(assetMatch[0]) : NaN
-
-      photorealisticHideGlobe = String(import.meta.env.VITE_PHOTOREALISTIC_HIDE_GLOBE || '1').trim() !== '0'
-      photorealisticDisableImagery = String(import.meta.env.VITE_PHOTOREALISTIC_DISABLE_IMAGERY || '1').trim() !== '0'
-      photorealisticBlock2DLayers = String(import.meta.env.VITE_PHOTOREALISTIC_BLOCK_2D_LAYERS || '1').trim() !== '0'
-
-      photorealisticEnabled = (
-        hasIonToken &&
-        Number.isFinite(photorealisticAssetId) &&
-        photorealisticAssetId > 0
-      )
-
-      // Make it obvious in the console why Strategy A may or may not apply.
-      try {
-        console.info('[OneEarth Cesium] photorealistic:', {
-          hasIonToken,
-          photorealisticAssetId,
-          enabled: photorealisticEnabled,
-          hideGlobe: photorealisticHideGlobe,
-          disableImagery: photorealisticDisableImagery,
-          block2DLayers: photorealisticBlock2DLayers,
-          disableDefaultImagery
-        })
-      } catch (_) {
-        // ignore
-      }
-
-      const enablePhotorealistic = photorealisticEnabled
+      const basemapMode = String(import.meta.env.VITE_BASEMAP || '').trim().toLowerCase()
+      const photorealisticOnly = String(import.meta.env.VITE_PHOTOREALISTIC_ONLY || '').trim() === '1'
       if (hasIonToken) {
         Cesium.Ion.defaultAccessToken = ionToken
 
@@ -155,6 +118,62 @@ export default {
 
       if (!cesiumContainer.value) {
         throw new Error('Cesium container element not found')
+      }
+
+      async function _createOfficialGoogle2DSatelliteProvider() {
+        const googleKey = String(import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '').trim()
+        const sessionUrl = googleKey
+          ? `/api/google-tiles/v1/createSession?key=${encodeURIComponent(googleKey)}`
+          : '/api/google-tiles/v1/createSession'
+
+        const resp = await fetch(sessionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            mapType: 'satellite',
+            language: 'zh-CN',
+            region: 'CN'
+          })
+        })
+
+        if (!resp.ok) {
+          throw new Error(`Google createSession failed: ${resp.status}`)
+        }
+
+        const data = await resp.json()
+        const session = String(data?.session || data?.sessionToken || '').trim()
+        if (!session) {
+          throw new Error('Google createSession did not return session')
+        }
+
+        // Prefer NOT embedding key in the tile URL for production.
+        // If backend has GOOGLE_MAPS_API_KEY set, it will inject ?key automatically.
+        const tileUrl = googleKey
+          ? `/api/google-tiles/v1/2dtiles/{z}/{x}/{y}?session=${encodeURIComponent(session)}&key=${encodeURIComponent(googleKey)}`
+          : `/api/google-tiles/v1/2dtiles/{z}/{x}/{y}?session=${encodeURIComponent(session)}`
+
+        return new Cesium.UrlTemplateImageryProvider({
+          url: tileUrl,
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 20,
+          enablePickFeatures: false
+        })
+      }
+
+      function _createUnofficialGoogleXyzSatelliteProvider() {
+        // NOTE: This is intentionally a "test-only" option.
+        // It uses an undocumented URL pattern and may be subject to change or terms.
+        const lyrs = String(import.meta.env.VITE_GOOGLE_XYZ_LYRS || 's').trim() || 's'
+        const server = String(import.meta.env.VITE_GOOGLE_XYZ_SERVER || 'mt1').trim() || 'mt1'
+        const url = `https://${server}.google.com/vt/lyrs=${encodeURIComponent(lyrs)}&x={x}&y={y}&z={z}`
+        return new Cesium.UrlTemplateImageryProvider({
+          url,
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 20,
+          enablePickFeatures: false
+        })
       }
 
       // IMPORTANT: `Viewer` expects a TerrainProvider on `terrainProvider`.
@@ -184,18 +203,76 @@ export default {
         // - If Ion token exists, do NOT override imageryProvider/baseLayer so Cesium loads its stable default imagery.
         //   This fixes the "blue grid" and many third-party basemap failures.
         // - If no token, fall back to a grid so the globe is still visible.
-        // - If VITE_DISABLE_DEFAULT_IMAGERY=1, always force a local grid basemap to avoid any external Bing/CORS issues.
+        // - If VITE_DISABLE_DEFAULT_IMAGERY=1, avoid Cesium default imagery (Bing). Prefer a same-origin OSM basemap
+        //   via backend `/api/basemap/osm/` to prevent client-side network blocks (virtualearth.net, CORS, etc).
+        // - You can also force a mode via VITE_BASEMAP=osm|grid|default.
         const fallbackImageryProvider = new Cesium.GridImageryProvider()
+
+        // Photorealistic-only mode: avoid any 2D imagery entirely to prevent the
+        // visual "patchwork" caused by mixing partial 3D coverage with 2D basemaps.
+        // (This is intentionally a simple, explicit switch: VITE_PHOTOREALISTIC_ONLY=1)
+        const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
+        const enablePhotorealistic = hasIonToken && Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
+
+        let forcedBaseLayer = null
+        try {
+          const wantOsm = (basemapMode === 'osm') || disableDefaultImagery
+          const wantGrid = (basemapMode === 'grid')
+          const wantGoogleOfficial = (basemapMode === 'google_official') || (basemapMode === 'google-official')
+          const wantGoogleXyz = (basemapMode === 'google_xyz') || (basemapMode === 'google-xyz') || (basemapMode === 'google_unofficial')
+          if (photorealisticOnly && enablePhotorealistic) {
+            forcedBaseLayer = false
+          } else if (wantGoogleOfficial) {
+            const provider = await _createOfficialGoogle2DSatelliteProvider()
+            forcedBaseLayer = new Cesium.ImageryLayer(provider)
+          } else if (wantGoogleXyz) {
+            const provider = _createUnofficialGoogleXyzSatelliteProvider()
+            forcedBaseLayer = new Cesium.ImageryLayer(provider)
+          } else if (wantOsm) {
+            const osmProvider = new Cesium.OpenStreetMapImageryProvider({
+              // Backend route is `/api/basemap/osm/{z}/{x}/{y}.png`
+              url: '/api/basemap/osm/'
+            })
+            forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
+          } else if (wantGrid) {
+            forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+          }
+        } catch (e) {
+          if ((basemapMode === 'google_xyz') || (basemapMode === 'google-xyz') || (basemapMode === 'google_unofficial')) {
+            console.warn('[OneEarth Cesium] Google XYZ basemap init failed; falling back to OSM.', e)
+            try {
+              const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: '/api/basemap/osm/' })
+              forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
+            } catch (_) {
+              forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+            }
+          }
+          // If the official Google basemap fails (missing key/session/network), fall back.
+          if ((basemapMode === 'google_official') || (basemapMode === 'google-official')) {
+            console.warn('[OneEarth Cesium] Google official 2D basemap init failed; falling back to OSM.', e)
+            try {
+              const osmProvider = new Cesium.OpenStreetMapImageryProvider({ url: '/api/basemap/osm/' })
+              forcedBaseLayer = new Cesium.ImageryLayer(osmProvider)
+            } catch (_) {
+              forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+            }
+          }
+          // If user explicitly disabled default imagery but OSM provider creation fails,
+          // fall back to a local grid rather than re-enabling default Bing.
+          if (disableDefaultImagery) {
+            forcedBaseLayer = new Cesium.ImageryLayer(fallbackImageryProvider)
+          }
+        }
 
         viewer = new Cesium.Viewer(cesiumContainer.value, {
           creditContainer: creditContainer.value,
           terrainProvider,
 
           baseLayerPicker: false,
-          ...(enablePhotorealistic && photorealisticDisableImagery
+          ...(forcedBaseLayer === false
             ? { imageryProvider: false }
-            : (disableDefaultImagery
-              ? { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }
+            : (forcedBaseLayer
+              ? { baseLayer: forcedBaseLayer }
               : (hasIonToken
                 ? {}
                 : { baseLayer: new Cesium.ImageryLayer(fallbackImageryProvider) }))),
@@ -213,16 +290,6 @@ export default {
           requestRenderMode: false,
           maximumRenderTimeChange: Infinity
         })
-
-        // If Photorealistic is enabled, ensure no imagery layers linger (some Cesium builds
-        // can still insert defaults). This keeps rendering purely 3D-tiles driven.
-        if (enablePhotorealistic && photorealisticDisableImagery) {
-          try {
-            viewer.imageryLayers.removeAll(true)
-          } catch (_) {
-            // ignore
-          }
-        }
 
         // Cesium can otherwise fire a large burst of parallel tile requests while
         // zooming/dragging, which is a common trigger for intermittent proxy-level
@@ -265,16 +332,22 @@ export default {
         
         // 光照：演示/开发阶段默认关闭，避免“黑夜=看不见地球”的经典坑
         viewer.scene.globe.enableLighting = (import.meta.env.VITE_ENABLE_LIGHTING === '1')
-        // Strategy A: hide globe when Photorealistic 3D Tiles is enabled.
-        if (enablePhotorealistic) {
-          viewer.scene.globe.show = !photorealisticHideGlobe
-        }
-        if (enablePhotorealistic && photorealisticHideGlobe) {
+        // Photorealistic-only mode: hide globe so only 3D tiles are visible.
+        if (photorealisticOnly && enablePhotorealistic) {
+          try {
+            viewer.imageryLayers.removeAll(true)
+          } catch (_) {
+            // ignore
+          }
+          viewer.scene.globe.show = false
           try {
             viewer.scene.skyAtmosphere.show = false
           } catch (_) {
             // ignore
           }
+        } else {
+          // 强制确保 globe 可见（防止外部逻辑误关导致“无形地球”）
+          viewer.scene.globe.show = true
         }
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.0002
@@ -345,12 +418,10 @@ export default {
         // Optional 3D buildings / photorealistic 3D tiles (requires Ion token + network)
         try {
           if (hasIonToken) {
+            const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
+            const enablePhotorealistic = Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
+
             if (enablePhotorealistic) {
-              try {
-                loadingText.value = '加载 Google Photorealistic 3D Tiles...'
-              } catch (_) {
-                // ignore
-              }
               let tileset = null
               if (Cesium?.Cesium3DTileset?.fromIonAssetId) {
                 tileset = await Cesium.Cesium3DTileset.fromIonAssetId(photorealisticAssetId)
@@ -371,13 +442,8 @@ export default {
               viewer.scene.primitives.add(Cesium.createOsmBuildings())
             }
           }
-        } catch (e) {
-          // Surface the failure: Photorealistic failures are easy to miss otherwise.
-          try {
-            console.warn('[OneEarth Cesium] 3D tiles init failed:', e)
-          } catch (_) {
-            // ignore
-          }
+        } catch (_) {
+          // ignore
         }
 
         loading.value = false
@@ -486,17 +552,6 @@ export default {
     function loadBasemapLayer(tileUrl, opacity = 1.0) {
       if (!viewer) return
       if (!tileUrl) return
-
-       // Strategy A: in Photorealistic-only mode, we intentionally do not load any
-       // 2D basemap imagery layers.
-       if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe) {
-         try {
-           console.warn('[OneEarth Cesium] basemap disabled in photorealistic-only mode')
-         } catch (_) {
-           // ignore
-         }
-         return
-       }
 
       if (currentBasemapLayer) {
         try {
@@ -614,18 +669,6 @@ export default {
      */
     function loadAILayer(tileUrl, opacity = 0.95, options = {}) {
       if (!viewer) return
-
-      // Strategy A: in Photorealistic-only mode, 2D imagery overlays are hidden
-      // (they require the ellipsoid globe to be shown). Keep this blocked by default
-      // to avoid confusing "why is my AI layer invisible" reports.
-      if (photorealisticEnabled && photorealisticBlock2DLayers && photorealisticHideGlobe) {
-        try {
-          console.warn('[OneEarth Cesium] AI imagery disabled in photorealistic-only mode')
-        } catch (_) {
-          // ignore
-        }
-        return
-      }
       
       // 移除旧图层
       if (currentAILayer) {
