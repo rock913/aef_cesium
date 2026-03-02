@@ -88,3 +88,17 @@ def test_debug_version_reports_runtime_env(test_client: TestClient):
     # httpcore may be missing in some minimal envs, but in this repo it should exist.
     assert "backend" in payload
     assert payload["backend"].get("main_file")
+
+    # Release markers are optional, but the field shape is stable.
+    assert "release" in payload
+    assert isinstance(payload["release"], dict)
+    assert "deployment" in payload["release"]
+    assert "sha" in payload["release"]
+
+
+def test_debug_version_exposes_release_sha_when_injected(monkeypatch, test_client: TestClient):
+    monkeypatch.setenv("ONEEARTH_RELEASE_SHA", "tdd-release-sha-abc123")
+    resp = test_client.get("/api/debug/version")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload.get("release", {}).get("sha") == "tdd-release-sha-abc123"

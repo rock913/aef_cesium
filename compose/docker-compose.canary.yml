@@ -1,0 +1,50 @@
+name: oneearth-v6-canary
+
+services:
+  backend_canary:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.canary
+    ports:
+      - "8509:8509"
+    env_file:
+      - ../.env
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8509
+      ONEEARTH_PROFILE: v6
+      ONEEARTH_DEPLOYMENT: canary
+      # Optional: set in env file or shell when deploying
+      ONEEARTH_RELEASE_SHA: ${ONEEARTH_RELEASE_SHA:-}
+    volumes:
+      # For backend/config.py (expects /app/.env)
+      - ../.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8509/health', timeout=2).read(); print('ok')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  frontend_canary:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.canary
+      args:
+        # Vite injects VITE_* at build time (static dist). Values come from `--env-file`.
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_BASEMAP: ${VITE_BASEMAP:-}
+        VITE_DISABLE_DEFAULT_IMAGERY: ${VITE_DISABLE_DEFAULT_IMAGERY:-}
+        VITE_GOOGLE_XYZ_ENABLE: ${VITE_GOOGLE_XYZ_ENABLE:-}
+        VITE_GOOGLE_XYZ_LYRS: ${VITE_GOOGLE_XYZ_LYRS:-}
+        VITE_GOOGLE_XYZ_SERVER: ${VITE_GOOGLE_XYZ_SERVER:-}
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+        VITE_CESIUM_TOKEN: ${VITE_CESIUM_TOKEN:-}
+        VITE_ION_PROXY: ${VITE_ION_PROXY:-}
+        VITE_ION_PHOTOREALISTIC_ASSET_ID: ${VITE_ION_PHOTOREALISTIC_ASSET_ID:-}
+        VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M: ${VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M:-}
+        VITE_PHOTOREALISTIC_AI_OCCLUSION: ${VITE_PHOTOREALISTIC_AI_OCCLUSION:-}
+    ports:
+      - "8508:80"
+    depends_on:
+      backend_canary:
+        condition: service_healthy

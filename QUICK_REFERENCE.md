@@ -15,7 +15,7 @@ vim .env
 ./start.sh
 ```
 
-访问: `http://127.0.0.1:8504`
+访问: `http://127.0.0.1:8404`
 
 ## ⚙️ 环境配置
 
@@ -49,8 +49,8 @@ GEE_USER_PATH=users/your_username/aef_demo
 ./start.sh
 
 # 分别启动
-./run_backend.sh    # 后端 (8505)
-./run_frontend.sh   # 前端 (8504)
+./run_backend.sh    # 后端 (8405)
+./run_frontend.sh   # 前端 (8404)
 ```
 
 ### CH5（盐城）V8.1 分类器导出（GEE Tasks）
@@ -70,21 +70,21 @@ python backend/ch5_rf_export.py --ensure
 
 ## 🧯 线上部署：避免 502（运维/保活问题）
 
-如果你看到 `GET /__cesium/.../*.css 502 (Bad Gateway)` 或者连 `/` 首页都 502，这说明 **8504 端口背后的上游进程不存在/不可达**（nginx upstream 断了、node/uvicorn 进程挂了、端口映射错了、OOM 杀进程等）。
+如果你看到 `GET /__cesium/.../*.css 502 (Bad Gateway)` 或者连 `/` 首页都 502，这说明 **8404/8406 端口背后的上游进程不存在/不可达**（nginx upstream 断了、node/uvicorn 进程挂了、端口映射错了、OOM 杀进程等）。
 
 两种稳定方案：
 
 ### 方案 A（最省心）：单进程服务（FastAPI 托管前端 dist + /api）
 
 - 命令：`./run_prod_single.sh`
-- 访问：`http://<server-ip>:8504/`
+- 访问：`http://<server-ip>:8406/`
 - 特点：不依赖 Vite dev/preview；`/__cesium/*` 静态资源由 FastAPI 直接返回，避免“上游丢失导致全站 502”。
 
 ### 方案 B：nginx 静态托管 + 反代 /api
 
 - 构建前端：在 `frontend/` 下执行 `npm run build`，把 `frontend/dist` 拷贝到服务器目录（例如 `/opt/oneearth/frontend/dist`）
-- nginx 示例配置：`deploy/nginx/oneearth_v6_8504.conf`
-- 特点：静态资源完全不依赖任何上游进程；只有 `/api/*` 走反代到后端（8505）。
+- nginx 示例配置：参考 `frontend/nginx.prod.conf`（Docker 版）或 `deploy/nginx/` 下的生产配置模板
+- 特点：静态资源完全不依赖任何上游进程；只有 `/api/*` 走反代到后端（8407）。
 
 ### systemd 保活（可选但推荐）
 
@@ -145,8 +145,8 @@ EE_PRIVATE_KEY_FILE=/path/to/key.json              # 可选
 
 # 服务器配置
 API_HOST=127.0.0.1
-API_PORT=8505
-FRONTEND_PORT=8504
+API_PORT=8405
+FRONTEND_PORT=8404
 
 # Cesium 配置
 VITE_CESIUM_TOKEN=your_token  # 可选
@@ -190,7 +190,7 @@ LOG_LEVEL=INFO
 | `/api/report` | POST | 生成《区域空间监测简报》（模板/LLM） |
 | `/api/cache/export` | POST | 触发缓存导出 |
 
-API 文档: `http://127.0.0.1:8503/docs`
+API 文档: `http://127.0.0.1:8405/docs`
 
 ## 🧪 测试统计
 

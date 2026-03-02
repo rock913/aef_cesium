@@ -222,6 +222,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
+import { buildAct2ChoreoHref, getChoreoFromSearch } from './utils/choreo.js'
 import {
   buildCommanderBrief,
   buildLegendHint,
@@ -236,6 +237,19 @@ export default {
   },
   
   setup() {
+    // Hard split: narrative choreo lives under /act2, NOT /demo.
+    // If someone manually opens /demo?choreo=..., redirect to the narrative route.
+    try {
+      if (typeof window !== 'undefined') {
+        const name = getChoreoFromSearch(window.location.search)
+        if (name) {
+          window.location.replace(buildAct2ChoreoHref(name))
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+
     // Simple access gate (UI only). For stronger protection, enforce auth/rate-limit on backend/nginx.
     const ACCESS_STORAGE_KEY = 'aef_access_granted_v1'
     const accessGranted = ref(false)
@@ -430,7 +444,7 @@ export default {
         missions.value = missionsData
       } catch (error) {
         console.error('初始化失败:', error)
-        alert('后端连接失败：请确保 API 服务已启动（默认端口 8505），且前端 /api 代理可用。')
+        alert('后端连接失败：请确保 API 服务已启动（默认端口 8405），且前端 /api 代理可用。')
       }
 
       try {
@@ -480,6 +494,13 @@ export default {
         setTimeout(() => {
           silentPrefetchMissions()
         }, 700)
+      } catch (_) {
+        // ignore
+      }
+
+      // If landing enters demo with a choreography param, run it once.
+      try {
+        // Intentionally no choreo here; /demo is a tool/validation system.
       } catch (_) {
         // ignore
       }
@@ -1325,11 +1346,6 @@ export default {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   user-select: text;
   pointer-events: none;
-}
-
-/* Optional UI polish: hide Cesium default bottom bar/credits area (PoC demo only). */
-:deep(.cesium-viewer-bottom) {
-  display: none !important;
 }
 
 .lobby {

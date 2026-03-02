@@ -30,7 +30,7 @@ describe('App.vue content guards', () => {
 
   it('updates document title branding', () => {
     const s = readIndexHtml()
-    expect(s).toContain('Alpha Earth Demo')
+    expect(s).toContain('Zero2x')
     expect(s).not.toContain('ONE EARTH')
   })
 

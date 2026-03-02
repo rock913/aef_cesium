@@ -72,8 +72,10 @@ function attachProxyDebug(proxy, opts) {
 }
 
 const apiHost = process.env.API_HOST || '127.0.0.1'
-const apiPort = process.env.API_PORT || '8505'
+const apiPort = process.env.API_PORT || '8405'
 const apiTarget = `http://${apiHost}:${apiPort}`
+
+const frontendPort = process.env.FRONTEND_PORT ? Number(process.env.FRONTEND_PORT) : 8404
 
 export default defineConfig({
   plugins: [
@@ -85,7 +87,7 @@ export default defineConfig({
     })
   ],
   server: {
-    port: 8504,
+    port: frontendPort,
     host: '0.0.0.0',
     strictPort: true,
     // Optional: set these env vars when accessing via a public IP / reverse proxy

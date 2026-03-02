@@ -6,7 +6,8 @@ Alpha Earth Demo（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字
 
 ## 📌 当前状态（2026-02-27）
 
-- Dev 研发环境已 Docker 化并固化端口：前端 8504 / 后端 8505（推荐使用 `make docker-dev-up`）。
+- Dev 研发环境已 Docker 化并固化端口：前端 8404 / 后端 8405（推荐使用 `make docker-dev-up`）。
+- Prod（Docker 版）端口：前端 8406 / 后端 8407（推荐使用 `make docker-prod-up`）。
 - 一键验收门禁：`make docker-dev-check`（smoke + pytest + vitest + build）。
 - 后端提供可观测/排障入口：`/health`、`/api/debug/version`、以及若干瓦片代理诊断接口。
 - 前端地图：支持 2D 底图切换（含 Google XYZ 测试模式/Google 官方会话模式）+ Cesium Ion Photorealistic 3D Tiles。
@@ -21,12 +22,12 @@ Alpha Earth Demo（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字
 - [docs/架构升级与敏捷开发.md](docs/架构升级与敏捷开发.md) - 基于仓库真实现状的工程化/Dev Docker/TDD 指南
 - [docs/oneearth_v6.md](docs/oneearth_v6.md) - V6 规格与叙事目标（实现对齐基准）
 - [docs/oneearth_v6.6.md](docs/oneearth_v6.6.md) - 最新迭代说明（如与 v6 有差异以该文档为准）
-- [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布 + 8506/8507 生产部署指南
+- [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布（如采用 systemd/nginx 部署，请以该文档为准）
 
 ## 🏗️ 技术架构
 
 ```text
-Frontend (8504)                 Backend API (8505)                    Google Earth Engine
+Frontend (8404/8406)            Backend API (8405/8407)               Google Earth Engine
 ┌─────────────────────┐         ┌─────────────────────────┐          ┌───────────────────┐
 
 - Runtime deps: `pip install -r backend/requirements.txt`
@@ -49,7 +50,7 @@ cesium_app_v6/
 │   ├── llm_service.py          # DashScope/Qwen(OpenAI-compatible) + 模板回退
 │   └── requirements.txt
 ├── frontend/
-│   ├── vite.config.js          # dev server 8504 + /api -> 8505 代理
+│   ├── vite.config.js          # dev server 8404 + /api -> 8405 代理
 │   ├── package.json            # npm test (vitest)
 │   ├── src/
 │   │   ├── App.vue             # Missions 大厅 + AI 控制台 + Debug HUD
@@ -67,7 +68,7 @@ cesium_app_v6/
 
 ## 🚀 快速开始
 
-### 推荐：Docker Dev 一键跑通（8504/8505）
+### 推荐：Docker Dev 一键跑通（8404/8405）
 
 适用于“团队多人协作/避免宿主依赖污染/保证可复现”。
 
@@ -79,10 +80,42 @@ make docker-dev-up
 make docker-dev-check
 ```
 
+### Docker Prod 一键跑通（8406/8407）
+
+适用于“静态前端 + 同源 /api 反代”的更接近生产的形态。
+
+```bash
+make docker-prod-up
+make docker-prod-check
+```
+
+### Canary：Docker 灰度验证（8508/8509）
+
+用于在不影响现行 Dev/Prod 的前提下验证“新部署是否真的生效”（端口可用 + 版本可识别 + 自动化验收）。
+
+```bash
+make canary-up
+make canary-check
+```
+
 启动后：
 
-- 前端：`http://127.0.0.1:8504`
-- 后端：`http://127.0.0.1:8505`（Swagger：`/docs`）
+- Canary 前端：`http://127.0.0.1:8508`
+- Canary 后端：`http://127.0.0.1:8509`（Swagger：`/docs`）
+
+部署验收建议：在部署时注入 `ONEEARTH_RELEASE_SHA=<git_sha>`，并用 `GET /api/debug/version` 确认 `release.deployment=canary` 与 `release.sha`。
+
+启动后：
+
+- Dev 前端：`http://127.0.0.1:8404`
+- Dev 后端：`http://127.0.0.1:8405`（Swagger：`/docs`）
+- Prod 前端：`http://127.0.0.1:8406`
+- Prod 后端：`http://127.0.0.1:8407`（Swagger：`/docs`）
+
+页面入口：
+
+- Zero2x Landing：`/`（默认首页）
+- AlphaEarth Cesium Demo：`/demo`
 
 ### 访问密码（前端轻量闸门）
 
@@ -134,23 +167,23 @@ LLM_API_KEY=...
 LLM_MODEL=qwen-plus
 ```
 
-### 1) 启动后端（8505）
+### 1) 启动后端（8405）
 
 ```bash
 cd cesium_app_v6
 ./run_backend.sh
 ```
 
-后端：`http://127.0.0.1:8505`（Swagger：`/docs`）
+后端：`http://127.0.0.1:8405`（Swagger：`/docs`）
 
-### 2) 启动前端（8504）
+### 2) 启动前端（8404）
 
 ```bash
 cd cesium_app_v6
 ./run_frontend.sh
 ```
 
-前端：`http://127.0.0.1:8504`
+前端：`http://127.0.0.1:8404`
 
 ## 🗺️ 地图与底图配置（常用）
 

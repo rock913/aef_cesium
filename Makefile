@@ -1,5 +1,8 @@
+
 .PHONY: help test test-fast test-contract test-integration test-backend-api lint \
-	docker-dev-up docker-dev-down docker-dev-logs docker-dev-ps docker-dev-pytest docker-dev-vitest docker-dev-check
+	docker-dev-up docker-dev-down docker-dev-logs docker-dev-ps docker-dev-pytest docker-dev-vitest docker-dev-check \
+	docker-prod-up docker-prod-down docker-prod-logs docker-prod-ps docker-prod-check \
+	canary-up canary-down canary-logs canary-ps canary-check canary-rebuild-frontend
 
 # Prefer local workspace virtualenv if present.
 PYTHON ?= python3
@@ -39,17 +42,44 @@ test-backend-api:
 test-integration:
 	RUN_INTEGRATION_TESTS=1 PYTEST_STUB_EE=0 $(PYTEST) -q tests/test_gee_tile_diagnostics.py
 
-# --- Docker Dev (optional) ---
-# Keeps external ports consistent with the repo default: frontend 8504, backend 8505.
-# Uses .env.v6 if present, otherwise falls back to .env.
+# --- Docker Dev/Prod (021 ports) ---
+# Dev:  frontend 8404, backend 8405 (vite + uvicorn reload)
+# Prod: frontend 8406, backend 8407 (static nginx + uvicorn)
+#
+# Uses .env.dev / .env.prod when present, otherwise falls back to .env.
 
-_DEV_ENV_FILE := $(shell if [ -f .env.v6 ]; then echo .env.v6; else echo .env; fi)
+_DEV_ENV_FILE := $(shell if [ -f .env.dev ]; then echo .env.dev; else echo .env; fi)
+_PROD_ENV_FILE := $(shell if [ -f .env.prod ]; then echo .env.prod; else echo .env; fi)
+
+_CANARY_ENV_FILE := $(shell if [ -f .env.canary ]; then echo .env.canary; elif [ -f .env.dev ]; then echo .env.dev; else echo .env; fi)
+
+_DEV_COMPOSE := ONEEARTH_ENV_FILE=../$(_DEV_ENV_FILE) docker compose --env-file $(_DEV_ENV_FILE) -f compose/docker-compose.dev.yml
+_PROD_COMPOSE := ONEEARTH_ENV_FILE=../$(_PROD_ENV_FILE) docker compose --env-file $(_PROD_ENV_FILE) -f compose/docker-compose.prod.yml
+_CANARY_COMPOSE := docker compose --env-file $(_CANARY_ENV_FILE) -f compose/docker-compose.canary.yml
+
+_docker_canary_ports_free:
+	@if command -v ss >/dev/null 2>&1; then \
+		if ss -ltnp 2>/dev/null | egrep -q ':(8508|8509)\b'; then \
+			echo "❌ Port 8508/8509 already in use. Stop canary processes first."; \
+			ss -ltnp 2>/dev/null | egrep ':(8508|8509)\b' || true; \
+			exit 2; \
+		fi; \
+	fi
 
 _docker_dev_ports_free:
 	@if command -v ss >/dev/null 2>&1; then \
-		if ss -ltnp 2>/dev/null | egrep -q ':(8504|8505)\b'; then \
-			echo "❌ Port 8504/8505 already in use. Stop local dev processes first."; \
-			ss -ltnp 2>/dev/null | egrep ':(8504|8505)\b' || true; \
+		if ss -ltnp 2>/dev/null | egrep -q ':(8404|8405)\b'; then \
+			echo "❌ Port 8404/8405 already in use. Stop local dev processes first."; \
+			ss -ltnp 2>/dev/null | egrep ':(8404|8405)\b' || true; \
+			exit 2; \
+		fi; \
+	fi
+
+_docker_prod_ports_free:
+	@if command -v ss >/dev/null 2>&1; then \
+		if ss -ltnp 2>/dev/null | egrep -q ':(8406|8407)\b'; then \
+			echo "❌ Port 8406/8407 already in use. Stop local prod processes first."; \
+			ss -ltnp 2>/dev/null | egrep ':(8406|8407)\b' || true; \
 			exit 2; \
 		fi; \
 	fi
@@ -58,47 +88,188 @@ docker-dev-up:
 	@echo "Using env file: $(_DEV_ENV_FILE)"
 	@if [ ! -f "$(_DEV_ENV_FILE)" ]; then \
 		echo "❌ Missing env file: $(_DEV_ENV_FILE)"; \
-		echo "   Create one of: .env.v6 or .env (see .env.example)"; \
+		echo "   Create one of: .env.dev or .env (see .env.example)"; \
 		exit 2; \
 	fi
 	@$(MAKE) _docker_dev_ports_free
-	docker compose --env-file $(_DEV_ENV_FILE) -f compose/docker-compose.dev.yml up -d --build
+	$(_DEV_COMPOSE) up -d --build
 
 docker-dev-down:
-	docker compose -f compose/docker-compose.dev.yml down
+	$(_DEV_COMPOSE) down
 
 docker-dev-logs:
-	docker compose -f compose/docker-compose.dev.yml logs -f --tail=200
+	$(_DEV_COMPOSE) logs -f --tail=200
 
 docker-dev-ps:
-	docker compose -f compose/docker-compose.dev.yml ps
+	$(_DEV_COMPOSE) ps
 
 docker-dev-pytest:
-	docker compose -f compose/docker-compose.dev.yml run --rm backend_test
+	$(_DEV_COMPOSE) run --rm backend_test
 
 docker-dev-vitest:
-	docker compose -f compose/docker-compose.dev.yml run --rm frontend_test
+	$(_DEV_COMPOSE) run --rm frontend_test
 
 docker-dev-check:
 	@echo "==> Smoke: backend /health"
 	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		if curl -fsS http://127.0.0.1:8505/health >/dev/null 2>&1; then ok=1; break; fi; \
+		if curl -fsS http://127.0.0.1:8405/health >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ backend /health not ready"; exit 1; fi
 	@echo "==> Smoke: frontend / (vite)"
 	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		if curl -fsS http://127.0.0.1:8504/ >/dev/null 2>&1; then ok=1; break; fi; \
+		if curl -fsS http://127.0.0.1:8404/ >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ frontend / not ready"; exit 1; fi
 	@echo "==> Smoke: frontend /api/locations (proxy -> backend)"
 	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		if curl -fsS http://127.0.0.1:8504/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
+		if curl -fsS http://127.0.0.1:8404/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ frontend /api/locations proxy not ready"; exit 1; fi
+	@echo "==> Smoke: static assets (posters)"
+	@if ! curl -fsSI http://127.0.0.1:8404/zero2x/ui/act2_geogpt.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_geogpt.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8404/zero2x/ui/act2_astronomy.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_astronomy.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8404/zero2x/ui/act3_genos.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_genos.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8404/zero2x/ui/act3_oneporous.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_oneporous.webp"; exit 1; \
+	fi
 	@echo "==> Tests: pytest + vitest in containers"
 	@$(MAKE) docker-dev-pytest
 	@$(MAKE) docker-dev-vitest
 	@echo "✅ docker-dev-check OK"
+
+
+# --- Docker Prod (8406/8407) ---
+
+docker-prod-up:
+	@echo "Using env file: $(_PROD_ENV_FILE)"
+	@if [ ! -f "$(_PROD_ENV_FILE)" ]; then \
+		echo "❌ Missing env file: $(_PROD_ENV_FILE)"; \
+		echo "   Create one of: .env.prod or .env (see .env.example)"; \
+		exit 2; \
+	fi
+	@$(MAKE) _docker_prod_ports_free
+	$(_PROD_COMPOSE) up -d --build
+
+docker-prod-down:
+	$(_PROD_COMPOSE) down
+
+docker-prod-logs:
+	$(_PROD_COMPOSE) logs -f --tail=200
+
+docker-prod-ps:
+	$(_PROD_COMPOSE) ps
+
+docker-prod-check:
+	@echo "==> Smoke: prod backend /health"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8407/health >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ prod backend /health not ready"; exit 1; fi
+	@echo "==> Smoke: prod frontend / (nginx)"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8406/ >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ prod frontend / not ready"; exit 1; fi
+	@echo "==> Smoke: prod frontend /api/locations (proxy -> backend)"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8406/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ prod frontend /api/locations proxy not ready"; exit 1; fi
+	@echo "==> Smoke: prod static assets (posters)"
+	@if ! curl -fsSI http://127.0.0.1:8406/zero2x/ui/act2_geogpt.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_geogpt.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8406/zero2x/ui/act2_astronomy.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_astronomy.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8406/zero2x/ui/act3_genos.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_genos.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8406/zero2x/ui/act3_oneporous.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_oneporous.webp"; exit 1; \
+	fi
+	@echo "✅ docker-prod-check OK"
+
+
+# --- Canary (8508/8509) ---
+
+canary-up:
+	@echo "Using env file: $(_CANARY_ENV_FILE)"
+	@if [ ! -f "$(_CANARY_ENV_FILE)" ]; then \
+		echo "❌ Missing env file: $(_CANARY_ENV_FILE)"; \
+		echo "   Create one of: .env.canary, .env.v6, or .env (see .env.example)"; \
+		exit 2; \
+	fi
+	@$(MAKE) _docker_canary_ports_free
+	$(_CANARY_COMPOSE) up -d --build
+
+canary-down:
+	$(_CANARY_COMPOSE) down
+
+canary-logs:
+	$(_CANARY_COMPOSE) logs -f --tail=200
+
+canary-ps:
+	$(_CANARY_COMPOSE) ps
+
+canary-rebuild-frontend:
+	@echo "Using env file: $(_CANARY_ENV_FILE)"
+	@if [ ! -f "$(_CANARY_ENV_FILE)" ]; then \
+		echo "❌ Missing env file: $(_CANARY_ENV_FILE)"; \
+		exit 2; \
+	fi
+	$(_CANARY_COMPOSE) build --no-cache frontend_canary
+	$(_CANARY_COMPOSE) up -d frontend_canary
+
+canary-check:
+	@echo "==> Smoke: canary backend /health"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8509/health >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ canary backend /health not ready"; exit 1; fi
+	@echo "==> Smoke: canary frontend / (nginx)"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8508/ >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ canary frontend / not ready"; exit 1; fi
+	@echo "==> Smoke: canary frontend /api/locations (proxy -> canary backend)"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8508/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ canary frontend proxy not ready"; exit 1; fi
+	@echo "==> Smoke: canary static assets (posters)"
+	@if ! curl -fsSI http://127.0.0.1:8508/zero2x/ui/act2_geogpt.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_geogpt.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8508/zero2x/ui/act2_astronomy.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_astronomy.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8508/zero2x/ui/act3_genos.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_genos.webp"; exit 1; \
+	fi
+	@if ! curl -fsSI http://127.0.0.1:8508/zero2x/ui/act3_oneporous.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
+		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_oneporous.webp"; exit 1; \
+	fi
+	@echo "==> Smoke: /api/debug/version has deployment marker"
+	@if ! curl -fsS http://127.0.0.1:8509/api/debug/version | tr -d '\n' | grep -q '"deployment"[[:space:]]*:[[:space:]]*"canary"'; then \
+		echo "❌ canary debug/version missing deployment=canary"; \
+		exit 1; \
+	fi
+	@echo "==> Optional: pytest canary smoke (RUN_CANARY_SMOKE=1)"
+	@RUN_CANARY_SMOKE=1 $(PYTEST) -q tests/test_canary_smoke.py
+	@echo "✅ canary-check OK"

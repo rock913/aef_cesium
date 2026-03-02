@@ -1,8 +1,8 @@
-"""Configuration for Cesium Backend (V6.6).
+"""Configuration for Cesium Backend.
 
-V6 goals:
-- Avoid conflict with V5 deployment by defaulting to frontend 8504 / backend 8505.
-- Replace V5 mission registry with a chapter-based global narrative registry.
+021 goals:
+- Standardize Dev/Prod ports: Dev frontend 8404 / backend 8405; Prod frontend 8406 / backend 8407.
+- Keep mission registry as an ordered chapter-based narrative registry.
 """
 import os
 from pathlib import Path
@@ -29,7 +29,7 @@ class Settings(BaseModel):
     
     # Server Configuration
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
-    api_port: int = int(os.getenv("API_PORT", "8505"))
+    api_port: int = int(os.getenv("API_PORT", "8405"))
 
     # LLM (OpenAI compatible)
     # DashScope compatible-mode example:
@@ -69,8 +69,12 @@ class Settings(BaseModel):
     
     # CORS Configuration (dev defaults)
     cors_origins: list = [
-        "http://localhost:8504",
-        "http://127.0.0.1:8504",
+        # Dev (vite)
+        "http://localhost:8404",
+        "http://127.0.0.1:8404",
+        # Prod (static nginx)
+        "http://localhost:8406",
+        "http://127.0.0.1:8406",
     ]
     
     # V6.6 标志性事件坐标库

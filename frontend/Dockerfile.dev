@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20.19-alpine
 
 WORKDIR /app
 
@@ -6,7 +6,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Dev container relies on bind mount for source code; keep a safe default.
-EXPOSE 8504
+# Dev container relies on bind mount for source code.
+EXPOSE 8404
 
-CMD ["sh", "-lc", "if [ ! -d node_modules ]; then npm ci; fi; npm run dev -- --host 0.0.0.0 --port 8504"]
+# IMPORTANT: docker-compose.dev.yml mounts /app/node_modules as a named volume.
+# That volume can exist while missing packages (e.g., after package.json changes),
+# so checking only for the directory is insufficient.
+CMD ["sh", "-lc", "node -e \"require.resolve('vite'); require.resolve('three')\" >/dev/null 2>&1 || npm ci; npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT:-8404}"]

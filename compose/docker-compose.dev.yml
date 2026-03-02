@@ -1,4 +1,4 @@
-name: oneearth-v6-dev
+name: oneearth-021-dev
 
 services:
   backend:
@@ -6,34 +6,35 @@ services:
       context: ../backend
       dockerfile: Dockerfile.dev
     ports:
-      - "8505:8505"
+      - "8405:8405"
     env_file:
       # Provide VITE_* (for backend_test parity) and optional EE_* credentials.
-      - ../.env
+      - ${ONEEARTH_ENV_FILE:-../.env}
     environment:
       API_HOST: 0.0.0.0
-      API_PORT: 8505
-      ONEEARTH_PROFILE: v6
+      API_PORT: 8405
+      ONEEARTH_PROFILE: "021"
     volumes:
       - ../backend:/app/backend
       - ../tests:/app/tests:ro
       - ../pytest.ini:/app/pytest.ini:ro
       # Make repo-level env available for backend/config.py (expects /app/.env)
-      - ../.env:/app/.env:ro
+      - ${ONEEARTH_ENV_FILE:-../.env}:/app/.env:ro
 
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "8504:8504"
+      - "8404:8404"
     env_file:
       # Vite reads VITE_* from process env; without this, Cesium Ion token won't be visible in Docker dev.
-      - ../.env
+      - ${ONEEARTH_ENV_FILE:-../.env}
     environment:
       # Vite dev server reads these in vite.config.js to route /api.
       API_HOST: backend
-      API_PORT: 8505
+      API_PORT: 8405
+      FRONTEND_PORT: 8404
       # Uncomment on Docker Desktop (macOS/Windows) if file watching is flaky.
       # CHOKIDAR_USEPOLLING: "true"
     volumes:
@@ -56,3 +57,4 @@ services:
 
 volumes:
   frontend_node_modules:
+

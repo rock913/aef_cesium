@@ -14,6 +14,6 @@ RUN python -m pip install --upgrade pip \
 # Copy backend source (will be overridden by bind-mount in docker-compose.dev)
 COPY . .
 
-EXPOSE 8505
+EXPOSE 8405
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8505", "--reload"]
+CMD ["sh", "-lc", "python -m uvicorn main:app --host 0.0.0.0 --port ${API_PORT:-8405} --reload"]

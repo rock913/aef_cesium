@@ -40,7 +40,7 @@ LOG_FILE="$SCRIPT_DIR/logs/frontend.dev.log"
 echo "🚀 Starting AlphaEarth Cesium Frontend..."
 
 # Profile/config mode
-ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-v6}"
+ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-021}"
 ENV_PATH=""
 ENV_SOURCE_KIND="none"
 if [ -n "${ENV_FILE:-}" ]; then
@@ -63,9 +63,11 @@ if [ -n "$ENV_PATH" ] && [ -f "$ENV_PATH" ]; then
     set +a
 fi
 
-DEFAULT_FRONTEND_PORT="8504"
+DEFAULT_FRONTEND_PORT="8404"
 if [ "$ONEEARTH_PROFILE" = "v5" ]; then
     DEFAULT_FRONTEND_PORT="8502"
+elif [ "$ONEEARTH_PROFILE" = "v6" ]; then
+    DEFAULT_FRONTEND_PORT="8504"
 fi
 
 FRONTEND_PORT="${FRONTEND_PORT:-$DEFAULT_FRONTEND_PORT}"

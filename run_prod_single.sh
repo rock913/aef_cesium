@@ -1,7 +1,7 @@
 #!/bin/bash
 # Production single-process launcher:
 # - Builds frontend into frontend/dist
-# - Serves frontend/dist + /api from ONE uvicorn process on :8504
+# - Serves frontend/dist + /api from ONE uvicorn process on :8406
 # This eliminates the "frontend upstream missing" class of 502s.
 
 set -euo pipefail
@@ -15,7 +15,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-v6}"
+ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-021}"
 
 # Load env file similarly to run_* scripts
 ENV_PATH=""
@@ -36,7 +36,7 @@ if [ -n "$ENV_PATH" ] && [ -f "$ENV_PATH" ]; then
 fi
 
 # Bind port (frontend+api)
-FRONTEND_PORT="${FRONTEND_PORT:-8504}"
+FRONTEND_PORT="${FRONTEND_PORT:-8406}"
 API_HOST="${API_HOST:-0.0.0.0}"
 API_PORT="$FRONTEND_PORT"
 

@@ -51,9 +51,9 @@ LOG_FILE="$SCRIPT_DIR/logs/backend.dev.log"
 echo "🚀 Starting AlphaEarth Cesium Backend..."
 
 # Profile/config mode
-# - Default profile is v6 (ports 8504/8505) to avoid conflict with v5
-# - Prefer loading .env.<profile> if present (e.g. .env.v6)
-ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-v6}"
+# - Default profile is 021 (ports 8404/8405)
+# - Prefer loading .env.<profile> if present (e.g. .env.021)
+ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-021}"
 ENV_PATH=""
 ENV_SOURCE_KIND="none"
 if [ -n "${ENV_FILE:-}" ]; then
@@ -100,9 +100,11 @@ fi
 
 # Resolve defaults by profile
 DEFAULT_API_HOST="127.0.0.1"
-DEFAULT_API_PORT="8505"
+DEFAULT_API_PORT="8405"
 if [ "$ONEEARTH_PROFILE" = "v5" ]; then
     DEFAULT_API_PORT="8503"
+elif [ "$ONEEARTH_PROFILE" = "v6" ]; then
+    DEFAULT_API_PORT="8505"
 fi
 
 API_HOST="${API_HOST:-$DEFAULT_API_HOST}"

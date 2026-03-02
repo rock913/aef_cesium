@@ -1,0 +1,49 @@
+name: oneearth-021-prod
+
+services:
+  backend_prod:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "8407:8407"
+    env_file:
+      - ${ONEEARTH_ENV_FILE:-../.env}
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8407
+      ONEEARTH_PROFILE: "021"
+      ONEEARTH_DEPLOYMENT: prod
+      ONEEARTH_RELEASE_SHA: ${ONEEARTH_RELEASE_SHA:-}
+    volumes:
+      # For backend/config.py (expects /app/.env)
+      - ${ONEEARTH_ENV_FILE:-../.env}:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8407/health', timeout=2).read(); print('ok')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  frontend_prod:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.prod
+      args:
+        # Vite injects VITE_* at build time (static dist).
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_BASEMAP: ${VITE_BASEMAP:-}
+        VITE_DISABLE_DEFAULT_IMAGERY: ${VITE_DISABLE_DEFAULT_IMAGERY:-}
+        VITE_GOOGLE_XYZ_ENABLE: ${VITE_GOOGLE_XYZ_ENABLE:-}
+        VITE_GOOGLE_XYZ_LYRS: ${VITE_GOOGLE_XYZ_LYRS:-}
+        VITE_GOOGLE_XYZ_SERVER: ${VITE_GOOGLE_XYZ_SERVER:-}
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+        VITE_CESIUM_TOKEN: ${VITE_CESIUM_TOKEN:-}
+        VITE_ION_PROXY: ${VITE_ION_PROXY:-}
+        VITE_ION_PHOTOREALISTIC_ASSET_ID: ${VITE_ION_PHOTOREALISTIC_ASSET_ID:-}
+        VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M: ${VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M:-}
+        VITE_PHOTOREALISTIC_AI_OCCLUSION: ${VITE_PHOTOREALISTIC_AI_OCCLUSION:-}
+    ports:
+      - "8406:80"
+    depends_on:
+      backend_prod:
+        condition: service_healthy

@@ -117,6 +117,19 @@ if [ ! -d "$RELEASE_DIR/frontend/dist" ]; then
   exit 1
 fi
 
+# Guardrail: ensure key static assets exist in the built dist.
+# If these are missing, nginx/vite-preview will often serve index.html (SPA fallback),
+# which makes images look "not showing" even though the HTTP status is 200.
+if [ ! -f "$RELEASE_DIR/frontend/dist/zero2x/ui/act2_geogpt.webp" ] || \
+   [ ! -f "$RELEASE_DIR/frontend/dist/zero2x/ui/act2_astronomy.webp" ] || \
+   [ ! -f "$RELEASE_DIR/frontend/dist/zero2x/ui/act3_genos.webp" ] || \
+   [ ! -f "$RELEASE_DIR/frontend/dist/zero2x/ui/act3_oneporous.webp" ]; then
+  echo "❌ Release is missing required Zero2x UI assets in frontend/dist/zero2x/ui/"
+  echo "   Expected: act2_geogpt.webp, act2_astronomy.webp, act3_genos.webp, act3_oneporous.webp"
+  echo "   Fix: rebuild frontend before packaging (cd frontend && npm ci && npm run build)"
+  exit 1
+fi
+
 if [ ! -f "$RELEASE_DIR/run_backend.sh" ]; then
   echo "Invalid release (missing run_backend.sh): $RELEASE_DIR"
   exit 1
@@ -176,6 +189,31 @@ _wait_http_ok() {
   done
 
   echo "❌ ${name} check failed: $url"
+  return 1
+}
+
+_wait_http_header_contains() {
+  local url="$1"
+  local name="$2"
+  local header_re="$3"
+  local tries="${4:-30}"
+  local delay_s="${5:-1}"
+
+  for i in $(seq 1 "$tries"); do
+    if command -v curl >/dev/null 2>&1; then
+      headers="$(curl -fsSI --connect-timeout 2 --max-time 4 "$url" 2>/dev/null | tr -d '\r' || true)"
+      if echo "$headers" | grep -Eqi "$header_re"; then
+        echo "✅ ${name} OK: $url"
+        return 0
+      fi
+    else
+      echo "⚠️  curl not found; skipping header check for ${name}"
+      return 0
+    fi
+    sleep "$delay_s"
+  done
+
+  echo "❌ ${name} header check failed: $url"
   return 1
 }
 
@@ -306,9 +344,19 @@ _wait_http_ok "$HEALTH_URL" "backend" 180 1
 hc1=$?
 _wait_http_ok "$FRONTEND_URL" "frontend" 60 1
 hc2=$?
+
+# Extra: verify landing assets are served as WebP (not SPA index.html fallback).
+_wait_http_header_contains "${FRONTEND_URL}zero2x/ui/act2_geogpt.webp" "frontend asset act2_geogpt.webp" '^[Cc]ontent-[Tt]ype:.*image/webp' 60 1
+hc3=$?
+_wait_http_header_contains "${FRONTEND_URL}zero2x/ui/act2_astronomy.webp" "frontend asset act2_astronomy.webp" '^[Cc]ontent-[Tt]ype:.*image/webp' 60 1
+hc4=$?
+_wait_http_header_contains "${FRONTEND_URL}zero2x/ui/act3_genos.webp" "frontend asset act3_genos.webp" '^[Cc]ontent-[Tt]ype:.*image/webp' 60 1
+hc5=$?
+_wait_http_header_contains "${FRONTEND_URL}zero2x/ui/act3_oneporous.webp" "frontend asset act3_oneporous.webp" '^[Cc]ontent-[Tt]ype:.*image/webp' 60 1
+hc6=$?
 set -e
 
-if [ "$hc1" -ne 0 ] || [ "$hc2" -ne 0 ]; then
+if [ "$hc1" -ne 0 ] || [ "$hc2" -ne 0 ] || [ "$hc3" -ne 0 ] || [ "$hc4" -ne 0 ] || [ "$hc5" -ne 0 ] || [ "$hc6" -ne 0 ]; then
   echo "❌ Health checks failed; rolling back"
   _rollback || true
   exit 1
