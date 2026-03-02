@@ -1,5 +1,6 @@
 .PHONY: help test test-fast test-contract test-integration test-backend-api lint \
-	docker-dev-up docker-dev-down docker-dev-logs docker-dev-ps docker-dev-pytest docker-dev-vitest docker-dev-check
+	docker-dev-up docker-dev-down docker-dev-logs docker-dev-ps docker-dev-pytest docker-dev-vitest docker-dev-check \
+	canary-up canary-down canary-logs canary-ps canary-check
 
 # Prefer local workspace virtualenv if present.
 PYTHON ?= python3
@@ -102,3 +103,63 @@ docker-dev-check:
 	@$(MAKE) docker-dev-pytest
 	@$(MAKE) docker-dev-vitest
 	@echo "✅ docker-dev-check OK"
+
+
+# --- Canary (8508/8509) ---
+
+_CANARY_ENV_FILE := $(shell if [ -f .env.canary ]; then echo .env.canary; else echo .env; fi)
+_CANARY_COMPOSE := docker compose --env-file $(_CANARY_ENV_FILE) -f compose/docker-compose.canary.yml
+
+_docker_canary_ports_free:
+	@if command -v ss >/dev/null 2>&1; then \
+		if ss -ltnp 2>/dev/null | egrep -q ':(8508|8509)\\b'; then \
+			echo "❌ Port 8508/8509 already in use. Stop canary processes first."; \
+			ss -ltnp 2>/dev/null | egrep ':(8508|8509)\\b' || true; \
+			exit 2; \
+		fi; \
+	fi
+
+canary-up:
+	@echo "Using env file: $(_CANARY_ENV_FILE)"
+	@if [ ! -f "$(_CANARY_ENV_FILE)" ]; then \
+		echo "❌ Missing env file: $(_CANARY_ENV_FILE)"; \
+		echo "   Create .env (or .env.canary) based on .env.example"; \
+		exit 2; \
+	fi
+	@$(MAKE) _docker_canary_ports_free
+	$(_CANARY_COMPOSE) up -d --build
+
+canary-down:
+	$(_CANARY_COMPOSE) down
+
+canary-logs:
+	$(_CANARY_COMPOSE) logs -f --tail=200
+
+canary-ps:
+	$(_CANARY_COMPOSE) ps
+
+canary-check:
+	@echo "==> Smoke: canary backend /health"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8509/health >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ canary backend /health not ready"; exit 1; fi
+	@echo "==> Smoke: canary frontend / (nginx)"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8508/ >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ canary frontend / not ready"; exit 1; fi
+	@echo "==> Smoke: canary frontend /api/locations (proxy -> canary backend)"
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if curl -fsS http://127.0.0.1:8508/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
+		sleep 0.3; \
+	done; \
+	if [ $$ok -ne 1 ]; then echo "❌ canary frontend proxy not ready"; exit 1; fi
+	@echo "==> Smoke: /api/debug/version has deployment marker"
+	@if ! curl -fsS http://127.0.0.1:8509/api/debug/version | tr -d '\n' | grep -q '"deployment"[[:space:]]*:[[:space:]]*"canary"'; then \
+		echo "❌ canary debug/version missing deployment=canary"; \
+		exit 1; \
+	fi
+	@echo "✅ canary-check OK"

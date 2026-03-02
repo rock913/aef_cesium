@@ -1243,6 +1243,17 @@ async def debug_version():
     except Exception:
         git_head = None
 
+    # In release tarballs / Docker images, `.git/` is often not present.
+    # Allow CI/CD to inject a stable build id for post-deploy verification.
+    release_sha = (
+        str(os.getenv("ONEEARTH_RELEASE_SHA", "")).strip()
+        or str(os.getenv("ONEEARTH_GIT_HEAD", "")).strip()
+        or str(os.getenv("GIT_SHA", "")).strip()
+        or None
+    )
+    if not git_head and release_sha:
+        git_head = release_sha
+
     httpcore_version = None
     try:
         import httpcore  # type: ignore
@@ -1254,6 +1265,10 @@ async def debug_version():
     return {
         "ts": time.time(),
         "git_head": git_head,
+        "release": {
+            "deployment": str(os.getenv("ONEEARTH_DEPLOYMENT", "")).strip() or None,
+            "sha": release_sha,
+        },
         "python": {
             "executable": sys.executable,
             "version": sys.version,
