@@ -37,14 +37,13 @@
           <a class="cta ghost" :href="takeMeToEarthHref" @click.prevent="goAct2">进入第二幕：启动宏观孪生</a>
         </div>
       </div>
-    </header>
 
-    <nav class="scroll-nav" aria-label="Story progress">
-      <a v-for="a in acts" :key="a.id" class="scroll-pill" :class="{ active: activeAct === a.id }" :href="`#${a.id}`">
-        <span class="dot" />
-        <span class="label">{{ a.label }}</span>
-      </a>
-    </nav>
+      <!-- update_patch_0303: replace right-side pills with a subtle scroll hint -->
+      <div class="scroll-hint" aria-hidden="true">
+        <div class="mouse-icon" aria-hidden="true"></div>
+        <div class="scroll-hint-text">Scroll</div>
+      </div>
+    </header>
 
     <main class="acts">
       <!-- ==========================================
@@ -500,9 +499,8 @@ onUnmounted(() => {
 .hero {
   position: relative;
   height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   overflow: hidden;
   scroll-snap-align: start;
   scroll-snap-stop: always;
@@ -587,11 +585,57 @@ onUnmounted(() => {
 .cta:hover { color: #fff; border-color: rgba(0, 240, 255, 0.50); background: rgba(255, 255, 255, 0.05); }
 .cta.ghost:hover { border-color: rgba(157, 78, 221, 0.50); }
 
-.scroll-nav { position: fixed; right: 12px; top: 50%; transform: translateY(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
-.scroll-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); backdrop-filter: blur(12px); color: rgba(255, 255, 255, 0.8); text-decoration: none; font-size: 11px; font-weight: 900; }
-.scroll-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25) inset; }
-.scroll-pill.active { border-color: rgba(120, 160, 255, 0.45); background: rgba(120, 160, 255, 0.14); color: #fff; }
-.scroll-pill.active .dot { background: rgba(120, 160, 255, 0.95); box-shadow: 0 0 14px rgba(120, 160, 255, 0.35); }
+.scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  opacity: 0.62;
+}
+
+.mouse-icon {
+  width: 22px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.10);
+  backdrop-filter: blur(10px);
+  position: relative;
+}
+
+.mouse-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  width: 4px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 240, 255, 0.72);
+  transform: translateX(-50%);
+  animation: mouse-wheel 1.35s ease-in-out infinite;
+}
+
+@keyframes mouse-wheel {
+  0% { opacity: 0; transform: translate(-50%, 0); }
+  25% { opacity: 1; }
+  55% { opacity: 0; transform: translate(-50%, 10px); }
+  100% { opacity: 0; transform: translate(-50%, 10px); }
+}
+
+.scroll-hint-text {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.46);
+}
 
 /* ==========================================
    ACT 2 / 3 / 4 (全屏幕电影视口)
@@ -947,6 +991,15 @@ onUnmounted(() => {
   pointer-events: none;
   opacity: 0.9;
   filter: drop-shadow(0 0 18px rgba(0, 240, 255, 0.12));
+  width: clamp(40px, 5.2vw, 56px);
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+.hud-center-aim-container .hud-center-aim {
+  width: 100%;
+  height: 100%;
 }
 
 .hud-status-box {
@@ -1203,7 +1256,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 860px) {
-  .scroll-nav { display: none; }
+  .scroll-hint { bottom: 14px; }
 }
 
 @media (max-width: 768px) {
@@ -1257,5 +1310,6 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .viewport-scanline { display: none; }
   .status-dot-blink { animation: none; }
+  .mouse-icon::after { animation: none; }
 }
 </style>

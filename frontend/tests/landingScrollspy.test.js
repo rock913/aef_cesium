@@ -11,7 +11,11 @@ describe('Landing scrollytelling progress (TDD gate)', () => {
   it('implements a visible scrollspy progress nav', () => {
     const s = read('../src/Zero2xApp.vue')
 
-    expect(s).toContain('aria-label="Story progress"')
+    // update_patch_0303: remove traditional right-side pills; keep scrollspy wiring
+    // but use a subtle scroll hint to preserve the cinematic trailer feel.
+    expect(s).not.toContain('aria-label="Story progress"')
+    expect(s).toContain('scroll-hint')
+    expect(s).toContain('mouse-icon')
     expect(s).toContain('IntersectionObserver')
     expect(s).toContain('activeAct')
     expect(s).toContain('data-act-id="act-2"')
