@@ -1,14 +1,24 @@
-# Alpha Earth Demo 场景验证系统 (V6.6)
+# Zero2x + Alpha Earth Demo（cesium_app_v6, V6.6 / 0.21）
 
-Alpha Earth Demo（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字地球），后端 FastAPI + Google Earth Engine（AEF 表征 / 统计 / 瓦片代理）。
+本仓库是 **Zero2x 叙事页 + AI‑Native 工作台壳** 与 **Alpha Earth Demo 场景验证系统** 的同栈融合版本：
 
-本目录为 `cesium_app_v6`，端口与主案例已固化，适合“快速了解现状 → 继续开发”。
+- 前端：Vue 3 + Vite + CesiumJS（按路由按需挂载）
+- 后端：FastAPI + Google Earth Engine（可 stub；支持瓦片代理/统计/模板+LLM）
 
-## 📌 当前状态（2026-02-27）
+核心约束：**不推倒重来**，保留 `/demo` 作为“工具化场景验证系统”；同时将 `/` 升级为 Zero2x Landing（渐进式揭示，不默认加载重 WebGL）。
 
+## 📌 当前状态（2026-03-03）
+
+- 路由分离（渐进式揭示）：
+  - `/`：Zero2x Landing（五幕叙事 + Omni‑Bar；默认不初始化 Cesium）
+  - `/act2`：第二幕叙事场景（极简 UI + Cesium 镜头编排）
+  - `/demo`：Alpha Earth Demo（Missions + AI Console + Cesium 场景验证）
+  - `/workbench`：AI‑Native 工作台壳（路由级拆包；Monaco 等重依赖按需加载）
 - Dev 研发环境已 Docker 化并固化端口：前端 8404 / 后端 8405（推荐使用 `make docker-dev-up`）。
 - Prod（Docker 版）端口：前端 8406 / 后端 8407（推荐使用 `make docker-prod-up`）。
-- 一键验收门禁：`make docker-dev-check`（smoke + pytest + vitest + build）。
+- 一键验收门禁：
+  - Dev：`make docker-dev-check`（smoke + pytest + vitest）
+  - Prod：`make docker-prod-check`（smoke + nginx 静态资源 + /api 反代）
 - 后端提供可观测/排障入口：`/health`、`/api/debug/version`、以及若干瓦片代理诊断接口。
 - 前端地图：支持 2D 底图切换（含 Google XYZ 测试模式/Google 官方会话模式）+ Cesium Ion Photorealistic 3D Tiles。
 - 视觉一致性：Photorealistic 3D Tiles 支持“按相机高度 LOD 自动显隐”，并支持 AI 图层激活时自动遮挡（hide/dim）。
@@ -18,11 +28,12 @@ Alpha Earth Demo（AEF）场景验证系统：前端 Vue3 + CesiumJS（3D 数字
 - `/api/analyze`：智能体分析控制台（模板/LLM）
 - 前端调试：地图左下角实时显示“屏幕中心经纬度 CENTER: lat, lon”（用于校准飞行/定位）
 
+- [docs/zero2x/zero2x_v4.md](docs/zero2x/zero2x_v4.md) - Zero2x v4 体验目标与工程落地约束（本分支主规格）
+- [docs/zero2x/update_patch_0303.md](docs/zero2x/update_patch_0303.md) - v4 视觉/布局复盘与补丁目标
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 常用命令与端口速查
 - [docs/架构升级与敏捷开发.md](docs/架构升级与敏捷开发.md) - 基于仓库真实现状的工程化/Dev Docker/TDD 指南
-- [docs/oneearth_v6.md](docs/oneearth_v6.md) - V6 规格与叙事目标（实现对齐基准）
 - [docs/oneearth_v6.6.md](docs/oneearth_v6.6.md) - 最新迭代说明（如与 v6 有差异以该文档为准）
-- [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布（如采用 systemd/nginx 部署，请以该文档为准）
+- [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布
 
 ## 🏗️ 技术架构
 
@@ -32,10 +43,11 @@ Frontend (8404/8406)            Backend API (8405/8407)               Google Ear
 
 - Runtime deps: `pip install -r backend/requirements.txt`
 - Dev/test deps (needed for `make test-fast`): `pip install -r backend/requirements-dev.txt`
-│ Vue3 + CesiumJS      │◄──────► │ FastAPI                 │◄────────►│ AEF Dataset        │
-│ - Missions/叙事      │  JSON    │ - 图层/瓦片 URL 生成     │   ee API  │ - Embeddings       │
-│ - AI Console         │         │ - reduceRegion 统计      │          │ - Sentinel-2 etc.  │
-│ - Debug HUD (center) │         │ - 缓存/预热/导出         │          └───────────────────┘
+│ Vue3 + Vite + CesiumJS│◄──────► │ FastAPI                 │◄────────►│ AEF Dataset        │
+│ - Zero2x (/ )         │  JSON    │ - 图层/瓦片 URL 生成     │   ee API  │ - Embeddings       │
+│ - Act2 (/act2)        │         │ - reduceRegion 统计      │          │ - Sentinel-2 etc.  │
+│ - Demo (/demo)        │         │ - 缓存/预热/导出         │          └───────────────────┘
+│ - Workbench (/workbench)       │
 └─────────────────────┘         └─────────────────────────┘
 ```
 
@@ -53,7 +65,11 @@ cesium_app_v6/
 │   ├── vite.config.js          # dev server 8404 + /api -> 8405 代理
 │   ├── package.json            # npm test (vitest)
 │   ├── src/
-│   │   ├── App.vue             # Missions 大厅 + AI 控制台 + Debug HUD
+│   │   ├── main.js             # 路由级装配：/ /act2 /demo /workbench
+│   │   ├── Zero2xApp.vue       # Zero2x Landing（五幕 + Omni‑Bar）
+│   │   ├── Act2App.vue         # 第二幕叙事（Cesium 极简编排）
+│   │   ├── WorkbenchApp.vue    # 工作台壳（按需加载重依赖）
+│   │   ├── App.vue             # /demo：Missions + AI 控制台 + Debug HUD
 │   │   ├── components/
 │   │   │   ├── CesiumViewer.vue# Cesium viewer、飞行、图层、center 坐标 emit
 │   │   │   └── HudPanel.vue
@@ -97,9 +113,11 @@ make docker-prod-check
 页面入口：
 
 - Zero2x Landing：`/`（默认首页）
-- AlphaEarth Cesium Demo：`/demo`
+- 第二幕叙事：`/act2`
+- 工作台：`/workbench`
+- AlphaEarth Cesium Demo（验证系统）：`/demo`
 
-### 访问密码（前端轻量闸门）
+### 访问密码（前端轻量闸门，默认仅用于 `/demo`）
 
 为避免公开访问导致大量瓦片/分析请求影响速度，前端增加了一个“简单密码闸门”（UI 级别，并非强安全认证）：
 
@@ -149,7 +167,7 @@ LLM_API_KEY=...
 LLM_MODEL=qwen-plus
 ```
 
-### 1) 启动后端（8405）
+### 2) 启动后端（8405）
 
 ```bash
 cd cesium_app_v6
@@ -158,7 +176,7 @@ cd cesium_app_v6
 
 后端：`http://127.0.0.1:8405`（Swagger：`/docs`）
 
-### 2) 启动前端（8404）
+### 3) 启动前端（8404）
 
 ```bash
 cd cesium_app_v6
@@ -216,6 +234,13 @@ npm test
 ```
 
 说明：部分 GEE 相关用例在未配置真实凭据时会 skip，这是预期行为。
+
+## ✅ 可验收的“发布门禁”（建议保持不退化）
+
+- Dev 环境验收：`make docker-dev-check`
+- Prod 环境验收：`make docker-prod-check`
+
+这两条命令分别覆盖：端口契约、`/health` 可用、同源 `/api` 反代可用、以及 Zero2x 静态资源（海报/素材）在 Vite/nginx 下可被正确返回。
 
 ## 🧩 核心能力速览
 
@@ -296,4 +321,4 @@ POST /api/cache/export
 
 项目状态：✅ 可演示 / 可持续迭代（V6.6 主线已对齐，测试体系已接入）
 
-最后更新：2026-02-22
+最后更新：2026-03-03

@@ -6,7 +6,7 @@ services:
       context: ../backend
       dockerfile: Dockerfile.dev
     ports:
-      - "8405:8405"
+      - "${ONEEARTH_BIND_IP:-127.0.0.1}:8405:8405"
     env_file:
       # Provide VITE_* (for backend_test parity) and optional EE_* credentials.
       - ${ONEEARTH_ENV_FILE:-../.env}
@@ -14,6 +14,8 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8405
       ONEEARTH_PROFILE: "021"
+      ONEEARTH_DEPLOYMENT: dev
+      ONEEARTH_RELEASE_SHA: ${ONEEARTH_RELEASE_SHA:-}
     volumes:
       - ../backend:/app/backend
       - ../tests:/app/tests:ro
@@ -26,7 +28,7 @@ services:
       context: ../frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "8404:8404"
+      - "${ONEEARTH_BIND_IP:-127.0.0.1}:8404:8404"
     env_file:
       # Vite reads VITE_* from process env; without this, Cesium Ion token won't be visible in Docker dev.
       - ${ONEEARTH_ENV_FILE:-../.env}

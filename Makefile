@@ -50,8 +50,10 @@ test-integration:
 _DEV_ENV_FILE := $(shell if [ -f .env.dev ]; then echo .env.dev; else echo .env; fi)
 _PROD_ENV_FILE := $(shell if [ -f .env.prod ]; then echo .env.prod; else echo .env; fi)
 
-_DEV_COMPOSE := ONEEARTH_ENV_FILE=../$(_DEV_ENV_FILE) docker compose --env-file $(_DEV_ENV_FILE) -f compose/docker-compose.dev.yml
-_PROD_COMPOSE := ONEEARTH_ENV_FILE=../$(_PROD_ENV_FILE) docker compose --env-file $(_PROD_ENV_FILE) -f compose/docker-compose.prod.yml
+_GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
+
+_DEV_COMPOSE := ONEEARTH_ENV_FILE=../$(_DEV_ENV_FILE) ONEEARTH_RELEASE_SHA=$(_GIT_SHA) docker compose --env-file $(_DEV_ENV_FILE) -f compose/docker-compose.dev.yml
+_PROD_COMPOSE := ONEEARTH_ENV_FILE=../$(_PROD_ENV_FILE) ONEEARTH_RELEASE_SHA=$(_GIT_SHA) docker compose --env-file $(_PROD_ENV_FILE) -f compose/docker-compose.prod.yml
 
 _docker_dev_ports_free:
 	@if command -v ss >/dev/null 2>&1; then \
@@ -98,19 +100,19 @@ docker-dev-vitest:
 
 docker-dev-check:
 	@echo "==> Smoke: backend /health"
-	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do \
 		if curl -fsS http://127.0.0.1:8405/health >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ backend /health not ready"; exit 1; fi
 	@echo "==> Smoke: frontend / (vite)"
-	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do \
 		if curl -fsS http://127.0.0.1:8404/ >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ frontend / not ready"; exit 1; fi
 	@echo "==> Smoke: frontend /api/locations (proxy -> backend)"
-	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do \
 		if curl -fsS http://127.0.0.1:8404/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
@@ -157,19 +159,19 @@ docker-prod-ps:
 
 docker-prod-check:
 	@echo "==> Smoke: prod backend /health"
-	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do \
 		if curl -fsS http://127.0.0.1:8407/health >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ prod backend /health not ready"; exit 1; fi
 	@echo "==> Smoke: prod frontend / (nginx)"
-	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do \
 		if curl -fsS http://127.0.0.1:8406/ >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ prod frontend / not ready"; exit 1; fi
 	@echo "==> Smoke: prod frontend /api/locations (proxy -> backend)"
-	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	@ok=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do \
 		if curl -fsS http://127.0.0.1:8406/api/locations >/dev/null 2>&1; then ok=1; break; fi; \
 		sleep 0.3; \
 	done; \
