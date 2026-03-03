@@ -61,7 +61,7 @@
         <div class="cinematic-content act2">
           <div class="cine-container">
             <div class="cine-tags">
-              <span class="cine-tag cyan">021 Foundation</span>
+              <span class="cine-tag cyan">GeoGPT</span>
               <span class="cine-tag purple">OneAstronomy</span>
             </div>
             <h2 class="cine-title">从深空暗场，<br />到<span class="cine-gradient-text-2">轨道晨昏线</span>。</h2>
