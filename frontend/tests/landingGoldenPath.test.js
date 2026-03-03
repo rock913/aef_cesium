@@ -8,14 +8,15 @@ function read(file) {
 }
 
 describe('Golden path (Landing → Act2) wiring', () => {
-  it('hardwires free-form omni input to cinematic navigation', () => {
+  it('binds scenario selection to Act5 launchpad scroll', () => {
     const s = read('../src/Zero2xApp.vue')
 
-    // Free-form intent should store and route to Act2 with fade.
-    expect(s).toContain("sessionStorage?.setItem?.('z2x:lastIntent'")
-    expect(s).toContain("reason: 'omnibar-intent'")
-    expect(s).toContain("delayMs: 520")
-    expect(s).toContain("buildAct2ChoreoHref('poyang')")
+    // Click-to-select command palette should store context and scroll to Act5.
+    expect(s).toContain("sessionStorage?.setItem?.('z2x:lastContext'")
+    expect(s).toContain("document.getElementById('act-5')")
+      expect(s).toContain('scrollIntoView({ behavior: \'smooth\' })')
+    expect(s).toContain('setTimeout')
+    expect(s).toContain('150')
   })
 
   it('does not rely on fragile scroll auto-jump for demos', () => {

@@ -52,6 +52,7 @@ echo "🚀 Starting AlphaEarth Cesium Backend..."
 
 # Profile/config mode
 # - Default profile is 021 (ports 8404/8405)
+# - v6 is treated as the same modern port scheme by default (8404/8405)
 # - Prefer loading .env.<profile> if present (e.g. .env.021)
 ONEEARTH_PROFILE="${ONEEARTH_PROFILE:-021}"
 ENV_PATH=""
@@ -104,7 +105,7 @@ DEFAULT_API_PORT="8405"
 if [ "$ONEEARTH_PROFILE" = "v5" ]; then
     DEFAULT_API_PORT="8503"
 elif [ "$ONEEARTH_PROFILE" = "v6" ]; then
-    DEFAULT_API_PORT="8505"
+    DEFAULT_API_PORT="8405"
 fi
 
 API_HOST="${API_HOST:-$DEFAULT_API_HOST}"
@@ -115,8 +116,8 @@ API_PORT="${API_PORT:-$DEFAULT_API_PORT}"
 # Allow bypass via ONEEARTH_ALLOW_V5_PORTS_IN_V6=1.
 if [ "$ONEEARTH_PROFILE" = "v6" ] && [ "$ENV_SOURCE_KIND" = "fallback" ] && [ "${ONEEARTH_ALLOW_V5_PORTS_IN_V6:-0}" != "1" ]; then
     if [ "$API_PORT" = "8503" ]; then
-        echo "⚠️  Detected API_PORT=8503 from .env fallback (likely v5). Forcing v6 default API_PORT=8505."
-        API_PORT="8505"
+        echo "⚠️  Detected API_PORT=8503 from .env fallback (likely v5). Forcing v6 default API_PORT=8405."
+        API_PORT="8405"
     fi
 fi
 
@@ -147,7 +148,7 @@ _print_port_owner() {
 
 if [ "$ONEEARTH_PROFILE" = "v6" ] && [ "$API_PORT" = "8503" ]; then
     echo "⚠️  ONEEARTH_PROFILE=v6 but API_PORT=8503 (likely loaded v5 env)."
-    echo "   Recommended: create .env.v6 with API_PORT=8505 and FRONTEND_PORT=8504"
+    echo "   Recommended: create .env.v6 with API_PORT=8405 and FRONTEND_PORT=8404"
 fi
 
 if [ "$PRINT_CONFIG" = "1" ]; then

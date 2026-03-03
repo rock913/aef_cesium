@@ -8,10 +8,11 @@ function read(file) {
 }
 
 describe('Golden Path wiring (TDD gate)', () => {
-  it('Landing stores intent and fades to Act2 on free-form enter', () => {
+  it('Landing stores scenario context and scrolls to Act5 on selection', () => {
     const s = read('../src/Zero2xApp.vue')
-    expect(s).toContain("sessionStorage?.setItem?.('z2x:lastIntent'")
-    expect(s).toContain("navigateWithFade(takeMeToEarthHref")
+    expect(s).toContain("sessionStorage?.setItem?.('z2x:lastContext'")
+    expect(s).toContain("document.getElementById('act-5')")
+    expect(s).toContain('scrollIntoView')
 
     // Avoid demo-fragile auto-jump behavior.
     expect(s).not.toContain('z2x:auto-act2:done')
@@ -27,7 +28,7 @@ describe('Golden Path wiring (TDD gate)', () => {
   it('Workbench auto-plays a demo and avoids placeholder UI copy', () => {
     const s = read('../src/WorkbenchApp.vue')
     expect(s).toContain("setTimeout(() => runStub(),")
-    expect(s).toContain("sessionStorage?.getItem?.('z2x:lastIntent'")
+    expect(s).toContain("sessionStorage?.getItem?.('z2x:lastContext'")
     expect(s).not.toMatch(/Placeholder/i)
   })
 })

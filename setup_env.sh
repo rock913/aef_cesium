@@ -74,7 +74,7 @@ echo ""
 
 # API_PORT
 echo "【可选】后端 API 端口"
-default_api_port="8505"
+default_api_port="8405"
 if [ "$oneearth_profile" = "v5" ]; then
     default_api_port="8503"
 fi
@@ -84,7 +84,7 @@ echo ""
 
 # FRONTEND_PORT
 echo "【可选】前端端口"
-default_frontend_port="8504"
+default_frontend_port="8404"
 if [ "$oneearth_profile" = "v5" ]; then
     default_frontend_port="8502"
 fi

@@ -14,6 +14,6 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).not.toContain('(placeholder)')
     expect(s).not.toContain('Placeholder')
     expect(s).toContain('Agent (demo):')
-    expect(s).toContain("sessionStorage?.getItem?.('z2x:lastIntent')")
+    expect(s).toContain("sessionStorage?.getItem?.('z2x:lastContext')")
   })
 })

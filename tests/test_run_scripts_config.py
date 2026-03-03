@@ -31,13 +31,13 @@ def _run(script_name: str, env: dict[str, str] | None = None) -> str:
 def test_backend_defaults_to_v6_profile_and_ports():
     out = _run("run_backend.sh", env={"ONEEARTH_PROFILE": "v6"})
     assert "ONEEARTH_PROFILE=v6" in out
-    assert "API_PORT=8505" in out
+    assert "API_PORT=8405" in out
 
 
 def test_frontend_defaults_to_v6_profile_and_ports():
     out = _run("run_frontend.sh", env={"ONEEARTH_PROFILE": "v6"})
     assert "ONEEARTH_PROFILE=v6" in out
-    assert "FRONTEND_PORT=8504" in out
+    assert "FRONTEND_PORT=8404" in out
 
 
 def test_env_file_override_is_honored(tmp_path: Path):
@@ -82,11 +82,11 @@ def test_v6_profile_forces_default_ports_on_dotenv_fallback(tmp_path: Path):
 
         out_backend = _run("run_backend.sh", env={"ONEEARTH_PROFILE": "v6"})
         assert "ENV_SOURCE_KIND=fallback" in out_backend
-        assert "API_PORT=8505" in out_backend
+        assert "API_PORT=8405" in out_backend
 
         out_frontend = _run("run_frontend.sh", env={"ONEEARTH_PROFILE": "v6"})
         assert "ENV_SOURCE_KIND=fallback" in out_frontend
-        assert "FRONTEND_PORT=8504" in out_frontend
+        assert "FRONTEND_PORT=8404" in out_frontend
     finally:
         if had_existing:
             dotenv_path.write_text(old_content, encoding="utf-8")

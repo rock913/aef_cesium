@@ -4,6 +4,11 @@
       <div class="wb-brand">
         <div class="k">Zero2x</div>
         <div class="t">AI‑Native Workbench</div>
+        <div class="wb-context" data-testid="workbench-context">
+          CONTEXT: <span class="v">{{ scenario?.id || '—' }}</span>
+          <span class="sep">///</span>
+          <span class="v">{{ scenario?.targetName || '—' }}</span>
+        </div>
       </div>
 
       <div class="wb-actions">
@@ -28,16 +33,14 @@
       </section>
 
       <section class="pane">
-        <div class="pane-title">3D Preview</div>
-        <div class="preview">
-          Cesium / Charts 结果预览
-          <div class="preview-sub">Next: mount selected mission output here</div>
-        </div>
-
-        <div class="pane-title" style="margin-top: 14px;">Interactive Papers</div>
-        <div class="preview">
-          Docs / Community
-          <div class="preview-sub">Next: embed docs + citations + notebooks</div>
+        <div class="pane-title">Cesium Twin</div>
+        <div class="preview cesium-preview">
+          <CesiumViewer
+            ref="cesiumViewer"
+            :initial-location="scenario?.camera || undefined"
+            @viewer-ready="onViewerReady"
+          />
+          <div v-if="!viewerReady" class="preview-sub">正在唤醒 Cesium…</div>
         </div>
       </section>
     </main>
@@ -45,21 +48,35 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import CesiumViewer from './components/CesiumViewer.vue'
 import MonacoLazyEditor from './components/MonacoLazyEditor.vue'
+import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
 
-const code = ref(
-  [
+const cesiumViewer = ref(null)
+const viewerReady = ref(false)
+
+const contextId = ref('poyang')
+const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
+
+function buildCodeStub(s) {
+  const id = String(s?.id || '').trim() || 'poyang'
+  const fn = id === 'yuhang' ? 'audit_yuhang' : id === 'amazon' ? 'cluster_amazon' : 'analyze_poyang'
+
+  return [
     '# Zero2x Workbench (MVP)',
-    '# Goal: keep Landing fast; load Monaco only here.',
+    '# Goal: keep Landing fast; load Cesium+Monaco only here.',
+    `# Context: ${id}`,
     '',
-    'def analyze_poyang():',
-    '    # TODO: connect backend datasets and produce insights',
-    '    return {"status": "stub"}',
+    `def ${fn}():`,
+    '    """Demo stub: replace with real backend calls."""',
+    `    return {"context": "${id}", "status": "stub"}`,
     '',
-    'print(analyze_poyang())',
+    `print(${fn}())`,
   ].join('\n')
-)
+}
+
+const code = ref(buildCodeStub(scenario.value))
 
 const agentText = ref('System ready. Press Run to simulate an agent flow…')
 const lastIntent = ref('')
@@ -86,12 +103,15 @@ function _type(text) {
 
 function runStub() {
   const q = String(lastIntent.value || '').trim()
+  const sc = scenario.value
   const plan = [
     'Agent (demo):',
-    q ? `- Intent: ${q}` : '- Intent: Poyang wetland & bird migration analysis',
-    '- Step 1: select datasets (wetland mask, hydrology time-series, migration tracks)',
-    '- Step 2: compute trends + anomalies and generate evidence snippets',
-    '- Step 3: render overlays in 3D preview and export a short report',
+    `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
+    q ? `- Intent: ${q}` : `- Intent: ${sc?.label || 'Select a scenario from Landing'}`,
+    `- Backend: mode=${sc?.backend?.mode || '—'}, location=${sc?.backend?.location || '—'}`,
+    '- Step 1: select datasets + time window',
+    '- Step 2: compute anomalies / clustering / audits with evidence',
+    '- Step 3: render overlays in Cesium Twin and export a short report',
     '',
     'Tip: use /demo for visual validation; keep /workbench for workflows.',
   ].join('\n')
@@ -103,6 +123,32 @@ function reset() {
   agentText.value = 'System ready. Press Run to simulate an agent flow…'
 }
 
+function _flyToScenario() {
+  const sc = scenario.value
+  const cam = sc?.camera
+  if (!cam) return
+  try {
+    const d = Number(cam.duration_s)
+    const duration = Number.isFinite(d) && d > 0 ? d : 3.8
+    cesiumViewer.value?.flyTo?.(cam, duration)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function onViewerReady() {
+  viewerReady.value = true
+  _flyToScenario()
+}
+
+watch(
+  () => scenario.value?.id,
+  () => {
+    code.value = buildCodeStub(scenario.value)
+    if (viewerReady.value) _flyToScenario()
+  }
+)
+
 onMounted(() => {
   try {
     document.body.style.overflow = 'hidden'
@@ -111,7 +157,12 @@ onMounted(() => {
   }
 
   try {
+    const ctxFromUrl = parseWorkbenchContextFromSearch(window.location.search)
+    const ctxFromStorage = window.sessionStorage?.getItem?.('z2x:lastContext') || ''
+    contextId.value = String(ctxFromUrl || ctxFromStorage || 'poyang').trim().toLowerCase() || 'poyang'
+
     lastIntent.value = window.sessionStorage?.getItem?.('z2x:lastIntent') || ''
+    window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
   } catch (_) {
     lastIntent.value = ''
   }
@@ -161,6 +212,25 @@ onBeforeUnmount(() => {
 .wb-brand .t {
   font-weight: 900;
   letter-spacing: 0.4px;
+}
+
+.wb-context {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.78;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wb-context .v {
+  opacity: 0.92;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.wb-context .sep {
+  margin: 0 8px;
+  opacity: 0.42;
 }
 
 .wb-actions {
@@ -261,6 +331,18 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.08);
   min-height: 120px;
+}
+
+.cesium-preview {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.cesium-preview :deep(.cesium-viewer-container) {
+  flex: 1;
 }
 
 .preview-sub {

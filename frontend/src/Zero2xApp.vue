@@ -16,20 +16,21 @@
             <span class="desktop-only">Press <kbd class="omnibar-kbd-hint">⌘K</kbd> to initiate scientific inquiry</span>
             <span class="mobile-only">Describe your research intent below</span>
           </div>
-          <div class="omnibar-shell" @click="focusOmni">
+          <div class="omnibar-shell" @click="openOmni">
             <svg class="omnibar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input ref="inputEl" v-model="query" class="omnibar-input" type="text" :placeholder="placeholder" @keydown.meta.k.prevent="focusOmni" @keydown.ctrl.k.prevent="focusOmni" @keydown.enter.prevent="submit" aria-label="Zero2x omni bar" />
+            <input ref="inputEl" :value="query" class="omnibar-input" type="text" :placeholder="placeholder" readonly @keydown.meta.k.prevent="openOmni" @keydown.ctrl.k.prevent="openOmni" aria-label="Zero2x omni bar" />
             <div class="omnibar-kbd" aria-hidden="true" title="Cmd/Ctrl + K">
               <span class="kbd">⌘</span>
               <span class="kbd">K</span>
             </div>
-            <button class="btn omnibar-btn" type="button" @click.stop="submit">Run</button>
             <a class="btn secondary omnibar-btn" :href="takeMeToEarthHref" @click.stop.prevent="goAct2">进入视窗</a>
           </div>
-          <div v-if="result" class="omnibar-result">
-            <div class="result-title">021_BASE_MODEL_PREVIEW</div>
-            <pre class="result-pre">{{ result }}</pre>
-          </div>
+
+          <ul v-if="isOmniOpen" class="dropdown-menu" role="listbox" aria-label="Suggested scenarios">
+            <li v-for="s in scenarios" :key="s.id" role="option" class="dropdown-item" @click.stop="selectScenario(s)">
+              {{ s.label }}
+            </li>
+          </ul>
         </div>
 
         <div class="hero-cta">
@@ -159,8 +160,8 @@
           <div class="ar-grid-overlay" aria-hidden="true"></div>
           <div class="viewport-scanline" aria-hidden="true"></div>
           <div class="viewport-hud-overlay" aria-hidden="true">
-            <div class="hud-coord">LAT: 29.1102 N / LON: 116.2984 E</div>
-            <div class="hud-layer">ACTIVE_LAYER: POYANG_HYDROLOGY_V4</div>
+            <div class="hud-coord">TARGET: {{ activeScenario.targetName }}</div>
+            <div class="hud-layer">ACTIVE_LAYER: {{ activeScenario.layer }}</div>
           </div>
         </div>
 
@@ -190,7 +191,8 @@
             <div class="pane-content chat-bubble">
               <div class="msg-ai">
                 <span class="author">021_BRAIN:</span>
-                海纳底座已就绪。正在解析多维科研意图，启动 021 基础模型进行跨尺度推理与知识合成。
+                海纳底座已就绪。正在分析“{{ activeScenario.targetName }}”…
+                <div class="msg-ai-line">&gt; {{ activeScenario.action }}</div>
               </div>
             </div>
           </div>
@@ -202,6 +204,8 @@
               <pre>platform: zero2x_v0.21
 core_model: 021_foundation
 data_hub: haina_federated
+target_node: {{ activeScenario.targetId }}
+layer_stack: [{{ activeScenario.layer }}]
 status: ready_for_dispatch</pre>
             </div>
           </div>
@@ -258,26 +262,22 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import HeroVisual from './components/HeroVisual.vue'
 import { buildAct2ChoreoHref } from './utils/choreo.js'
 import { navigateWithFade } from './utils/navFade.js'
-import { buildStubPlan, parseOmniInput } from './utils/omnibarCommands.js'
+import { getDefaultScenario021, getScenario021ById, scenarios021 } from './utils/scenarios021.js'
 
 const inputEl = ref(null)
-const query = ref('')
-const result = ref('')
+const scenarios = scenarios021
+const selectedContextId = ref('poyang')
+const activeScenario = computed(() => getScenario021ById(selectedContextId.value) || getDefaultScenario021())
 
-const placeholders = [
-  '请输入科研意图... (如：分析特定海域叶绿素浓度)',
-  '调用 OneGenome 引擎分析特定序列',
-  '使用 021 模型进行跨尺度演化模拟',
-]
-
-const idx = ref(0)
-const placeholder = computed(() => placeholders[idx.value % placeholders.length])
+const query = ref(activeScenario.value?.label || '')
+const placeholder = computed(() => '请点击选择 V6.0 核心演示场景...')
+const isOmniOpen = ref(false)
 
 const takeMeToEarthHref = buildAct2ChoreoHref('poyang')
 const act2Href = buildAct2ChoreoHref('')
 const workbenchHref = '/workbench'
-// Launchpad passes a lightweight context parameter to the heavy workbench.
-const workbenchLaunchpadHref = '/workbench?context=021_research'
+// Launchpad passes the selected scenario context parameter to the heavy workbench.
+const workbenchLaunchpadHref = computed(() => `/workbench?context=${selectedContextId.value}`)
 
 const act2CinematicVideoOk = ref(true)
 const act3CinematicVideoOk = ref(true)
@@ -373,51 +373,70 @@ function focusOmni() {
   } catch (_) { }
 }
 
-function submit() {
-  const q = String(query.value || '').trim()
-  if (!q) {
-    result.value = ''
-    return
-  }
+function openOmni() {
+  isOmniOpen.value = true
+  focusOmni()
+}
 
-  const action = parseOmniInput(q)
+function closeOmni() {
+  isOmniOpen.value = false
+}
 
-  if (action.type === 'help') {
-    result.value = action.text
-    return
-  }
-
-  if (action.type === 'navigate') {
-    result.value = [`Command: ${q}`, '', `Routing to: ${action.href}`].join('\n')
-    navigateWithFade(action.href, { reason: 'omnibar-command' })
-    return
-  }
-
-  result.value = buildStubPlan(action.intent)
+function selectScenario(scenario) {
+  const s = scenario && typeof scenario === 'object' ? scenario : null
+  if (!s?.id) return
+  query.value = String(s.label || '')
+  selectedContextId.value = String(s.id)
+  closeOmni()
   try {
-    window.sessionStorage?.setItem?.('z2x:lastIntent', q)
+    window.sessionStorage?.setItem?.('z2x:lastContext', String(s.id))
+    // Keep lastIntent for backwards compatibility with older workbench stubs.
+    window.sessionStorage?.setItem?.('z2x:lastIntent', String(s.label || s.id))
   } catch (_) { }
-  navigateWithFade(takeMeToEarthHref, { reason: 'omnibar-intent', delayMs: 520 })
+
+  // Smooth scroll across Act 2-4 and land on Act 5 (launchpad).
+  setTimeout(() => document.getElementById('act-5')?.scrollIntoView({ behavior: 'smooth' }), 150)
 }
 
 function goAct2() { navigateWithFade(takeMeToEarthHref, { reason: 'landing-cta-act2' }) }
 function goAct2Base() { navigateWithFade(act2Href, { reason: 'landing-cta-act2-base' }) }
 function goWorkbench() { navigateWithFade(workbenchHref, { reason: 'landing-cta-workbench' }) }
-function goWorkbenchLaunchpad() { navigateWithFade(workbenchLaunchpadHref, { reason: 'landing-cta-workbench-launchpad' }) }
+function goWorkbenchLaunchpad() { navigateWithFade(workbenchLaunchpadHref.value, { reason: 'landing-cta-workbench-launchpad' }) }
 
 function onGlobalKeydown(e) {
   if (!e) return
   const k = String(e.key || '').toLowerCase()
-  if (k !== 'k') return
-  if (e.metaKey || e.ctrlKey) {
+  if ((e.metaKey || e.ctrlKey) && k === 'k') {
     e.preventDefault()
-    focusOmni()
+    openOmni()
+    return
   }
+  if (k === 'escape') closeOmni()
+}
+
+function onGlobalPointerDown(e) {
+  if (!isOmniOpen.value) return
+  try {
+    const target = e?.target
+    const shell = document.querySelector?.('.omnibar')
+    if (shell && target && shell.contains(target)) return
+  } catch (_) { }
+  closeOmni()
 }
 
 onMounted(() => {
   try { document.body.style.overflow = 'auto' } catch (_) { }
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('pointerdown', onGlobalPointerDown)
+
+  try {
+    const last = window.sessionStorage?.getItem?.('z2x:lastContext')
+    const sc = getScenario021ById(last)
+    if (sc) {
+      selectedContextId.value = sc.id
+      query.value = String(sc.label || '')
+    }
+  } catch (_) { }
 
   try {
     if (typeof IntersectionObserver !== 'undefined') {
@@ -439,13 +458,12 @@ onMounted(() => {
     }
   } catch (_) { }
 
-  _timer = setInterval(() => { idx.value = (idx.value + 1) % placeholders.length }, 2800)
-  setTimeout(() => focusOmni(), 250)
   setTimeout(() => _checkPosterAssets(), 600)
 })
 
 onUnmounted(() => {
   try { window.removeEventListener('keydown', onGlobalKeydown) } catch (_) { }
+  try { window.removeEventListener('pointerdown', onGlobalPointerDown) } catch (_) { }
   if (_timer) { clearInterval(_timer); _timer = null }
   try { _actObserver?.disconnect?.() } catch (_) { }
   _actObserver = null
@@ -537,6 +555,7 @@ onUnmounted(() => {
 .omnibar {
   margin: 22px auto 0;
   padding: 16px;
+  position: relative;
   border-radius: 20px;
   background: rgba(10, 15, 26, 0.70);
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -553,6 +572,40 @@ onUnmounted(() => {
 .omnibar-icon { color: rgba(107, 114, 128, 1); flex: 0 0 auto; }
 .omnibar-input { width: 100%; font-size: 14px; padding: 8px 4px; background: transparent; border: none; color: #eef2ff; outline: none; }
 .omnibar-kbd { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14); font-size: 12px; }
+
+.dropdown-menu {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(5, 8, 16, 0.92);
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  max-height: min(320px, 42vh);
+  overflow: auto;
+}
+
+.dropdown-item {
+  padding: 10px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  user-select: none;
+  color: rgba(226, 232, 240, 0.95);
+  border: 1px solid transparent;
+}
+
+.dropdown-item:hover {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.22);
+}
+
+.msg-ai-line {
+  margin-top: 8px;
+  opacity: 0.92;
+  color: rgba(0, 240, 255, 0.9);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+}
 
 .btn { display: inline-flex; align-items: center; padding: 10px 14px; border-radius: 12px; background: rgba(42, 45, 74, 1); border: 1px solid rgba(255, 255, 255, 0.08); color: #eef2ff; cursor: pointer; transition: all 180ms ease; }
 .btn:hover { background: rgba(58, 63, 108, 1); }

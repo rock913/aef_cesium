@@ -67,7 +67,7 @@ DEFAULT_FRONTEND_PORT="8404"
 if [ "$ONEEARTH_PROFILE" = "v5" ]; then
     DEFAULT_FRONTEND_PORT="8502"
 elif [ "$ONEEARTH_PROFILE" = "v6" ]; then
-    DEFAULT_FRONTEND_PORT="8504"
+    DEFAULT_FRONTEND_PORT="8404"
 fi
 
 FRONTEND_PORT="${FRONTEND_PORT:-$DEFAULT_FRONTEND_PORT}"
@@ -78,8 +78,8 @@ FRONTEND_PORT="${FRONTEND_PORT:-$DEFAULT_FRONTEND_PORT}"
 # Allow bypass via ONEEARTH_ALLOW_V5_PORTS_IN_V6=1.
 if [ "$ONEEARTH_PROFILE" = "v6" ] && [ "$ENV_SOURCE_KIND" = "fallback" ] && [ "${ONEEARTH_ALLOW_V5_PORTS_IN_V6:-0}" != "1" ]; then
     if [ "$FRONTEND_PORT" = "8502" ]; then
-        echo "⚠️  Detected FRONTEND_PORT=8502 from .env fallback (likely v5). Forcing v6 default FRONTEND_PORT=8504."
-        FRONTEND_PORT="8504"
+        echo "⚠️  Detected FRONTEND_PORT=8502 from .env fallback (likely v5). Forcing v6 default FRONTEND_PORT=8404."
+        FRONTEND_PORT="8404"
     fi
 fi
 
@@ -115,7 +115,7 @@ _print_port_owner() {
 
 if [ "$ONEEARTH_PROFILE" = "v6" ] && [ "$FRONTEND_PORT" = "8502" ]; then
     echo "⚠️  ONEEARTH_PROFILE=v6 but FRONTEND_PORT=8502 (likely loaded v5 env)."
-    echo "   Recommended: create .env.v6 with API_PORT=8505 and FRONTEND_PORT=8504"
+    echo "   Recommended: create .env.v6 with API_PORT=8405 and FRONTEND_PORT=8404"
 fi
 
 if [ "$PRINT_CONFIG" = "1" ]; then

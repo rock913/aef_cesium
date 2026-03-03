@@ -42,7 +42,8 @@ describe('Zero2x landing wiring (TDD)', () => {
     // Act 5 scaling stability: center-aim must be physically centered.
     expect(s).toContain('hud-center-aim-container')
 
-    // Act 5 launch passes context into the heavy workbench route.
-    expect(s).toContain('/workbench?context=021_research')
+    // Act 5 launch passes the selected scenario context into the heavy workbench route.
+    expect(s).toContain('/workbench?context=')
+    expect(s).toContain("ref('poyang')")
   })
 })
