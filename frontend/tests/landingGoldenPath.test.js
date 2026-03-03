@@ -8,15 +8,13 @@ function read(file) {
 }
 
 describe('Golden path (Landing → Act2) wiring', () => {
-  it('binds scenario selection to Act5 launchpad scroll', () => {
+  it('teleports Omni-Bar scenario selection directly to /workbench', () => {
     const s = read('../src/Zero2xApp.vue')
 
-    // Click-to-select command palette should store context and scroll to Act5.
+    // Click-to-select command palette should store context and jump straight to the heavy workbench.
     expect(s).toContain("sessionStorage?.setItem?.('z2x:lastContext'")
-    expect(s).toContain("document.getElementById('act-5')")
-      expect(s).toContain('scrollIntoView({ behavior: \'smooth\' })')
-    expect(s).toContain('setTimeout')
-    expect(s).toContain('150')
+    expect(s).toContain('/workbench?context=')
+    expect(s).toMatch(/window\.location\.(href|assign)\s*=|window\.location\.(assign|replace)\(/)
   })
 
   it('does not rely on fragile scroll auto-jump for demos', () => {

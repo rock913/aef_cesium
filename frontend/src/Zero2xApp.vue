@@ -394,8 +394,13 @@ function selectScenario(scenario) {
     window.sessionStorage?.setItem?.('z2x:lastIntent', String(s.label || s.id))
   } catch (_) { }
 
-  // Smooth scroll across Act 2-4 and land on Act 5 (launchpad).
-  setTimeout(() => document.getElementById('act-5')?.scrollIntoView({ behavior: 'smooth' }), 150)
+  // zero2x_v6: wormhole teleportation — jump straight into the heavy workbench.
+  // Keep it explicit (vs. router) because this repo uses path-based mounting.
+  try {
+    window.location.href = `/workbench?context=${encodeURIComponent(String(s.id))}`
+  } catch (_) {
+    // ignore
+  }
 }
 
 function goAct2() { navigateWithFade(takeMeToEarthHref, { reason: 'landing-cta-act2' }) }

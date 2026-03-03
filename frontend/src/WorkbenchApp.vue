@@ -1,49 +1,51 @@
 <template>
   <div class="wb" data-testid="workbench">
-    <header class="wb-top">
-      <div class="wb-brand">
-        <div class="k">Zero2x</div>
-        <div class="t">AI‑Native Workbench</div>
-        <div class="wb-context" data-testid="workbench-context">
-          CONTEXT: <span class="v">{{ scenario?.id || '—' }}</span>
-          <span class="sep">///</span>
-          <span class="v">{{ scenario?.targetName || '—' }}</span>
+    <!-- Z-index: 0 — full-screen twin engine (Cesium owns the viewport) -->
+    <div class="wb-engine" aria-label="Cesium Twin">
+      <CesiumViewer
+        ref="cesiumViewer"
+        :initial-location="scenario?.camera || undefined"
+        @viewer-ready="onViewerReady"
+      />
+      <div v-if="!viewerReady" class="wb-engine-status">正在唤醒 Cesium…</div>
+    </div>
+
+    <!-- Z-index: 10 — holographic HUD (mouse passes through empty areas) -->
+    <div class="wb-ui-layer" aria-label="Workbench HUD">
+      <header class="wb-panel wb-top">
+        <div class="wb-brand">
+          <div class="k">Zero2x</div>
+          <div class="t">AI‑Native Workbench</div>
+          <div class="wb-context" data-testid="workbench-context">
+            CONTEXT: <span class="v">{{ scenario?.id || '—' }}</span>
+            <span class="sep">///</span>
+            <span class="v">{{ scenario?.targetName || '—' }}</span>
+          </div>
         </div>
-      </div>
 
-      <div class="wb-actions">
-        <a class="btn secondary" href="/">Back to Landing</a>
-        <a class="btn secondary" href="/demo">Open Demo</a>
-      </div>
-    </header>
+        <div class="wb-actions">
+          <a class="btn secondary" href="/">Back</a>
+          <a class="btn secondary" href="/demo">Validation</a>
+        </div>
+      </header>
 
-    <main class="wb-grid">
-      <section class="pane">
-        <div class="pane-title">Agent Flow</div>
+      <section class="wb-panel wb-left" aria-label="Agent Flow">
+        <div class="pane-title">021 MODEL FLOW</div>
         <pre class="pane-pre">{{ agentText }}</pre>
 
         <div class="pane-row">
-          <button class="btn" type="button" @click="runStub">Run (Stub)</button>
+          <button class="btn" type="button" @click="runStub">EXECUTE ON TWIN</button>
           <button class="btn secondary" type="button" @click="reset">Reset</button>
         </div>
       </section>
 
-      <section class="pane">
-        <MonacoLazyEditor v-model="code" language="python" />
-      </section>
-
-      <section class="pane">
-        <div class="pane-title">Cesium Twin</div>
-        <div class="preview cesium-preview">
-          <CesiumViewer
-            ref="cesiumViewer"
-            :initial-location="scenario?.camera || undefined"
-            @viewer-ready="onViewerReady"
-          />
-          <div v-if="!viewerReady" class="preview-sub">正在唤醒 Cesium…</div>
+      <section class="wb-panel wb-right" aria-label="Code Editor">
+        <div class="pane-title">CODE</div>
+        <div class="editor-shell">
+          <MonacoLazyEditor v-model="code" language="python" />
         </div>
       </section>
-    </main>
+    </div>
   </div>
 </template>
 
@@ -183,23 +185,65 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .wb {
+  position: relative;
   width: 100vw;
   height: 100vh;
-  background: radial-gradient(1200px 800px at 50% 20%, rgba(120, 160, 255, 0.14), rgba(0, 0, 0, 0.25)),
-    linear-gradient(180deg, #05070f, #000);
+  background: #000;
   color: #eef2ff;
   overflow: hidden;
 }
 
+.wb-engine {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+.wb-engine :deep(.cesium-viewer-container) {
+  width: 100%;
+  height: 100%;
+}
+
+.wb-engine-status {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 1;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.30);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 12px;
+  backdrop-filter: blur(12px);
+}
+
+.wb-ui-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.wb-panel {
+  pointer-events: auto;
+  background: rgba(10, 15, 26, 0.40);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 16px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
 .wb-top {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  right: 18px;
   height: 62px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(10, 15, 25, 0.62);
-  backdrop-filter: blur(12px);
 }
 
 .wb-brand .k {
@@ -256,46 +300,25 @@ onBeforeUnmount(() => {
   border-color: rgba(255, 255, 255, 0.16);
 }
 
-.wb-grid {
-  height: calc(100vh - 62px);
-  display: grid;
-  grid-template-columns: 1.1fr 1.4fr 1.1fr;
-  gap: 12px;
+.wb-left,
+.wb-right {
+  position: absolute;
+  top: 96px;
+  bottom: 18px;
+  width: min(420px, 34vw);
   padding: 12px;
-}
-
-@media (max-width: 980px) {
-  .wb {
-    height: auto;
-    overflow: auto;
-  }
-
-  .wb-top {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .wb-grid {
-    height: auto;
-    grid-template-columns: 1fr;
-  }
-
-  .pane {
-    min-height: 260px;
-  }
-}
-
-.pane {
-  min-width: 0;
-  border-radius: 18px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.wb-left {
+  left: 18px;
+}
+
+.wb-right {
+  right: 18px;
 }
 
 .pane-title {
@@ -325,39 +348,46 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
-.preview {
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  min-height: 120px;
-}
-
-.cesium-preview {
-  padding: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-height: 260px;
-}
-
-.cesium-preview :deep(.cesium-viewer-container) {
+.editor-shell {
   flex: 1;
-}
-
-.preview-sub {
-  margin-top: 8px;
-  font-size: 12px;
-  opacity: 0.72;
+  min-height: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.28);
 }
 
 @media (max-width: 980px) {
-  .wb-grid {
-    grid-template-columns: 1fr;
-    grid-auto-rows: minmax(220px, auto);
+  .wb-ui-layer {
+    position: relative;
+    inset: auto;
+    padding: 12px;
+    pointer-events: auto;
   }
-  .wb {
-    height: auto;
+
+  .wb-engine {
+    position: relative;
+    height: 52vh;
+  }
+
+  .wb-top {
+    position: relative;
+    left: auto;
+    right: auto;
+    top: auto;
+    margin-bottom: 12px;
+  }
+
+  .wb-left,
+  .wb-right {
+    position: relative;
+    top: auto;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+    height: 320px;
+    margin-bottom: 12px;
   }
 }
 </style>

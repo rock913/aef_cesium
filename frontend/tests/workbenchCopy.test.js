@@ -15,5 +15,9 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).not.toContain('Placeholder')
     expect(s).toContain('Agent (demo):')
     expect(s).toContain("sessionStorage?.getItem?.('z2x:lastContext')")
+
+    // zero2x_v6: full-screen twin with floating glass HUD panels.
+    expect(s).toMatch(/pointer-events:\s*none/)
+    expect(s).toMatch(/backdrop-filter:\s*blur\(/)
   })
 })

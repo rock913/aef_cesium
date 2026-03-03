@@ -8,11 +8,11 @@ function read(file) {
 }
 
 describe('Golden Path wiring (TDD gate)', () => {
-  it('Landing stores scenario context and scrolls to Act5 on selection', () => {
+  it('Landing stores scenario context and teleports to Workbench on selection', () => {
     const s = read('../src/Zero2xApp.vue')
     expect(s).toContain("sessionStorage?.setItem?.('z2x:lastContext'")
-    expect(s).toContain("document.getElementById('act-5')")
-    expect(s).toContain('scrollIntoView')
+    expect(s).toContain('/workbench?context=')
+    expect(s).toMatch(/window\.location\.(href|assign)\s*=|window\.location\.(assign|replace)\(/)
 
     // Avoid demo-fragile auto-jump behavior.
     expect(s).not.toContain('z2x:auto-act2:done')
