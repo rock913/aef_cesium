@@ -8,7 +8,7 @@
         <div class="brand">
           <div class="brand-kicker">PROJECT MODEL 021</div>
           <div class="brand-title">zero2x</div>
-          <div class="brand-sub">From awe to action. AI-Native 渐进式科研工作台</div>
+          <div class="brand-sub">AI-Native 渐进式科研工作台</div>
         </div>
 
         <div class="omnibar" role="search">
