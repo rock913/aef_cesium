@@ -302,3 +302,61 @@ function triggerExecution() {
 极致留白：在 Workbench/index.vue 中，必须保证屏幕正中央至少 40% 的宽度不受任何 UI 组件遮挡，让底层数字地球转动、缩放的视觉冲击力最大化。
 
 事件穿透：除了 Agent 面板和 Code 面板，屏幕其他区域的鼠标事件（Drag, Wheel）必须能够直接穿透到背后的 Cesium canvas 上，保障地图交互的流畅性。
+
+
+6. 工程落地现状与下一步计划（截至 2026-03-03）
+
+本节用于把“蓝图伪代码”与当前仓库真实实现对齐，便于后续继续按 TDD 门禁推进。
+
+6.1 当前已落地（已通过回归）
+
+- 虫洞直达：Landing 的选择项可直接跳转 `/workbench?context=...`，保证 Landing 轻量、工作台重资产（Cesium/Monaco）仅在 Workbench 懒加载。
+- Spatial IDE 主框架：`/workbench` 已实现「全屏引擎底座 + 左右 HUD + 中央 Canvas」结构，并支持 F11 进入沉浸态（Theater）/退出（Lab）。
+- 领导可见的“态切换拨片”：顶部中央显性 Mode Toggle（Theater/Lab），并保留 `Cmd/Ctrl+K` 全局 OmniCommand 呼出。
+- 带态预置剧本：OmniCommand Presets 支持“一键绑定”场景 + 模式 + Tab（用于演示剧本快速复现）。
+- Tab System（真实行为）：Twin/Table/Charts 支持新建/关闭，并通过 `sessionStorage` 持久化与恢复：
+  - `z2x:lastTab`（上次激活 Tab）
+  - `z2x:openTabs`（打开的 Tab 列表）
+- LayerTree（真实行为 + 引擎联动）：LayerTree 支持 toggle + reorder，并通过 `sessionStorage` 持久化与恢复 `z2x:layers`；同时已打通到 Cesium：LayerTree 的 enabled 会驱动引擎内 overlays 显示/隐藏（当前为 stub entities，避免依赖外部服务）。
+
+实现位置（与蓝图伪代码的工程映射）：
+
+- Workbench 主容器：`frontend/src/WorkbenchApp.vue`
+- 引擎路由/容器（Cesium MVP，Three.js Phase 2）：`frontend/src/views/workbench/EngineRouter.vue`
+- Cesium Viewer 封装与 viewer-ready：`frontend/src/components/CesiumViewer.vue`
+- 组件：`frontend/src/views/workbench/components/TabBar.vue`、`LayerTree.vue`、`OmniCommand.vue`、`TheaterHUD.vue`
+
+回归状态：
+
+- 前端：`npm test` 全绿（vitest 门禁覆盖 Mode Toggle / Presets / Tabs / LayerTree / sessionStorage keys 等）。
+- 后端：`pytest` 全绿（集成类用例按默认策略 skip）。
+- 最新交付：已推送到分支 `021/zero2x-upgrade`（commit: `0ba049c`）。
+
+6.2 当前仍是“演示级”的部分（下一步要升级为“真实业务级”）
+
+- Cesium overlays 目前使用 entities rectangle 作为轻量 stub（用于验证 UI→引擎链路与演示稳定性），尚未接入真实 GEE tiles / GeoJSON / imageryLayers。
+- Layer reorder 目前只做“状态顺序保存”，尚未映射到 Cesium 的图层叠放顺序（imageryLayers index / primitives order）。
+- Agent Flow 目前以 demo stub 为主，尚未形成“模型指令 → 任务编排 → 引擎可视化反馈”的闭环（例如执行后自动开启某图层、切换 Tab、生成报告卡片等）。
+
+6.3 下一步计划（按优先级）
+
+P0（把“stub 联动”升级为“真实渲染”）：
+
+- 将 `LayerTree` 中的 `gee-heatmap / boundaries / anomaly-mask` 对接到 Cesium 的真实图层实现：
+  - `gee-heatmap`：通过后端 tile endpoint（UrlTemplateImageryProvider）加入 `viewer.imageryLayers`。
+  - `boundaries`：以 GeoJSON/矢量边界（DataSource 或自定义 primitives）渲染，支持 outline/label。
+  - `anomaly-mask`：以半透明 mask（imagery 或 polygon）叠加，支持透明度调节。
+
+P1（可控的图层栈与可解释反馈）：
+
+- 将 LayerTree 的 reorder 映射到 Cesium 图层栈顺序（imageryLayers 的 index），并在 UI 中反馈“顶层/底层”。
+- 为每个图层加入可调参数（opacity / threshold / palette），并把参数写入 `sessionStorage`（或后续 store）。
+
+P2（把“演示剧本”变成“可复现任务流”）：
+
+- 让 Presets 支持绑定：默认开启的 layers + 相机位置 + 解释性报告（Theater HUD）模板。
+- 让 EXECUTE 按钮触发：后端作业（analysis/report/tiles）→ 前端状态更新（Tab 自动切换、Layer 自动开启、报告卡片更新）。
+
+Phase 2（双模态底座）：
+
+- 在 EngineRouter 中保留 Three.js 路径（OneAstronomy/OneGenome），但严格不影响 Cesium 主线的稳定性与首屏加载。
