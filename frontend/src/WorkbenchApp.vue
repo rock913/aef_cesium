@@ -42,15 +42,33 @@
 
         <main class="ide-main" aria-label="Main Canvas">
           <div v-show="!isImmersive" class="ide-tabs" aria-label="Tabs">
-            <div class="tab active">Spatial Canvas</div>
-            <div class="tab ghost">Dataframe.csv</div>
+            <TabBar :tabs="tabs" :active-id="activeTabId" @select="setActiveTab" />
           </div>
 
           <div class="ide-canvas" aria-label="Canvas">
-            <EngineRouter ref="engineRouter" :scenario="scenario" @viewer-ready="onViewerReady" />
-            <div v-if="!viewerReady" class="engine-status">正在唤醒 Cesium…</div>
+            <EngineRouter
+              v-show="activeTabId === 'twin'"
+              ref="engineRouter"
+              :scenario="scenario"
+              @viewer-ready="onViewerReady"
+            />
+            <div v-if="activeTabId === 'twin' && !viewerReady" class="engine-status">正在唤醒 Cesium…</div>
 
-            <TimelineHUD v-show="!isImmersive" class="timeline-hud" @execute="runStub" />
+            <DataTableTab v-if="activeTabId === 'table'" :rows="tableRows" />
+            <ChartsTab v-if="activeTabId === 'charts'" :series="chartSeries" />
+
+            <LayerTree :layers="layers" />
+
+            <TheaterHUD
+              v-if="isImmersive"
+              :context-id="scenario?.id || ''"
+              :target-name="scenario?.targetName || ''"
+              :summary="theaterSummary"
+              @open-omni="openOmni"
+              @switch-lab="setMode('lab')"
+            />
+
+            <TimelineHUD class="timeline-hud" @execute="runStub" />
           </div>
         </main>
 
@@ -89,6 +107,11 @@ import AgentPanel from './views/workbench/components/AgentPanel.vue'
 import EditorPanel from './views/workbench/components/EditorPanel.vue'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
 import OmniCommand from './views/workbench/components/OmniCommand.vue'
+import TabBar from './views/workbench/components/TabBar.vue'
+import TheaterHUD from './views/workbench/components/TheaterHUD.vue'
+import LayerTree from './views/workbench/components/LayerTree.vue'
+import DataTableTab from './views/workbench/components/DataTableTab.vue'
+import ChartsTab from './views/workbench/components/ChartsTab.vue'
 
 const engineRouter = ref(null)
 const viewerReady = ref(false)
@@ -108,6 +131,7 @@ const demoPresets = Object.freeze([
     label: '[展演] 鄱阳湖近十年水网演变',
     contextId: 'poyang',
     mode: 'theater',
+    activeTabId: 'twin',
     hint: '自动进入沉浸态',
   },
   {
@@ -115,9 +139,87 @@ const demoPresets = Object.freeze([
     label: '[下钻] 调出余杭城建异动审计算法',
     contextId: 'yuhang',
     mode: 'lab',
+    activeTabId: 'twin',
     hint: '自动展开代码视图',
   },
+  {
+    id: 'demo:macro:theater',
+    label: '[看宏观] 进入沉浸演示态 (Twin)',
+    contextId: 'poyang',
+    mode: 'theater',
+    activeTabId: 'twin',
+    hint: '看宏观 => 自动进入沉浸态',
+  },
+  {
+    id: 'demo:code:lab',
+    label: '[看代码] 进入硬核作业态 (Editor)',
+    contextId: 'yuhang',
+    mode: 'lab',
+    activeTabId: 'twin',
+    hint: '看代码 => 自动进入作业态',
+  },
+  {
+    id: 'demo:data:lab',
+    label: '[看数据] 打开 Data Table',
+    contextId: 'poyang',
+    mode: 'lab',
+    activeTabId: 'table',
+    hint: '自动切到表格 Tab',
+  },
+  {
+    id: 'demo:charts:lab',
+    label: '[看图表] 打开 2D Charts',
+    contextId: 'poyang',
+    mode: 'lab',
+    activeTabId: 'charts',
+    hint: '自动切到图表 Tab',
+  },
 ])
+
+const tabs = Object.freeze([
+  { id: 'twin', title: 'Twin View', kind: 'twin' },
+  { id: 'table', title: 'Data Table', kind: 'table' },
+  { id: 'charts', title: '2D Charts', kind: 'charts' },
+])
+
+const activeTabId = ref('twin')
+
+function setActiveTab(id) {
+  const v = String(id || '').trim().toLowerCase()
+  activeTabId.value = v === 'table' ? 'table' : v === 'charts' ? 'charts' : 'twin'
+}
+
+const layers = Object.freeze([
+  { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true },
+  { id: 'boundaries', name: 'Vector Boundaries', enabled: true },
+  { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false },
+])
+
+const tableRows = computed(() => {
+  const sc = scenario.value
+  return [
+    { metric: 'context', value: sc?.id || '—', unit: '' },
+    { metric: 'target', value: sc?.targetName || '—', unit: '' },
+    { metric: 'mode', value: sc?.backend?.mode || '—', unit: '' },
+    { metric: 'location', value: sc?.backend?.location || '—', unit: '' },
+  ]
+})
+
+const chartSeries = computed(() => {
+  const scId = String(scenario.value?.id || '')
+  if (scId === 'yuhang') return [6, 11, 9, 14, 22, 20, 27]
+  if (scId === 'amazon') return [7, 8, 12, 10, 18, 16, 21]
+  return [10, 14, 9, 22, 18, 27, 24]
+})
+
+const theaterSummary = computed(() => {
+  const sc = scenario.value
+  const q = String(lastIntent.value || '').trim()
+  const head = `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`
+  const intent = q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`
+  const rec = '- Recommendation: 切换 Lab 查看代码与证据链'
+  return ['Agent Summary (demo):', head, intent, rec].join('\n')
+})
 
 function buildCodeStub(s) {
   const id = String(s?.id || '').trim() || 'poyang'
@@ -200,6 +302,9 @@ function setMode(next) {
   try {
     window.sessionStorage?.setItem?.('z2x:lastMode', mode.value)
   } catch (_) { }
+
+  // In Theater mode, default back to Twin View to maximize impact.
+  if (mode.value === 'theater') setActiveTab('twin')
 }
 
 function openOmni() {
@@ -225,6 +330,8 @@ function applyPreset(preset) {
   const nextContext = String(p.contextId || '').trim().toLowerCase()
   if (nextContext) contextId.value = nextContext
   setMode(p.mode)
+
+  if (p.activeTabId) setActiveTab(p.activeTabId)
 
   try {
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)

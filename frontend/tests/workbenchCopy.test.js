@@ -30,5 +30,14 @@ describe('Workbench demo copy (no placeholders)', () => {
 
     // Stateful demo presets: scenario + UI state binding
     expect(s).toMatch(/demoPresets|Stateful|预置演示/i)
+
+    // Tab system: twin + table + charts
+    expect(s).toMatch(/Tab System|TabBar|Twin View/i)
+    expect(s).toMatch(/Data Table/i)
+    expect(s).toMatch(/2D Charts/i)
+
+    // Theater HUD + layer tree widgets
+    expect(s).toMatch(/TheaterHUD|核心研判结论/i)
+    expect(s).toMatch(/LayerTree|LAYER TREE/i)
   })
 })
