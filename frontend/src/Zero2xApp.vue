@@ -23,7 +23,6 @@
               <span class="kbd">⌘</span>
               <span class="kbd">K</span>
             </div>
-            <a class="btn secondary omnibar-btn" :href="takeMeToEarthHref" @click.stop.prevent="goAct2">进入视窗</a>
           </div>
 
           <ul v-if="isOmniOpen" class="dropdown-menu" role="listbox" aria-label="Suggested scenarios">
@@ -35,7 +34,6 @@
 
         <div class="hero-cta">
           <a class="cta" href="#act-2">向下滚动 · 跨尺度科研探索</a>
-          <a class="cta ghost" :href="takeMeToEarthHref" @click.prevent="goAct2">进入视窗：宏观孪生</a>
         </div>
       </div>
 
@@ -50,7 +48,7 @@
       <!-- ==========================================
            ACT 2: The Orbital Horizon
            ========================================== -->
-      <section id="act-2" class="act-fullscreen group" data-act-id="act-2" data-act-title="第二幕：宏观孪生" aria-label="第二幕：宏观孪生" role="link" tabindex="0" @click="goAct2" @keydown.enter.prevent="goAct2">
+      <section id="act-2" class="act-fullscreen group" data-act-id="act-2" data-act-title="第二幕：宏观孪生" aria-label="第二幕：宏观孪生">
         <img class="cinematic-image" :src="act2AstronomyPosterSrc" alt="Act2 cinematic poster" loading="lazy" @error="(e) => onPosterImgError(e, act2AstronomyRemotePosterSrc)" />
         <video v-if="act2CinematicVideoOk" class="cinematic-video" autoplay loop muted playsinline preload="metadata" @error="act2CinematicVideoOk = false">
           <source :src="act2CinematicMp4Src" type="video/mp4" />
@@ -260,7 +258,6 @@ status: ready_for_dispatch</pre>
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import HeroVisual from './components/HeroVisual.vue'
-import { buildAct2ChoreoHref } from './utils/choreo.js'
 import { navigateWithFade } from './utils/navFade.js'
 import { getDefaultScenario021, getScenario021ById, scenarios021 } from './utils/scenarios021.js'
 
@@ -273,8 +270,6 @@ const query = ref(activeScenario.value?.label || '')
 const placeholder = computed(() => '请点击选择 V6.0 核心演示场景...')
 const isOmniOpen = ref(false)
 
-const takeMeToEarthHref = buildAct2ChoreoHref('poyang')
-const act2Href = buildAct2ChoreoHref('')
 const workbenchHref = '/workbench'
 // Launchpad passes the selected scenario context parameter to the heavy workbench.
 const workbenchLaunchpadHref = computed(() => `/workbench?context=${selectedContextId.value}`)
@@ -403,8 +398,6 @@ function selectScenario(scenario) {
   }
 }
 
-function goAct2() { navigateWithFade(takeMeToEarthHref, { reason: 'landing-cta-act2' }) }
-function goAct2Base() { navigateWithFade(act2Href, { reason: 'landing-cta-act2-base' }) }
 function goWorkbench() { navigateWithFade(workbenchHref, { reason: 'landing-cta-workbench' }) }
 function goWorkbenchLaunchpad() { navigateWithFade(workbenchLaunchpadHref.value, { reason: 'landing-cta-workbench-launchpad' }) }
 

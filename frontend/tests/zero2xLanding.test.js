@@ -26,8 +26,6 @@ describe('Zero2x landing wiring (TDD)', () => {
     expect(s).toContain('AI-Native 渐进式科研工作台')
     expect(s).toContain('第二幕：宏观孪生')
     expect(s).toContain('第四幕：数据星海')
-    expect(s).toContain('buildAct2ChoreoHref')
-    expect(s).toContain('进入视窗')
     expect(s).toContain('poyang')
 
     // Act 4 is videoized (no heavy WebGL galaxy on landing).

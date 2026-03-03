@@ -25,7 +25,6 @@
 
         <div class="wb-actions">
           <a class="btn secondary" href="/">Back</a>
-          <a class="btn secondary" href="/demo">Validation</a>
         </div>
       </header>
 
