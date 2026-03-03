@@ -1,5 +1,5 @@
 <template>
-  <div class="act2" data-testid="act2">
+  <div ref="rootEl" class="act2" data-testid="act2">
     <CesiumViewer
       ref="cesiumViewer"
       :initial-location="initialLocation"
@@ -79,17 +79,17 @@
     <div class="scrolly" ref="scrollyEl" aria-label="Act 2 scrollytelling">
       <section class="card" data-act2-step="space" :data-active="activeStep === 'space'">
         <div class="k">Scene 1</div>
-        <div class="h">Deep Space</div>
+        <div class="h">Edge of Space</div>
         <div class="p">
-          你在深空中看到地球：宏观尺度先行。
+          太空边缘：晨昏线与星海交界。
         </div>
       </section>
 
       <section class="card" data-act2-step="earth" :data-active="activeStep === 'earth'">
         <div class="k">Scene 2</div>
-        <div class="h">Earth Orbit</div>
+        <div class="h">The Rise of Earth</div>
         <div class="p">
-          进入轨道视角，建立“地理上下文”。
+          地球升起：从悬念到揭示。
         </div>
       </section>
 
@@ -161,12 +161,20 @@ import { navigateWithFade } from './utils/navFade.js'
 
 const cesiumViewer = ref(null)
 const viewerReady = ref(false)
+const rootEl = ref(null)
 const scrollyEl = ref(null)
 let observer = null
 
+let scrollRoot = null
+let scrollSections = []
+let scrollRaf = 0
+let onScroll = null
+let onWheel = null
+
 const initialLocation = computed(() => {
-  // Start from a far view (deep space feel). CesiumViewer will hide photorealistic tiles in far view.
-  return { lat: 35.0, lon: 105.0, height: 45_000_000 }
+  // Storyboard A: start from an ultra-high edge-of-space view.
+  // The pitch is applied by applyAct2Step('space').
+  return { lat: 39.9, lon: 116.39, height: 25_000_000 }
 })
 
 const activeChoreo = ref('')
@@ -228,13 +236,13 @@ const infoCopy = computed(() => {
   const base = {
     space: {
       k: 'CINEMATIC / 01',
-      h: 'Deep Space',
-      lines: ['宏观尺度先行：先看见系统，再进入细节。', '滚动推进分镜，镜头会随之变化。'],
+      h: 'Edge of Space',
+      lines: ['太空边缘：80% 星海 + 20% 晨昏线弧光。', 'OneAstronomy（深空）与 GeoGPT（地球）的物理交界处。'],
     },
     earth: {
       k: 'CINEMATIC / 02',
-      h: 'Earth Orbit',
-      lines: ['轨道视角建立上下文：地理、尺度、方向。', '这里不做任务流，只做叙事镜头与提示。'],
+      h: 'The Rise of Earth',
+      lines: ['巨兽升起：镜头前推 + 俯角压下，地球从底部填满画面。', 'GeoGPT：数字孪生底座从“悬念”切入到“可执行”。'],
     },
     target: {
       k: 'CINEMATIC / 03',
@@ -325,6 +333,82 @@ function _applyStep(stepId) {
   }
 }
 
+function _syncStepFromGeometry() {
+  const root = scrollRoot
+  const sections = scrollSections
+  if (!root || !Array.isArray(sections) || !sections.length) return
+
+  try {
+    const rootRect = root.getBoundingClientRect()
+    const focusY = rootRect.top + rootRect.height * 0.42
+    let best = null
+    const eps = 1e-6
+
+    for (const el of sections) {
+      const step = String(el?.dataset?.act2Step || '').trim()
+      if (!step) continue
+      const r = el.getBoundingClientRect()
+      const h = Math.max(1, Number(r.height || 0))
+      const visibleTop = Math.max(r.top, rootRect.top)
+      const visibleBottom = Math.min(r.bottom, rootRect.bottom)
+      const visible = Math.max(0, visibleBottom - visibleTop)
+      if (visible <= 0) continue
+      const ratio = visible / h
+      const center = (r.top + r.bottom) / 2
+      const dist = Math.abs(center - focusY)
+
+      if (!best) {
+        best = { step, ratio, dist }
+        continue
+      }
+
+      if (ratio > best.ratio + eps) {
+        best = { step, ratio, dist }
+        continue
+      }
+
+      if (Math.abs(ratio - best.ratio) <= eps && dist < best.dist) {
+        best = { step, ratio, dist }
+      }
+    }
+
+    const next = best?.step || ''
+    if (next && next !== activeStep.value) {
+      activeStep.value = next
+      _applyStep(next)
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _scheduleGeometrySync() {
+  if (scrollRaf) return
+  scrollRaf = window.requestAnimationFrame(() => {
+    scrollRaf = 0
+    _syncStepFromGeometry()
+  })
+}
+
+function _teardownScrollSync() {
+  try {
+    if (scrollRoot && onScroll) scrollRoot.removeEventListener('scroll', onScroll)
+  } catch (_) {
+    // ignore
+  }
+  scrollRoot = null
+  scrollSections = []
+  onScroll = null
+  if (scrollRaf) {
+    try {
+      window.cancelAnimationFrame(scrollRaf)
+    } catch (_) {
+      // ignore
+    }
+    scrollRaf = 0
+  }
+}
+
 function _setupObserver() {
   if (!scrollyEl.value) return
   if (typeof IntersectionObserver === 'undefined') return
@@ -339,6 +423,19 @@ function _setupObserver() {
   const sections = Array.from(root.querySelectorAll('[data-act2-step]'))
   if (!sections.length) return
 
+  // Robust step sync: in a small scroll panel, multiple cards can be visible at once.
+  // IntersectionObserver entries are not guaranteed to include all visible cards each tick,
+  // so we also sync active step from layout geometry on scroll.
+  _teardownScrollSync()
+  scrollRoot = root
+  scrollSections = sections
+  onScroll = () => _scheduleGeometrySync()
+  try {
+    root.addEventListener('scroll', onScroll, { passive: true })
+  } catch (_) {
+    // ignore
+  }
+
   observer = new IntersectionObserver(
     (entries) => {
       const best = pickDominantAct2Entry(entries)
@@ -347,22 +444,36 @@ function _setupObserver() {
       if (step === activeStep.value) return
       activeStep.value = step
       _applyStep(step)
+
+      // Also keep geometry in sync for the steady-state (ties / multi-visible).
+      _scheduleGeometrySync()
     },
     {
       root,
       threshold: [0.15, 0.35, 0.55, 0.75],
+      // Shrink the observer band so “center card” wins more deterministically.
+      rootMargin: '-35% 0px -50% 0px',
     }
   )
 
   for (const el of sections) observer.observe(el)
+
+  // Initial sync (no scroll yet).
+  _scheduleGeometrySync()
 }
 
 function onViewerReady() {
   viewerReady.value = true
 
-  // Default: keep a calm orbit rotation in deep space until choreo is triggered.
+  // Storyboard A: keep the frame stable (no auto-rotation), lock in dawn terminator lighting.
   try {
-    cesiumViewer.value?.startGlobalRotation?.()
+    cesiumViewer.value?.stopGlobalRotation?.()
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    cesiumViewer.value?.applyAct2StoryboardPresetA?.({ timeIso: '2026-03-03T10:30:00Z' })
   } catch (_) {
     // ignore
   }
@@ -408,6 +519,57 @@ onMounted(() => {
 
   // Observer wires scroll to narrative steps.
   _setupObserver()
+
+  // UX: allow mouse wheel to drive the narrative even when cursor is over the Cesium canvas.
+  // We forward wheel deltas into the scrolly panel, unless the user holds a modifier key
+  // (so they can still zoom the globe intentionally).
+  try {
+    const el = rootEl.value
+    if (el) {
+      const handler = (e) => {
+        if (!e) return
+        if (e.defaultPrevented) return
+        // Allow intentional camera zoom/orbit when holding modifiers.
+        if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+
+        const sc = scrollyEl.value
+        if (!sc) return
+
+        const t = e.target
+        // If the wheel event originates inside the scrolly panel, let native scrolling happen.
+        try {
+          if (t && sc.contains(t)) return
+        } catch (_) {
+          // ignore
+        }
+
+        // If wheel is over interactive HUD, don't hijack.
+        try {
+          const hud = el.querySelector?.('.hud')
+          if (hud && t && hud.contains(t)) return
+        } catch (_) {
+          // ignore
+        }
+
+        // Forward wheel to the scrolly panel.
+        try {
+          e.preventDefault()
+        } catch (_) {
+          // ignore
+        }
+
+        const dm = Number(e.deltaMode || 0)
+        const scale = dm === 1 ? 16 : (dm === 2 ? sc.clientHeight : 1)
+        const dy = Number(e.deltaY || 0) * scale
+        sc.scrollTop = Math.max(0, Math.min(sc.scrollHeight, sc.scrollTop + dy))
+      }
+
+      el.addEventListener('wheel', handler, { passive: false })
+      onWheel = handler
+    }
+  } catch (_) {
+    // ignore
+  }
 })
 
 watch(scrollyEl, () => {
@@ -421,6 +583,15 @@ onBeforeUnmount(() => {
   } catch (_) {
     // ignore
   }
+
+  _teardownScrollSync()
+
+  try {
+    if (rootEl.value && onWheel) rootEl.value.removeEventListener('wheel', onWheel)
+  } catch (_) {
+    // ignore
+  }
+  onWheel = null
 
   try {
     document.body.style.overflow = 'auto'

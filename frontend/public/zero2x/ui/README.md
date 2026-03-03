@@ -19,5 +19,5 @@ Landing 现在收敛为四张基座模型卡片（宏观：GeoGPT / OneAstronomy
 它只会提供上一次构建出来的 `frontend/dist`，不会实时读取 `public/`。
 
 解决：
-- Docker prod/canary：重新 build 镜像（例如 `make docker-prod-up` 或 `make canary-rebuild-frontend`）
+- Docker prod：重新 build 镜像（例如 `make docker-prod-up`，会触发重新 build）
 - 远程 nginx + release 模式：重新 `npm run build` 并把新的 `frontend/dist` 打包发布

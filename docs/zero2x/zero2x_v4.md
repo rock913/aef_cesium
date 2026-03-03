@@ -1,4 +1,4 @@
-Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific Universe)
+Zero2x 终极融合版：AI-Native 渐进式科研工作台 (AI-Native Progressive Scientific Workbench)
 
 核心设计哲学：渐进式揭示 (Progressive Disclosure)
 
@@ -6,11 +6,11 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 前半程（引人入胜）：采用 2.0 方案的电影级滚动叙事（Scrollytelling）。页面轻量、视觉震撼，向用户全景展示 Zero2x 的模型能力与数据底座。
 
-后半程（硬核赋能）：在叙事的终点，自然过渡到 3.0 方案的“AI-Native 工作台”。告诉科学家：“您刚才看到的所有奇迹，现在只需一行指令即可亲手复现。”
+后半程（硬核赋能）：在叙事的终点，自然过渡到 3.0 方案的“AI-Native 科研工作台”。告诉科学家：“您刚才看到的所有奇迹，现在只需一行指令即可亲手复现。”
 
 ---
 
-## 0.1 目标与现状差距（更新于 2026-03-02）
+## 0.1 目标与现状差距（更新于 2026-03-03）
 
 本节用于把 v4 的“体验目标”落到本仓库现状，并明确下一步要补的内容。
 
@@ -18,7 +18,12 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 - 路由分离：`/`（Landing 轻叙事）/ `/act2`（第二幕叙事 Cesium）/ `/demo`（验证系统）/ `/workbench`（工作台）
 - 第二幕已具备电影化骨架：滚动分镜、信息卡片、多目标切换、推荐路径 tours，并且通过测试门禁保持与 `/demo` 解耦
-- 第四幕已有轻量 DataGalaxy 原型；第五幕工作台已按需加载 Monaco
+- 第四幕已切换为“全视频流”预告（Landing 不再默认挂载 WebGL 星海）；第五幕升级为“叙事即工具”的融合工作台预览（散点式 HUD / 去容器化 + 中央负空间 + 物理居中准星），并保留 `/workbench` 作为重应用（Monaco 按需加载；Act5 点击时可携带上下文如 `/workbench?context=poyang`）
+
+新增关键结论（来自 update_patch_0303 的截图复盘）：
+
+- **布局稳健性是第一优先级**：必须在 75% 缩放 / 高分屏 / 超宽屏下维持“背景视频的视觉中心不被遮挡”。
+- **去容器化 (De-containment)**：Act5 不再使用大面积封闭窗体；改用散点式 HUD 把信息分布在视口边缘，强制中间留白。
 
 主要差距（需要补“视觉与叙事”）：
 
@@ -33,6 +38,20 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 3) `/demo` 入口需要降噪
 	- v4 语义：`/demo` 是“验证系统/工具台”，不应抢占首屏转化与叙事节奏
 	- 策略：把 Demo 入口收敛为少量位置（页脚/Act5/高级入口），让默认路径走“叙事 → 工作台”
+
+4) Act4/Act5 的“电影级素材资产”需要投放
+	- Act4：`act4_galaxy.webm/mp4`（语义星海预告片，极缓慢镜头 + Bloom/光流）
+	- Act5：`act5_workbench_bg.webm/mp4`（指挥舱/轨道实验室窗外视界，低对比度，适配前景代码可读性）
+	- 目标：在不增加前端逻辑复杂度的前提下，把“视觉统一性”和“沉浸感连续性”拉满
+
+5) 缩放/移动端布局稳健性需要制度化（验收而非主观）
+	- 典型场景：浏览器缩放 75%，或者高分屏导致“视口容纳信息密度变高”
+	- 风险：固定高度/固定偏移（例如硬编码的 -vh 位移）会导致视觉重心漂移；内容块会在垂直空间压缩时“撑满画面”，遮挡背景主体
+	- 策略：
+		- 禁用影响缩放的负偏移（如 Act1 不能用 `margin-top: -10vh` 作为视觉对齐手段）
+		- 所有关键字号/面板宽度使用 `clamp()` / `min()`
+		- Act5 中央视窗必须强制留白（约 35%~45% 宽度）
+		- Act5 准星使用物理居中（50%/50% + translate）确保在缩放/超宽屏下仍对准屏幕死中心
 
 ## 0. 工程落地约束（以本仓库为基底）
 
@@ -68,10 +87,10 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 ## 2. 体验结构（路由与渐进式加载）
 
-- `/`：Zero2x Landing（轻量 scrollytelling + Omni-Bar + CTA）
+- `/`：Zero2x Landing（轻量 scrollytelling + Omni-Bar + 五幕；Act5 在 Landing 内作为 Launchpad 展示“就绪态 / 预览 HUD”，点击才进入 `/workbench`）
 - `/act2`：第二幕“宏观孪生”叙事场景（只挂载 CesiumViewer + 极简叙事覆盖层 + 转场 choreography，不包含 Missions/AI Console）
 - `/demo`：AlphaEarth Cesium Demo（保留现有 Missions / AI Console，作为“工具化场景验证系统”）
-- `/workbench`：AI‑Native 工作台（路由级拆包，Monaco 按需加载）
+- `/workbench`：AI‑Native 工作台（路由级拆包；只在用户点击 Act5 的“Launch/Initialize”时才加载 Monaco 等重依赖）
 - 约束：Landing 不加载 Cesium；第二幕与 Demo 才初始化 Cesium；工作台才加载 Monaco。
 
 > 为什么要把第二幕从 `/demo` 割裂出来？
@@ -83,22 +102,38 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 以“可验收的最小行为”为红线：
 
-1) **内容门禁测试（vitest）**：检查 Zero2x 关键文案/结构存在（Omni-Bar、五幕标题、CTA）。
+1) **内容门禁测试（vitest）**：检查 Zero2x 关键文案/结构存在（Omni-Bar、五幕标题、Act4/Act5 核心结构）。
 
-2) **路由/装配测试（vitest）**：`/` 挂载 Zero2x，`/demo` 挂载 Demo（无需引入 vue-router 也可做）。
+2) **路由/装配测试（vitest）**：`/` 挂载 Zero2x，`/demo` 挂载 Demo，`/act2` 与 `/workbench` 按路由动态 import（无需引入 vue-router 也可做）。
 
-3) **端口契约（Makefile smoke）**：
+3) **性能门禁（vitest，字符串级）**：确保 Landing 不默认挂载重 WebGL/编辑器
+	- Act4 为视频预告：`act4_galaxy` 资产引用存在；Landing 代码不再依赖 `DataGalaxy` 作为默认渲染
+	- Act5 为融合工作台预览：存在 `workbench-bg-viewport`、`ide-frame`、`AGENT_FLOW` 等结构标记
+	- Act5 Launchpad 传参：存在 `/workbench?context=poyang`（或同等上下文注入）
+	- Act5 缩放稳健：存在 `hud-center-aim-container`（物理居中准星层）
+	- Demo 入口降噪：`/demo` 仅保留在页脚/次级位置，不出现在 Hero 主按钮文案中
+
+3.1) **缩放/响应式门禁（vitest，字符串级）**：确保 75% 缩放不会把视觉重心顶飞
+	- 品牌文案：包含 “AI-Native 渐进式科研工作台”
+	- 禁止负偏移依赖：Act1 不应通过硬编码的 `margin-top: -10vh` 来“对齐中心”（应由 flex 居中 + 小幅可控微调替代）
+
+4) **端口契约（Makefile smoke）**：
 
 - Dev：`curl http://127.0.0.1:8404/`、`curl http://127.0.0.1:8405/health`
 - Prod：`curl http://127.0.0.1:8406/`、`curl http://127.0.0.1:8407/health`
 
-4) **后端契约（pytest）**：保持 `GET /health`、`GET /api/debug/version` 等端点稳定可用。
+5) **后端契约（pytest）**：保持 `GET /health`、`GET /api/debug/version` 等端点稳定可用。
 
 🎬 核心交互分镜：一镜到底的五幕剧
 
 第一幕：登陆视界 —— 唤醒 021 大脑与全局意图搜寻
 
 【定位】：轻量级、高大上的品牌第一印象，兼具快捷入口功能。
+
+（新增约束：缩放稳健）
+
+- 首屏必须在 75% 缩放下保持视觉中心稳定：Logo + Omni-Bar 位于黄金区，不随缩放比例显著上移。
+- 移动端默认隐藏桌面专属提示（⌘K / Run），让输入框占满可用宽度。
 
 视觉呈现：
 
@@ -125,7 +160,7 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 3) 叙事层（向下滚动的承诺）
 	 - 明确的滚动提示：进度/Act 指示/渐隐渐显
-	 - 每幕都要有“下一步 CTA”：Act2（去 /act2）、Act4（互动 DataGalaxy）、Act5（Launch /workbench）
+	 - 每幕都要有“下一步 CTA”：Act2（去 /act2）、Act4（观看语义星海预告/状态 HUD）、Act5（在 Landing 内展开融合工作台预览；点击才 Launch/Initialize `/workbench`）
 
 ### 素材需求清单（你可以按此找设计/用 AI/用素材站）
 
@@ -146,7 +181,7 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 推荐文件放置（避免污染业务代码）：
 
 - `frontend/public/zero2x/hero/`：球体与背景（webm/webp/svg）
-- `frontend/public/zero2x/ui/`：卫星 icon、卡片插画
+- `frontend/public/zero2x/ui/`：卫星 icon、卡片插画、Act2/3/4/5 的视频素材（webm/mp4）
 
 验收标准（非主观）：
 
@@ -199,11 +234,11 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 【定位】：将 3.0 的激进构想放在最后，作为整个旅程的终极归宿和转化入口。
 
-视觉呈现：
+视觉呈现（升级为 Launchpad + 去容器化 HUD）：
 
-镜头穿过数据星海，所有的发光节点汇聚成一个极具科技感的半透明 IDE 面板（工作台概念图）。
-
-此时，用户才真正看到左侧的代码/Agent 流，中间的 3D 可视化预览，右侧的社区文献（Interactive Papers）。
+- 镜头穿过数据星海，进入“轨道实验室窗外视界”（背景视频）。
+- 前景 UI 不再是一个“可被感知为窗口的盒子”，而是**散点式 HUD**：对话块/代码块/状态条分别悬浮在四周。
+- **中央区域强制留白**（保证背景主体贯穿叙事高潮）。准星永远物理居中，形成“座舱视界锚点”。
 
 交互逻辑 (The Hook)：
 
@@ -211,7 +246,7 @@ Zero2x 终极融合版：渐进式数字科研宇宙 (The Progressive Scientific
 
 画面自动演示一段打字机效果：“@AgentBuilder 帮我调用刚刚的鄱阳湖数据集，生成一份生态评估代码”。随后界面自动展现代码生成和图表渲染的过程。
 
-页面最下方出现核心 Call to Action 按钮：[ 启动我的科研工作台 / Launch My Workspace ]。点击后，才会跳转到真正的（较重的）IDE Web 应用中。
+页面最下方出现核心 Call to Action 按钮（唯一高亮）：[ 启动我的科研工作台 / Launch My Workspace ]。点击后跳转到真正的（较重的）IDE Web 应用中，并携带当前叙事上下文（例如 `/workbench?context=poyang`）。
 
 🛠 实施路径与技术选型 (2天 MVP & 1周原型)
 

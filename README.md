@@ -89,24 +89,6 @@ make docker-prod-up
 make docker-prod-check
 ```
 
-### Canary：Docker 灰度验证（8508/8509）
-
-用于在不影响现行 Dev/Prod 的前提下验证“新部署是否真的生效”（端口可用 + 版本可识别 + 自动化验收）。
-
-```bash
-make canary-up
-make canary-check
-```
-
-启动后：
-
-- Canary 前端：`http://127.0.0.1:8508`
-- Canary 后端：`http://127.0.0.1:8509`（Swagger：`/docs`）
-
-部署验收建议：在部署时注入 `ONEEARTH_RELEASE_SHA=<git_sha>`，并用 `GET /api/debug/version` 确认 `release.deployment=canary` 与 `release.sha`。
-
-启动后：
-
 - Dev 前端：`http://127.0.0.1:8404`
 - Dev 后端：`http://127.0.0.1:8405`（Swagger：`/docs`）
 - Prod 前端：`http://127.0.0.1:8406`

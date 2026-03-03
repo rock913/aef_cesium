@@ -8,7 +8,6 @@
 
 - Dev：前端 8404 / 后端 8405
 - Prod（Docker 版）：前端 8406 / 后端 8407
-- Canary（保留现状）：前端 8508 / 后端 8509
 
 ---
 
@@ -21,7 +20,7 @@
 - ✅ Milestone M1（Zero2x 网站骨架 48h MVP）已落地
   - `/` → Zero2x Landing（含 Omni-Bar stub、五幕叙事与 CTA）
   - `/demo` → 现有 Cesium Demo 保留
-  - 前端 vitest、后端 pytest 已回归通过（集成/Canary 类按默认条件跳过）
+  - 前端 vitest、后端 pytest 已回归通过（集成类按默认条件跳过）
 
 ### 本日新增进展（Landing 质感与可见性修复）
 
@@ -136,7 +135,7 @@
   - 原因 1：`docker-compose.dev.yml` 使用 `frontend_node_modules:/app/node_modules` 命名卷，卷可能存在但缺包；旧的启动逻辑仅判断目录是否存在，导致跳过 `npm ci`。
   - 原因 2：前端依赖已升级到 Vite 7 / Cesium 新版，运行期要求 Node `>=20.19`；Node 18 会导致 dev server 启动失败（`crypto.hash is not a function`）。
 - Fix（已落地）：
-  - 前端 Dockerfile 基线升级为 Node `20.19`（dev/test/prod/canary build stage）。
+  - 前端 Dockerfile 基线升级为 Node `20.19`（dev/test/prod build stage）。
   - Docker Dev 启动逻辑改为“依赖可解析性探测”：若 `require.resolve('vite')` 或 `require.resolve('three')` 失败则自动 `npm ci`，避免 node_modules 卷半残状态。
 - Acceptance Criteria：
   - `make docker-dev-up` 后，Vite 可在 8404 正常启动（无 Node 版本报错）。

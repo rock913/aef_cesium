@@ -57,32 +57,69 @@ export function applyAct2Step(viewerApi, stepId, choreoName) {
   const step = normalizeAct2StepId(stepId)
   if (!viewerApi || !step) return false
 
-  const deepSpace = { lat: 35.0, lon: 105.0, height: 45_000_000 }
-  const earthOrbit = { lat: 30.0, lon: 110.0, height: 3_200_000 }
+  // Storyboard A (edge-of-space / dawn-terminator):
+  // 1) Edge of Space: show skybox; keep Earth as a thin arc at the bottom (pitch -15, very high altitude)
+  // 2) The Rise of Earth: lower altitude + pitch down to nadir (pitch -90)
+  // 3) Target Lock: fast dive to the selected region (pitch -65)
+  const edgeOfSpace = {
+    lat: 39.9,
+    lon: 116.39,
+    height: 25_000_000,
+    heading_deg: 0.0,
+    pitch_deg: -15.0,
+    easing: 'cubicInOut',
+  }
+
+  const earthRise = {
+    lat: 39.9,
+    lon: 116.39,
+    height: 10_000_000,
+    heading_deg: 0.0,
+    pitch_deg: -90.0,
+    easing: 'quadraticInOut',
+  }
+
   const target = resolveAct2Target(choreoName)
+  const targetLock = {
+    lat: target.lat,
+    lon: target.lon,
+    height: 200_000,
+    heading_deg: 0.0,
+    pitch_deg: -65.0,
+    easing: 'cubicOut',
+  }
 
   // Best-effort stabilization.
   _safeCall(viewerApi.stopGlobalRotation?.bind(viewerApi))
 
   if (step === 'space') {
-    _safeCall(viewerApi.flyTo?.bind(viewerApi), deepSpace, 1.2, () => {
-      _safeCall(viewerApi.startGlobalRotation?.bind(viewerApi))
-    })
+    _safeCall(viewerApi.setGlobeVisible?.bind(viewerApi), true)
+    _safeCall(viewerApi.flyTo?.bind(viewerApi), edgeOfSpace, 2.0)
     return true
   }
 
   if (step === 'earth') {
-    _safeCall(viewerApi.flyTo?.bind(viewerApi), earthOrbit, 2.0)
+    _safeCall(viewerApi.setGlobeVisible?.bind(viewerApi), true)
+    _safeCall(viewerApi.flyTo?.bind(viewerApi), earthRise, 3.5)
     return true
   }
 
   if (step === 'target') {
-    _safeCall(viewerApi.flyTo?.bind(viewerApi), target, 3.0)
+    _safeCall(viewerApi.setGlobeVisible?.bind(viewerApi), true)
+    _safeCall(viewerApi.flyTo?.bind(viewerApi), targetLock, 3.0)
     return true
   }
 
   if (step === 'summary') {
-    const recap = { lat: target.lat, lon: target.lon, height: 1_100_000 }
+    _safeCall(viewerApi.setGlobeVisible?.bind(viewerApi), true)
+    const recap = {
+      lat: target.lat,
+      lon: target.lon,
+      height: 1_100_000,
+      heading_deg: 0.0,
+      pitch_deg: -75.0,
+      easing: 'cubicInOut',
+    }
     _safeCall(viewerApi.flyTo?.bind(viewerApi), recap, 1.6)
     return true
   }

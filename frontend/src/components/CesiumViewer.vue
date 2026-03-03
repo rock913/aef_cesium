@@ -265,6 +265,8 @@ export default {
         }
       }
 
+      // (viewer is created further down; once created we will enable globe lighting.)
+
       try {
         // Basemap strategy:
         // - If Ion token exists, do NOT override imageryProvider/baseLayer so Cesium loads its stable default imagery.
@@ -359,6 +361,59 @@ export default {
           requestRenderMode: false,
           maximumRenderTimeChange: Infinity
         })
+
+        // Cinematic: enable lighting for a better terminator line + atmosphere feel.
+        try {
+          if (viewer?.scene?.globe) {
+            viewer.scene.globe.enableLighting = true
+            // Keep atmosphere visible (default true in Cesium, but be explicit).
+            viewer.scene.globe.showGroundAtmosphere = true
+          }
+          if (viewer?.scene?.skyAtmosphere) {
+            viewer.scene.skyAtmosphere.show = true
+          }
+        } catch (_) {
+          // ignore
+        }
+
+        // Optional: custom high-res skybox assets (drop-in, offline-friendly).
+        // Place files under: /public/zero2x/skybox/{px,nx,py,ny,pz,nz}.jpg
+        // IMPORTANT: in Vite dev, unknown asset paths may return index.html with 200.
+        // Guard by requiring `Content-Type: image/*` for ALL 6 faces.
+        try {
+          const base = '/zero2x/skybox'
+          const faces = ['px', 'nx', 'py', 'ny', 'pz', 'nz']
+          const urls = faces.map((k) => `${base}/${k}.jpg`)
+          const checks = await Promise.all(
+            urls.map(async (u) => {
+              try {
+                const r = await fetch(u, { method: 'HEAD', cache: 'no-store' })
+                if (!r || !r.ok) return false
+                const ct = String(r.headers?.get?.('content-type') || '').toLowerCase()
+                return ct.startsWith('image/')
+              } catch (_) {
+                return false
+              }
+            })
+          )
+
+          if (checks.every(Boolean)) {
+            viewer.scene.skyBox = new Cesium.SkyBox({
+              sources: {
+                positiveX: urls[0],
+                negativeX: urls[1],
+                positiveY: urls[2],
+                negativeY: urls[3],
+                positiveZ: urls[4],
+                negativeZ: urls[5]
+              }
+            })
+          } else {
+            // Skip silently; default Cesium skybox remains.
+          }
+        } catch (_) {
+          // ignore
+        }
 
         // Enforce explicit basemap selection.
         // In some Cesium builds, providing an Ion token can still result in a default
@@ -928,6 +983,20 @@ export default {
         ? -45.0
         : Number(location.pitch_deg)
 
+      const easingKey = String(location?.easing || '').trim()
+      const easing = (() => {
+        if (!easingKey) return undefined
+        const k = easingKey.toLowerCase()
+        const map = {
+          cubicinout: Cesium.EasingFunction.CUBIC_IN_OUT,
+          cubicin: Cesium.EasingFunction.CUBIC_IN,
+          cubicout: Cesium.EasingFunction.CUBIC_OUT,
+          quadraticout: Cesium.EasingFunction.QUADRATIC_OUT,
+          quadraticinout: Cesium.EasingFunction.QUADRATIC_IN_OUT,
+        }
+        return map[k]
+      })()
+
       // Important: when using a tilted pitch, the camera "destination" is NOT the same as the
       // "look-at" center. Using flyToBoundingSphere keeps the target coordinate centered.
       try {
@@ -940,6 +1009,7 @@ export default {
             Cesium.Math.toRadians(pitchDeg),
             range
           ),
+          ...(easing ? { easingFunction: easing } : {}),
           complete: () => {
             try {
               onComplete && onComplete()
@@ -961,6 +1031,7 @@ export default {
           roll: 0.0
         },
         duration: duration,
+        ...(easing ? { easingFunction: easing } : {}),
         complete: () => {
           try {
             onComplete && onComplete()
@@ -1003,6 +1074,53 @@ export default {
         rotationTick = null
       }
     }
+
+    function setGlobeVisible(visible) {
+      if (!viewer) return
+      try {
+        if (viewer?.scene?.globe) viewer.scene.globe.show = !!visible
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    // Act2 cinematic preset (Storyboard A: dawn terminator / edge-of-space)
+    function applyAct2StoryboardPresetA(options = {}) {
+      if (!viewer) return false
+
+      const opts = options && typeof options === 'object' ? options : {}
+      const iso = String(opts.timeIso || '2026-03-03T10:30:00Z').trim() || '2026-03-03T10:30:00Z'
+
+      try {
+        if (viewer.scene?.globe) {
+          viewer.scene.globe.enableLighting = true
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        if (viewer.scene?.skyAtmosphere) {
+          viewer.scene.skyAtmosphere.show = true
+          // Stronger techy rim glow (best-effort; values can be tuned later)
+          viewer.scene.skyAtmosphere.hueShift = -0.1
+          viewer.scene.skyAtmosphere.saturationShift = 0.3
+          viewer.scene.skyAtmosphere.brightnessShift = 0.4
+        }
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        const targetTime = Cesium.JulianDate.fromDate(new Date(iso))
+        viewer.clock.currentTime = targetTime
+        viewer.clock.shouldAnimate = false
+      } catch (_) {
+        // ignore
+      }
+
+      return true
+    }
     
     /**
      * 设置 AI 图层透明度
@@ -1028,7 +1146,9 @@ export default {
       flyTo,
       setAILayerOpacity,
       startGlobalRotation,
-      stopGlobalRotation
+      stopGlobalRotation,
+      setGlobeVisible,
+      applyAct2StoryboardPresetA
     }
   }
 }

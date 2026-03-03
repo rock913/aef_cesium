@@ -20,13 +20,29 @@ describe('Zero2x landing wiring (TDD)', () => {
     expect(s).toContain('Press')
     expect(s).toContain('⌘K')
     expect(s).toContain('omnibar-kbd-hint')
-    expect(s).toContain('Launch My Workspace')
     expect(s).toMatch(/workbench/i)
+
+    // Branding upgrade: emphasize tool/product identity (update_patch_0303).
+    expect(s).toContain('AI-Native 渐进式科研工作台')
     expect(s).toContain('第二幕：宏观孪生')
     expect(s).toContain('第四幕：数据星海')
     expect(s).toContain('buildAct2ChoreoHref')
     expect(s).toContain('进入第二幕')
     expect(s).toContain('poyang')
-    expect(s).toContain('DataGalaxy')
+
+    // Act 4 is videoized (no heavy WebGL galaxy on landing).
+    expect(s).toContain('act4_galaxy')
+
+    // Act 5 is an integrated workbench preview (glass IDE over viewport).
+    expect(s).toContain('workbench-integrated')
+    expect(s).toContain('workbench-bg-viewport')
+    expect(s).toContain('ide-frame')
+    expect(s).toContain('AGENT_FLOW')
+
+    // Act 5 scaling stability: center-aim must be physically centered.
+    expect(s).toContain('hud-center-aim-container')
+
+    // Act 5 launch passes context into the heavy workbench route.
+    expect(s).toContain('/workbench?context=poyang')
   })
 })

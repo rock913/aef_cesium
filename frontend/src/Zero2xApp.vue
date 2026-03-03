@@ -1,5 +1,6 @@
 <template>
   <div class="z2x">
+    <!-- 第一幕：入境 -->
     <header id="act-1" class="hero" data-act-id="act-1">
       <HeroVisual class="hero-bg" />
 
@@ -7,55 +8,23 @@
         <div class="brand">
           <div class="brand-kicker">MODEL 021</div>
           <div class="brand-title">zero2x</div>
-          <div class="brand-sub">From awe to action. AI-Native 工作台</div>
+          <div class="brand-sub">From awe to action. AI-Native 渐进式科研工作台</div>
         </div>
 
         <div class="omnibar" role="search">
           <div class="omnibar-hint">
-            Press <kbd class="omnibar-kbd-hint">⌘K</kbd> to start your research
+            <span class="desktop-only">Press <kbd class="omnibar-kbd-hint">⌘K</kbd> to start your research</span>
+            <span class="mobile-only">Start your research below</span>
           </div>
           <div class="omnibar-shell" @click="focusOmni">
-            <svg
-              class="omnibar-icon"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-
-            <input
-              ref="inputEl"
-              v-model="query"
-              class="omnibar-input"
-              type="text"
-              :placeholder="placeholder"
-              @keydown.meta.k.prevent="focusOmni"
-              @keydown.ctrl.k.prevent="focusOmni"
-              @keydown.enter.prevent="submit"
-              aria-label="Zero2x omni bar"
-            />
-
+            <svg class="omnibar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input ref="inputEl" v-model="query" class="omnibar-input" type="text" :placeholder="placeholder" @keydown.meta.k.prevent="focusOmni" @keydown.ctrl.k.prevent="focusOmni" @keydown.enter.prevent="submit" aria-label="Zero2x omni bar" />
             <div class="omnibar-kbd" aria-hidden="true" title="Cmd/Ctrl + K">
               <span class="kbd">⌘</span>
               <span class="kbd">K</span>
             </div>
-
             <button class="btn omnibar-btn" type="button" @click.stop="submit">Run</button>
-            <a
-              class="btn secondary omnibar-btn"
-              :href="takeMeToEarthHref"
-              @click.stop.prevent="goAct2"
-            >
-              进入第二幕
-            </a>
+            <a class="btn secondary omnibar-btn" :href="takeMeToEarthHref" @click.stop.prevent="goAct2">进入第二幕</a>
           </div>
           <div v-if="result" class="omnibar-result">
             <div class="result-title">AI Preview</div>
@@ -71,182 +40,230 @@
     </header>
 
     <nav class="scroll-nav" aria-label="Story progress">
-      <a
-        v-for="a in acts"
-        :key="a.id"
-        class="scroll-pill"
-        :class="{ active: activeAct === a.id }"
-        :href="`#${a.id}`"
-      >
+      <a v-for="a in acts" :key="a.id" class="scroll-pill" :class="{ active: activeAct === a.id }" :href="`#${a.id}`">
         <span class="dot" />
         <span class="label">{{ a.label }}</span>
       </a>
     </nav>
 
     <main class="acts">
-      <section id="act-2" class="act" data-act-id="act-2">
-        <div class="act-title">第二幕：宏观孪生</div>
-        <div class="act-desc">Landing 只展示“我们有什么引擎（What）”：地学 + 天文两大基座模型。具体任务与实机交互（How）留在 /act2 逐步揭示。</div>
+      <!-- ==========================================
+           ACT 2: The Orbital Horizon
+           ========================================== -->
+      <section id="act-2" class="act-fullscreen group" data-act-id="act-2" data-act-title="第二幕：宏观孪生" aria-label="第二幕：宏观孪生" role="link" tabindex="0" @click="goAct2" @keydown.enter.prevent="goAct2">
+        <img class="cinematic-image" :src="act2AstronomyPosterSrc" alt="Act2 cinematic poster" loading="lazy" @error="(e) => onPosterImgError(e, act2AstronomyRemotePosterSrc)" />
+        <video v-if="act2CinematicVideoOk" class="cinematic-video" autoplay loop muted playsinline preload="metadata" @error="act2CinematicVideoOk = false">
+          <source :src="act2CinematicMp4Src" type="video/mp4" />
+          <source :src="act2CinematicWebmSrc" type="video/webm" />
+        </video>
 
-        <div class="bento-grid act2-grid">
-          <div
-            class="bento-card bento-lg"
-            role="link"
-            tabindex="0"
-            @click="goAct2"
-            @keydown.enter.prevent="goAct2"
-          >
-            <img class="bento-bg" :src="act2GeoWebpSrc" alt="GeoGPT cinematic poster" loading="lazy" />
-            <div class="bento-overlay" />
-            <div class="bento-grain" aria-hidden="true" />
-            <div class="enter-arrow" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="7" y1="17" x2="17" y2="7"></line>
-                <polyline points="7 7 17 7 17 17"></polyline>
-              </svg>
+        <div class="cinematic-overlay act2"></div>
+
+        <div class="cinematic-content act2">
+          <div class="cine-container">
+            <div class="cine-tags">
+              <span class="cine-tag cyan">GeoGPT</span>
+              <span class="cine-tag purple">OneAstronomy</span>
             </div>
-            <div class="bento-content">
-              <div class="bento-tag">领域科学模型</div>
-              <div class="bento-title">GeoGPT</div>
-              <div class="bento-desc">为支持地球科学研究与应用而开发的专用大语言模型：从“任务意图”到“图层编排 / 证据链 / 报告草案”的闭环。</div>
-              <div class="bento-actions">
-                <button class="bento-btn" type="button" @click.stop="goAct2">启动数字孪生引擎 (Launch Digital Twin)</button>
-                <a class="bento-link" :href="takeMeToEarthHref" @click.stop.prevent="goAct2">进入第二幕（实机演示）</a>
+            <h2 class="cine-title">从深空暗场，<br />到<span class="cine-gradient-text-2">轨道晨昏线</span>。</h2>
+            <p class="cine-desc">宏观引擎：打破空间尺度。021 将天基算力的广袤与地球科学的细节，无缝统一在同一个可平滑缩放的数字孪生坐标系中。</p>
+            <div v-if="assetHint" class="asset-hint">{{ assetHint }}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           ACT 3: The Phase Transition
+           ========================================== -->
+      <section id="act-3" class="act-fullscreen group" data-act-id="act-3" role="link" tabindex="0" @click="goWorkbench" @keydown.enter.prevent="goWorkbench">
+        <img class="cinematic-image" :src="act3GenosPosterSrc" alt="Act3 cinematic poster" loading="lazy" @error="(e) => onPosterImgError(e, act3GenosRemotePosterSrc)" />
+        <video v-if="act3CinematicVideoOk" class="cinematic-video" autoplay loop muted playsinline preload="metadata" @error="act3CinematicVideoOk = false">
+          <source :src="act3CinematicMp4Src" type="video/mp4" />
+          <source :src="act3CinematicWebmSrc" type="video/webm" />
+        </video>
+
+        <div class="cinematic-overlay act3"></div>
+
+        <div class="cinematic-content act3">
+          <div class="cine-container">
+            <div class="cine-tags">
+              <span class="cine-tag purple">Genos</span>
+              <span class="cine-tag orange">OnePorous</span>
+            </div>
+            <h2 class="cine-title">直视物质的<br /><span class="cine-gradient-text-3">相变临界点</span>。</h2>
+            <p class="cine-desc">微观引擎：穿透物质表象。当生命密码的发光流体穿透航空晶格，我们在极微距暗场下，见证结构生物学与材料热力学的跨模态耦合。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           ACT 4: Semantic Galaxy (极简 HUD 重构版)
+           ========================================== -->
+      <section id="act-4" class="act-fullscreen act4-fullscreen" data-act-id="act-4" data-act-title="第四幕：数据星海" aria-label="第四幕：数据星海 / Semantic Galaxy">
+        <video v-if="act4CinematicVideoOk" class="cinematic-video" autoplay loop muted playsinline preload="metadata" @error="act4CinematicVideoOk = false">
+          <source :src="act4CinematicMp4Src" type="video/mp4" />
+          <source :src="act4CinematicWebmSrc" type="video/webm" />
+        </video>
+
+        <!-- 遮罩重置：极其通透，仅保护顶部和底部文字，完全释放中间星海的光芒 -->
+        <div class="cinematic-overlay act4"></div>
+
+        <!-- 悬浮 HUD 层：硬核、极简、防重叠 -->
+        <div class="cinematic-content act4">
+          <div class="cine-container hud-layout">
+            
+            <!-- 顶部文案：克制、紧凑 -->
+            <div class="hud-header">
+              <div class="hud-kicker">
+                <span class="hud-bracket">[</span> STAGE 4 / MODEL 021 <span class="hud-bracket">]</span>
               </div>
-              <div v-if="assetHint" class="asset-hint">{{ assetHint }}</div>
+              <!-- 强制不换行，杜绝“海”字掉落 -->
+              <h2 class="hud-title">Embedding 语义星海</h2>
+              <p class="hud-desc">
+                数据范式跃迁：孤立的表格被粉碎为十万级向量，高维空间中的自主聚类，让跨学科隐秘关联在此坍缩成星云。
+              </p>
             </div>
-          </div>
 
-          <div
-            class="bento-card"
-            role="link"
-            tabindex="0"
-            @click="goAct2Base"
-            @keydown.enter.prevent="goAct2Base"
-          >
-            <img class="bento-bg" :src="act2AstronomyWebpSrc" alt="OneAstronomy cinematic poster" loading="lazy" />
-            <div class="bento-overlay" />
-            <div class="bento-grain" aria-hidden="true" />
-            <div class="enter-arrow" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="7" y1="17" x2="17" y2="7"></line>
-                <polyline points="7 7 17 7 17 17"></polyline>
-              </svg>
-            </div>
-            <div class="bento-content">
-              <div class="bento-tag">跨模态统一</div>
-              <div class="bento-title">OneAstronomy</div>
-              <div class="bento-desc">面向天文领域的 AI 模型：统一天文跨模态数据处理，并与地球科学场景在同一叙事框架中衔接。</div>
-              <div class="bento-mini">深空 → 轨道 → 目标锁定：一条镜头语言贯穿</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="act-3" class="act" data-act-id="act-3">
-        <div class="act-title">第三幕：微观深潜</div>
-        <div class="act-desc">从宏观场景穿透到 DNA / 微结构的“可视化证据”：同样用一张静态海报先建立冲击感，再进入工作台看硬核细节。</div>
-
-        <div class="bento-grid act3-grid">
-          <div
-            class="bento-card"
-            role="link"
-            tabindex="0"
-            @click="goWorkbench"
-            @keydown.enter.prevent="goWorkbench"
-          >
-            <img class="bento-bg" :src="act3GenosWebpSrc" alt="Genos cinematic poster" loading="lazy" />
-            <div class="bento-overlay" />
-            <div class="bento-grain" aria-hidden="true" />
-            <div class="enter-arrow" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="7" y1="17" x2="17" y2="7"></line>
-                <polyline points="7 7 17 7 17 17"></polyline>
-              </svg>
-            </div>
-            <div class="bento-content">
-              <div class="bento-tag">10B 级基础模型</div>
-              <div class="bento-title">Genos</div>
-              <div class="bento-desc">百万碱基长程建模，单核苷酸级精准致病关联；把实验与文本证据链合并为可追溯的研究路径。</div>
-            </div>
-          </div>
-
-          <div
-            class="bento-card"
-            role="link"
-            tabindex="0"
-            @click="goWorkbench"
-            @keydown.enter.prevent="goWorkbench"
-          >
-            <img class="bento-bg" :src="act3OnePorousWebpSrc" alt="OnePorous cinematic poster" loading="lazy" />
-            <div class="bento-overlay" />
-            <div class="bento-grain" aria-hidden="true" />
-            <div class="enter-arrow" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="7" y1="17" x2="17" y2="7"></line>
-                <polyline points="7 7 17 7 17 17"></polyline>
-              </svg>
-            </div>
-            <div class="bento-content">
-              <div class="bento-tag">材料生成与预测</div>
-              <div class="bento-title">OnePorous</div>
-              <div class="bento-desc">秒级孔结构逆向生成与性能预测：从“目标指标”到“结构候选 + 可制造性评估 + 实验建议”。</div>
-              <div class="bento-mini">下一步：替换为 WebM 预告片，保持同名路径</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="act-4" class="act" data-act-id="act-4">
-        <div class="act-title">第四幕：数据星海</div>
-        <div class="act-desc">Embedding 联邦数据图谱（此处先用轻量 Canvas 粒子实现 500+ 节点与“搜索聚焦簇”的交互原型）。</div>
-
-        <DataGalaxy />
-
-        <div class="card-grid" style="margin-top: 14px;">
-          <div class="card"><div class="card-k">Semantic Galaxy</div><div class="card-v">粒子节点 + 聚类星云（可替换为 Three/Cesium 版本）</div></div>
-          <div class="card"><div class="card-k">Search</div><div class="card-v">输入 “poyang/湿地/hydrology” → 聚焦簇</div></div>
-          <div class="card"><div class="card-k">Mount</div><div class="card-v">下一步：框选/拖拽 → 工作台挂载</div></div>
-        </div>
-      </section>
-
-      <section id="act-5" class="act" data-act-id="act-5">
-        <div class="act-title">第五幕：极客工坊</div>
-        <div class="act-desc">把“愿景”收敛为可操作的工作台：左侧意图与数据挂载，中间生成代码，右侧可视化输出与报告。</div>
-
-        <div class="bento-grid act5-grid">
-          <div class="bento-card bento-lg">
-            <div class="bento-ambient workbench" aria-hidden="true" />
-            <div class="bento-content">
-              <div class="bento-tag">AI-Native Workbench</div>
-              <div class="bento-title">从意图到可交付</div>
-              <div class="bento-desc">把“构建鄱阳湖生态监测 Agent”变成一套可运行的 pipeline：数据挂载、任务拆解、代码生成、结果可视化、报告输出。</div>
-              <pre class="wb-code">@AgentBuilder 帮我调用刚刚的鄱阳湖数据集，生成一份生态评估代码\n\n# 输出将在 /workbench 以打字机效果演示</pre>
-              <div class="bento-actions">
-                <a class="launch" :href="workbenchHref" @click.prevent="goWorkbench">Launch My Workspace</a>
+            <!-- 底部仪表盘：硬核极简，模拟推演状态 -->
+            <div class="hud-footer">
+              <div class="hud-status">
+                <span class="hud-dot" aria-hidden="true"></span>
+                <span class="hud-status-text">Autonomous Reasoning in Progress</span>
+              </div>
+              
+              <div class="hud-metrics">
+                <div class="metric">
+                  <span>VECTORS</span>
+                  102,400
+                </div>
+                <div class="metric">
+                  <span>DIMENSIONS</span>
+                  1,536
+                </div>
+                <div class="metric">
+                  <span>CLUSTERS</span>
+                  3
+                </div>
               </div>
             </div>
-          </div>
-
-          <div class="bento-card">
-            <div class="bento-ambient alt" aria-hidden="true" />
-            <div class="bento-content">
-              <div class="bento-tag">Demo Script</div>
-              <div class="bento-title">汇报操作建议</div>
-              <div class="bento-desc">1) 第一屏 Omni-Bar 回车 → 进入第二幕 2) 目标锁定后 → 一键进入工作台 3) 打字机输出 + 图层/报告结果。</div>
-              <div class="bento-mini">这条“黄金路径”优先于滚动讲解</div>
-            </div>
+            
           </div>
         </div>
       </section>
 
-      <footer class="foot">
-        <div class="foot-inner">
-          <div class="foot-left">Zero2x 021 Upgrade Branch</div>
+      <!-- ==========================================
+           ACT 5: 极客工坊 (Unified Scientific IDE)
+           ========================================== -->
+      <section id="act-5" class="act-fullscreen workbench-integrated workbench-hud" data-act-id="act-5" data-act-title="第五幕：极客工坊" aria-label="第五幕：极客工坊 / Unified Scientific IDE">
+        <!-- 底座：完全无遮挡的背景视频 (保持 workbench-bg-viewport 门禁) -->
+        <div class="workbench-bg-viewport">
+          <video v-if="act5CinematicVideoOk" class="cinematic-video workbench-bg" autoplay loop muted playsinline preload="metadata" @error="act5CinematicVideoOk = false">
+            <source :src="act5CinematicMp4Src" type="video/mp4" />
+            <source :src="act5CinematicWebmSrc" type="video/webm" />
+          </video>
+          <div class="ar-grid-overlay" aria-hidden="true"></div>
+          <div class="viewport-scanline" aria-hidden="true"></div>
+          <div class="viewport-hud-overlay" aria-hidden="true">
+            <div class="hud-coord">LAT: 29.1102 N / LON: 116.2984 E</div>
+            <div class="hud-layer">ACTIVE_LAYER: POYANG_HYDROLOGY_V4</div>
+          </div>
+        </div>
+
+        <!-- 散点式 HUD：保留 ide-frame 门禁，但去掉“封闭窗体”容器感 -->
+        <div class="ide-frame hud-layer" aria-label="Unified workbench preview">
+          <!-- 顶部：全局状态 (不占用中间视窗) -->
+          <div class="hud-top-bar" aria-hidden="true">
+            <div class="hud-id-box">
+              <span class="label">WORKSPACE:</span>
+              <span class="value">ORBIT_ALPHA_021</span>
+            </div>
+            <div class="hud-center-aim">
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="rgba(0,240,255,0.42)" stroke-width="1" aria-hidden="true">
+                <circle cx="20" cy="20" r="18" />
+                <path d="M20 5V10 M20 30V35 M5 20H10 M30 20H35" />
+              </svg>
+            </div>
+            <div class="hud-status-box">
+              <span class="status-dot-blink" aria-hidden="true"></span>
+              LIVE_INFERENCE_READY
+            </div>
+          </div>
+
+          <!-- 左侧：Agent 对话块 (轻量、可滚动、保留 AGENT_FLOW 门禁) -->
+          <div class="hud-pane-left" aria-label="Agent flow preview">
+            <div class="pane-tag">AGENT_FLOW / AGENT_INTENT_FLOW</div>
+            <div class="pane-content chat-bubble">
+              <div class="msg-ai">
+                <span class="author">021_BRAIN:</span>
+                已成功挂载鄱阳湖近十年水位数据集。正在分析东方白鹳栖息地适宜性与水位的非线性关联…
+              </div>
+              <div class="msg-user">帮我生成评估脚本，并实时可视化。</div>
+            </div>
+          </div>
+
+          <!-- 右侧：代码块 (无重底色，释放中心负空间) -->
+          <div class="hud-pane-right" aria-label="Code preview">
+            <div class="pane-tag">INFERENCE_LOGIC.PY</div>
+            <div class="pane-content code-block">
+              <pre>import geogpt_engine as z2x
+
+# 1. 挂载联邦数据集
+dataset = z2x.mount_data('poyang_v4')
+
+# 2. 调用 021 进行推理
+res = z2x.agent_inference(
+    model='021-science',
+    intent='habitat_assessment'
+)
+
+# 3. 投射至视窗
+z2x.render_viewport(res)
+</pre>
+            </div>
+          </div>
+
+          <!-- 底部中心：核心行动点 (视觉锚点) -->
+          <div class="hud-bottom-cta">
+            <div class="cta-inner">
+              <p class="cta-tip">READY TO BUILD? LAUNCH THE FULL ENVIRONMENT</p>
+              <div class="cta-buttons">
+                <a :href="workbenchLaunchpadHref" class="btn-main-glow" @click.prevent="goWorkbenchLaunchpad">LAUNCH SCIENTIFIC WORKSPACE</a>
+                <a href="/demo" class="btn-sub-link" title="Tools / Validation system">EXPLORE SCENARIO VALIDATION</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Aim must remain physically centered under zoom / ultrawide viewports (update_patch_0303). -->
+        <div class="hud-center-aim-container" aria-hidden="true">
+          <svg class="hud-center-aim" width="44" height="44" viewBox="0 0 40 40" fill="none" stroke="rgba(0,240,255,0.40)" stroke-width="1">
+            <circle cx="20" cy="20" r="18" />
+            <path d="M20 5V10 M20 30V35 M5 20H10 M30 20H35" />
+          </svg>
+        </div>
+
+        <!-- 全局 HUD 装饰：四角线框 (不遮挡中心) -->
+        <div class="hud-corners" aria-hidden="true">
+          <div class="corner top-left"></div><div class="corner top-right"></div>
+          <div class="corner bottom-left"></div><div class="corner bottom-right"></div>
+        </div>
+
+        <div class="compute-status-hud" aria-hidden="true">
+          <span>COMPUTE:</span><span class="value">NANHU HUB</span>
+          <span class="divider">|</span>
+          <span>NODES:</span><span class="value">512 H800</span>
+          <span class="divider">|</span>
+          <span>SYSTEM_HEALTH:</span><span class="value">99.8%</span>
+        </div>
+      </section>
+
+      <footer class="foot-minimal">
+        <div class="foot-minimal-inner">
+          <div class="foot-left">Zero2x 021 | AI-Native 渐进式科研工作台</div>
           <div class="foot-right">
             <a class="foot-link" href="/demo" title="Tools / Validation system">Demo</a>
             <span class="sep">·</span>
-            <span>Dev 8404/8405 · Prod 8406/8407 · Canary 8508/8509</span>
+            <span>Dev 8404/8405 · Prod 8406/8407</span>
           </div>
         </div>
       </footer>
@@ -256,7 +273,6 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import DataGalaxy from './components/DataGalaxy.vue'
 import HeroVisual from './components/HeroVisual.vue'
 import { buildAct2ChoreoHref } from './utils/choreo.js'
 import { navigateWithFade } from './utils/navFade.js'
@@ -278,6 +294,13 @@ const placeholder = computed(() => placeholders[idx.value % placeholders.length]
 const takeMeToEarthHref = buildAct2ChoreoHref('poyang')
 const act2Href = buildAct2ChoreoHref('')
 const workbenchHref = '/workbench'
+// Launchpad passes a lightweight context parameter to the heavy workbench.
+const workbenchLaunchpadHref = '/workbench?context=poyang'
+
+const act2CinematicVideoOk = ref(true)
+const act3CinematicVideoOk = ref(true)
+const act4CinematicVideoOk = ref(true)
+const act5CinematicVideoOk = ref(true)
 
 function withBase(p) {
   const rawBase = String(import.meta?.env?.BASE_URL || '/').trim() || '/'
@@ -286,18 +309,58 @@ function withBase(p) {
   return `${base}${rel}`
 }
 
-const act2GeoWebpSrc = computed(() => withBase('/zero2x/ui/act2_geogpt.webp'))
-const act2AstronomyWebpSrc = computed(() => withBase('/zero2x/ui/act2_astronomy.webp'))
-const act3GenosWebpSrc = computed(() => withBase('/zero2x/ui/act3_genos.webp'))
-const act3OnePorousWebpSrc = computed(() => withBase('/zero2x/ui/act3_oneporous.webp'))
+const act2CinematicWebmSrc = computed(() => withBase('/zero2x/ui/act2_earth.webm'))
+const act2CinematicMp4Src = computed(() => withBase('/zero2x/ui/act2_earth.mp4'))
+const act3CinematicWebmSrc = computed(() => withBase('/zero2x/ui/act3_dna.webm'))
+const act3CinematicMp4Src = computed(() => withBase('/zero2x/ui/act3_dna.mp4'))
+const act4CinematicWebmSrc = computed(() => withBase('/zero2x/ui/act4_galaxy.webm'))
+const act4CinematicMp4Src = computed(() => withBase('/zero2x/ui/act4_galaxy.mp4'))
+
+// Act 5 background prefers a dedicated workbench loop; fallback to act2 earth if needed.
+const act5CinematicWebmSrc = computed(() => withBase('/zero2x/ui/act5_workbench_bg.webm'))
+const act5CinematicMp4Src = computed(() => withBase('/zero2x/ui/act5_workbench_bg.mp4'))
+
+const act2GeoLocalWebpSrc = computed(() => withBase('/zero2x/ui/act2_geogpt.webp'))
+const act2AstronomyLocalWebpSrc = computed(() => withBase('/zero2x/ui/act2_astronomy.webp'))
+const act3GenosLocalWebpSrc = computed(() => withBase('/zero2x/ui/act3_genos.webp'))
+const act3OnePorousLocalWebpSrc = computed(() => withBase('/zero2x/ui/act3_oneporous.webp'))
+
+const act2GeoRemotePosterSrc = 'https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?q=80&w=2000&auto=format&fit=crop'
+const act2AstronomyRemotePosterSrc = 'https://images.unsplash.com/photo-1462332420958-a05d1e002413?q=80&w=2000&auto=format&fit=crop'
+const act3GenosRemotePosterSrc = 'https://images.unsplash.com/photo-1584036561565-baf8f50a4ba6?q=80&w=2070&auto=format&fit=crop'
+const act3OnePorousRemotePosterSrc = 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?q=80&w=2070&auto=format&fit=crop'
+
+const act2GeoPosterSrc = computed(() => act2GeoLocalWebpSrc.value)
+const act2AstronomyPosterSrc = computed(() => act2AstronomyLocalWebpSrc.value)
+const act3GenosPosterSrc = computed(() => act3GenosLocalWebpSrc.value)
+const act3OnePorousPosterSrc = computed(() => act3OnePorousLocalWebpSrc.value)
+
+function _resolveMaybeRef(v) {
+  try {
+    if (v && typeof v === 'object' && 'value' in v) return v.value
+  } catch (_) { }
+  return v
+}
+
+function onPosterImgError(e, fallbackSrc) {
+  try {
+    const img = e?.target
+    if (!img) return
+    const fallback = String(_resolveMaybeRef(fallbackSrc) || '').trim()
+    if (!fallback) return
+    const cur = String(img.src || '')
+    if (cur === fallback) return
+    img.src = fallback
+  } catch (_) { }
+}
 
 const assetHint = ref('')
 async function _checkPosterAssets() {
   const urls = [
-    act2GeoWebpSrc.value,
-    act2AstronomyWebpSrc.value,
-    act3GenosWebpSrc.value,
-    act3OnePorousWebpSrc.value,
+    act2GeoLocalWebpSrc.value,
+    act2AstronomyLocalWebpSrc.value,
+    act3GenosLocalWebpSrc.value,
+    act3OnePorousLocalWebpSrc.value,
   ]
   try {
     const r = await Promise.all(urls.map((u) => fetch(u, { method: 'HEAD', cache: 'no-store' })))
@@ -306,10 +369,8 @@ async function _checkPosterAssets() {
       assetHint.value = ''
       return
     }
-  } catch (_) {
-    // ignore
-  }
-  assetHint.value = '提示：当前端口可能在运行旧的 dist / 反代了错误的 upstream，请重新 build+deploy（Docker: make docker-prod-up / make canary-rebuild-frontend）。'
+  } catch (_) { }
+  assetHint.value = '提示：当前端口可能在运行旧的 dist / 反代了错误的 upstream，请重新 build+deploy。'
 }
 
 const acts = [
@@ -322,15 +383,12 @@ const acts = [
 
 const activeAct = ref('act-1')
 let _actObserver = null
-
 let _timer = null
 
 function focusOmni() {
   try {
     inputEl.value?.focus?.()
-  } catch (_) {
-    // ignore
-  }
+  } catch (_) { }
 }
 
 function submit() {
@@ -348,50 +406,24 @@ function submit() {
   }
 
   if (action.type === 'navigate') {
-    // Keep the UI responsive: show a short preview, then fade-navigate.
-    result.value = [
-      `Command: ${q}`,
-      '',
-      `Routing to: ${action.href}`,
-    ].join('\n')
-
+    result.value = [`Command: ${q}`, '', `Routing to: ${action.href}`].join('\n')
     navigateWithFade(action.href, { reason: 'omnibar-command' })
     return
   }
 
-  // Golden Path: any free-form intent should feel “actionable”.
-  // Show a short preview, store intent, then fly to Act2.
   result.value = buildStubPlan(action.intent)
   try {
     window.sessionStorage?.setItem?.('z2x:lastIntent', q)
-  } catch (_) {
-    // ignore
-  }
+  } catch (_) { }
   navigateWithFade(takeMeToEarthHref, { reason: 'omnibar-intent', delayMs: 520 })
 }
 
-function _prefersReducedMotion() {
-  try {
-    return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
-  } catch (_) {
-    return false
-  }
-}
-
-function goAct2() {
-  navigateWithFade(takeMeToEarthHref, { reason: 'landing-cta-act2' })
-}
-
-function goAct2Base() {
-  navigateWithFade(act2Href, { reason: 'landing-cta-act2-base' })
-}
-
-function goWorkbench() {
-  navigateWithFade(workbenchHref, { reason: 'landing-cta-workbench' })
-}
+function goAct2() { navigateWithFade(takeMeToEarthHref, { reason: 'landing-cta-act2' }) }
+function goAct2Base() { navigateWithFade(act2Href, { reason: 'landing-cta-act2-base' }) }
+function goWorkbench() { navigateWithFade(workbenchHref, { reason: 'landing-cta-workbench' }) }
+function goWorkbenchLaunchpad() { navigateWithFade(workbenchLaunchpadHref, { reason: 'landing-cta-workbench-launchpad' }) }
 
 function onGlobalKeydown(e) {
-  // Global ⌘K / Ctrl+K
   if (!e) return
   const k = String(e.key || '').toLowerCase()
   if (k !== 'k') return
@@ -402,21 +434,14 @@ function onGlobalKeydown(e) {
 }
 
 onMounted(() => {
-  try {
-    document.body.style.overflow = 'auto'
-  } catch (_) {
-    // ignore
-  }
-
+  try { document.body.style.overflow = 'auto' } catch (_) { }
   window.addEventListener('keydown', onGlobalKeydown)
 
-  // Scrollspy: keep a visible sense of progress when scrolling down.
   try {
     if (typeof IntersectionObserver !== 'undefined') {
       const nodes = Array.from(document.querySelectorAll('[data-act-id]'))
       _actObserver = new IntersectionObserver(
         (entries) => {
-          // Pick the most visible intersecting section.
           let best = null
           for (const e of entries) {
             if (!e?.isIntersecting) continue
@@ -430,47 +455,33 @@ onMounted(() => {
       )
       for (const n of nodes) _actObserver.observe(n)
     }
-  } catch (_) {
-    // ignore
-  }
+  } catch (_) { }
 
-  _timer = setInterval(() => {
-    idx.value = (idx.value + 1) % placeholders.length
-  }, 2800)
-
+  _timer = setInterval(() => { idx.value = (idx.value + 1) % placeholders.length }, 2800)
   setTimeout(() => focusOmni(), 250)
-
-  // Lightweight sanity check: if posters fail to load, show a deploy hint.
   setTimeout(() => _checkPosterAssets(), 600)
 })
 
 onUnmounted(() => {
-  try {
-    window.removeEventListener('keydown', onGlobalKeydown)
-  } catch (_) {
-    // ignore
-  }
-  if (_timer) {
-    clearInterval(_timer)
-    _timer = null
-  }
-
-  try {
-    _actObserver?.disconnect?.()
-  } catch (_) {
-    // ignore
-  }
+  try { window.removeEventListener('keydown', onGlobalKeydown) } catch (_) { }
+  if (_timer) { clearInterval(_timer); _timer = null }
+  try { _actObserver?.disconnect?.() } catch (_) { }
   _actObserver = null
-
 })
 </script>
 
 <style scoped>
+/* ==========================================
+   全局滚动吸附 (Scroll Snapping)
+   ========================================== */
+:global(html) {
+  scroll-snap-type: y proximity;
+  scroll-behavior: smooth;
+}
+
 .z2x {
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 800px at 50% 20%, rgba(120, 160, 255, 0.12), rgba(0, 0, 0, 0.14)),
-    linear-gradient(180deg, #030409, #000);
+  background: radial-gradient(1200px 800px at 50% 20%, rgba(120, 160, 255, 0.12), rgba(0, 0, 0, 0.14)), linear-gradient(180deg, #030409, #000);
   color: #eef2ff;
 }
 
@@ -479,112 +490,48 @@ onUnmounted(() => {
   color: #000;
 }
 
+.acts {
+  padding: 0;
+}
+
+/* ==========================================
+   ACT 1 (Hero)
+   ========================================== */
 .hero {
   position: relative;
-  min-height: 100vh;
-  padding: 64px 18px 36px;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 
-.poster {
-  margin-top: 14px;
-  border-radius: 22px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.poster.slim {
-  border-radius: 18px;
-}
-
-.poster-img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.poster-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.poster-btn {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(0, 240, 255, 0.14);
-  border: 1px solid rgba(0, 240, 255, 0.35);
-  color: #e6fdff;
-  cursor: pointer;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-}
-
-.poster-btn:hover {
-  background: rgba(0, 240, 255, 0.22);
-}
-
-.poster-link {
-  color: rgba(238, 242, 255, 0.78);
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.poster-link:hover {
-  text-decoration: underline;
-}
-
-@media (max-width: 680px) {
-  .poster-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .poster-btn {
-    width: 100%;
-  }
-
-  .poster-link {
-    text-align: center;
-  }
-}
-
-.hero-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
+.hero-bg { position: absolute; inset: 0; z-index: 0; }
 .hero-center {
   position: relative;
   width: min(1040px, 100%);
   z-index: 2;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .brand {
   text-align: center;
-  margin-top: -10vh;
+  margin-top: 0;
   margin-bottom: 24px;
   padding: 40px 20px;
   background: radial-gradient(ellipse at center, rgba(3, 4, 9, 0.85) 0%, rgba(3, 4, 9, 0.5) 40%, transparent 70%);
 }
 
-.brand-kicker {
-  letter-spacing: 0.35em;
-  text-transform: uppercase;
-  opacity: 1;
-  font-size: 10px;
-  font-weight: 700;
-  color: rgba(156, 163, 175, 1);
-  margin-bottom: 12px;
-}
+.desktop-only { display: inline; }
+.mobile-only { display: none; }
+
+.brand-kicker { letter-spacing: 0.35em; text-transform: uppercase; font-size: 10px; font-weight: 700; color: rgba(156, 163, 175, 1); margin-bottom: 12px; }
 
 .brand-title {
   display: inline-block;
@@ -595,41 +542,20 @@ onUnmounted(() => {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-weight: 900;
   letter-spacing: -0.06em;
-  text-transform: lowercase;
-
-  /* Gradient core config */
   color: transparent;
   -webkit-text-fill-color: transparent;
-  background: linear-gradient(
-    90deg,
-    #00f0ff 0%,
-    #3bf6ff 22%,
-    #9d4edd 72%,
-    #c77dff 100%
-  );
+  background: linear-gradient(90deg, #00f0ff 0%, #3bf6ff 22%, #9d4edd 72%, #c77dff 100%);
   background-size: 140% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-
-  /* Shadow for gradient text: must be drop-shadow, not text-shadow */
-  filter:
-    drop-shadow(0px 4px 12px rgba(0, 0, 0, 0.8))
-    drop-shadow(0px 0px 60px rgba(0, 0, 0, 1));
+  filter: drop-shadow(0px 4px 12px rgba(0, 0, 0, 0.8)) drop-shadow(0px 0px 60px rgba(0, 0, 0, 1));
 }
 
-.brand-sub {
-  margin-top: 12px;
-  opacity: 1;
-  font-size: 15px;
-  font-weight: 300;
-  letter-spacing: 0.02em;
-  color: rgba(209, 213, 219, 0.95);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
-}
+.brand-sub { margin-top: 12px; font-size: 15px; font-weight: 300; letter-spacing: 0.02em; color: rgba(209, 213, 219, 0.95); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8); }
 
 .omnibar {
   margin: 22px auto 0;
-  padding: 16px 16px 14px;
+  padding: 16px;
   border-radius: 20px;
   background: rgba(10, 15, 26, 0.70);
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -637,702 +563,699 @@ onUnmounted(() => {
   box-shadow: 0 0 40px rgba(0, 240, 255, 0.12);
   transition: box-shadow 500ms ease, border-color 500ms ease;
 }
+.omnibar:hover { box-shadow: 0 0 60px rgba(0, 240, 255, 0.20); border-color: rgba(0, 240, 255, 0.30); }
+.omnibar-hint { font-size: 11px; opacity: 0.78; margin-bottom: 10px; color: rgba(156, 163, 175, 1); font-weight: 500; }
+.omnibar-kbd-hint { display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; margin: 0 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.20); font-size: 11px; box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
 
-.omnibar:hover {
-  box-shadow: 0 0 60px rgba(0, 240, 255, 0.20);
-  border-color: rgba(0, 240, 255, 0.30);
-}
+.omnibar-shell { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 14px; background: rgba(5, 8, 16, 0.80); border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02); }
+.omnibar-shell:focus-within { border-color: rgba(0, 240, 255, 0.50); box-shadow: 0 0 0 4px rgba(0, 240, 255, 0.12); }
+.omnibar-icon { color: rgba(107, 114, 128, 1); flex: 0 0 auto; }
+.omnibar-input { width: 100%; font-size: 14px; padding: 8px 4px; background: transparent; border: none; color: #eef2ff; outline: none; }
+.omnibar-kbd { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14); font-size: 12px; }
 
-.omnibar-hint {
-  font-size: 11px;
-  opacity: 0.78;
-  margin-bottom: 10px;
-  color: rgba(156, 163, 175, 1);
-  font-weight: 500;
-}
+.btn { display: inline-flex; align-items: center; padding: 10px 14px; border-radius: 12px; background: rgba(42, 45, 74, 1); border: 1px solid rgba(255, 255, 255, 0.08); color: #eef2ff; cursor: pointer; transition: all 180ms ease; }
+.btn:hover { background: rgba(58, 63, 108, 1); }
+.btn.secondary { background: transparent; border-color: rgba(255, 255, 255, 0.20); }
+.btn.secondary:hover { background: rgba(255, 255, 255, 0.10); }
 
-.omnibar-kbd-hint {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 6px;
-  margin: 0 6px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.10);
-  border: 1px solid rgba(255, 255, 255, 0.20);
-  color: rgba(209, 213, 219, 0.92);
-  font-size: 11px;
-  line-height: 1;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
-}
+.omnibar-result { margin-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.12); padding-top: 12px; }
+.result-title { font-size: 12px; opacity: 0.72; margin-bottom: 8px; }
+.result-pre { font-size: 13px; line-height: 1.5; opacity: 0.92; }
 
-.omnibar-shell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 14px;
-  background: rgba(5, 8, 16, 0.80);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-}
+.hero-cta { display: flex; justify-content: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.cta { padding: 10px 24px; border-radius: 999px; background: rgba(0, 0, 0, 0.40); border: 1px solid rgba(255, 255, 255, 0.15); backdrop-filter: blur(16px); color: rgba(209, 213, 219, 0.92); text-decoration: none; transition: all 180ms ease; }
+.cta:hover { color: #fff; border-color: rgba(0, 240, 255, 0.50); background: rgba(255, 255, 255, 0.05); }
+.cta.ghost:hover { border-color: rgba(157, 78, 221, 0.50); }
 
-.omnibar-shell:focus-within {
-  border-color: rgba(0, 240, 255, 0.50);
-  box-shadow: 0 0 0 4px rgba(0, 240, 255, 0.12);
-  transform: translateY(-1px);
-}
+.scroll-nav { position: fixed; right: 12px; top: 50%; transform: translateY(-50%); z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
+.scroll-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); backdrop-filter: blur(12px); color: rgba(255, 255, 255, 0.8); text-decoration: none; font-size: 11px; font-weight: 900; }
+.scroll-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25) inset; }
+.scroll-pill.active { border-color: rgba(120, 160, 255, 0.45); background: rgba(120, 160, 255, 0.14); color: #fff; }
+.scroll-pill.active .dot { background: rgba(120, 160, 255, 0.95); box-shadow: 0 0 14px rgba(120, 160, 255, 0.35); }
 
-.omnibar-icon {
-  flex: 0 0 auto;
-  opacity: 1;
-  color: rgba(107, 114, 128, 1);
-}
-
-.omnibar-input {
-  width: 100%;
-  font-size: 14px;
-  padding: 8px 4px;
-  border-radius: 12px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #eef2ff;
-  outline: none;
-}
-
-.omnibar-input::placeholder {
-  color: rgba(75, 85, 99, 1);
-}
-
-.omnibar-input:focus {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.omnibar-kbd {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 9px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: rgba(203, 213, 225, 0.95);
-  font-size: 12px;
-  letter-spacing: 0.02em;
-}
-
-.omnibar-kbd .kbd {
-  display: inline-block;
-  min-width: 10px;
-  text-align: center;
-}
-
-.omnibar-btn {
-  display: none;
-  flex: 0 0 auto;
-}
-
-@media (min-width: 768px) {
-  .omnibar-btn {
-    display: inline-flex;
-  }
-}
-
-@media (max-width: 768px) {
-  .omnibar-kbd {
-    display: none;
-  }
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: rgba(42, 45, 74, 1);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #eef2ff;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
-}
-
-.btn:hover {
-  background: rgba(58, 63, 108, 1);
-  transform: translateY(-1px);
-}
-
-.btn.secondary {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.20);
-}
-
-.btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.10);
-}
-
-.omnibar-result {
-  margin-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  padding-top: 12px;
-}
-
-.result-title {
-  font-size: 12px;
-  opacity: 0.72;
-  margin-bottom: 8px;
-}
-
-.result-pre {
-  white-space: pre-wrap;
-  font-size: 13px;
-  line-height: 1.5;
-  opacity: 0.92;
-}
-
-.hero-cta {
-  margin-top: 16px;
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.cta {
-  padding: 10px 24px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.40);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(16px);
-  color: rgba(209, 213, 219, 0.92);
-  text-decoration: none;
-  transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
-}
-
-.cta:hover {
-  color: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 240, 255, 0.50);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.cta.ghost {
-  background: rgba(0, 0, 0, 0.40);
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.cta.ghost:hover {
-  border-color: rgba(157, 78, 221, 0.50);
-}
-
-.acts {
-  padding: 8px 18px 48px;
-}
-
-.scroll-nav {
-  position: fixed;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 3000;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.scroll-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(12px);
-  color: rgba(255, 255, 255, 0.8);
-  text-decoration: none;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.4px;
-}
-
-.scroll-pill .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25) inset;
-}
-
-.scroll-pill.active {
-  border-color: rgba(120, 160, 255, 0.45);
-  background: rgba(120, 160, 255, 0.14);
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.scroll-pill.active .dot {
-  background: rgba(120, 160, 255, 0.95);
-  box-shadow: 0 0 14px rgba(120, 160, 255, 0.35);
-}
-
-.act {
-  width: min(1040px, 100%);
-  margin: 0 auto;
-  padding: 64px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.act-title {
-  font-size: 20px;
-  letter-spacing: 0.04em;
-}
-
-.act-desc {
-  margin-top: 10px;
-  opacity: 0.84;
-  max-width: 820px;
-}
-
-.bento-grid {
-  margin-top: 18px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.act3-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.act5-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.bento-card {
+/* ==========================================
+   ACT 2 / 3 / 4 (全屏幕电影视口)
+   ========================================== */
+.act-fullscreen {
   position: relative;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background:
-    radial-gradient(820px 420px at 20% 10%, rgba(0, 240, 255, 0.10), transparent 55%),
-    radial-gradient(820px 420px at 80% 20%, rgba(157, 78, 221, 0.10), transparent 55%),
-    rgba(255, 255, 255, 0.035);
-  box-shadow:
-    0 22px 80px rgba(0, 0, 0, 0.42),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #030409;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 
-.bento-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(0, 240, 255, 0.4);
-  box-shadow:
-    0 20px 50px -15px rgba(0, 240, 255, 0.2),
-    inset 0 0 20px rgba(0, 240, 255, 0.05);
+.act-fullscreen.act4-fullscreen {
+  cursor: default;
 }
 
-.bento-lg {
-  grid-column: span 2;
-  min-height: 380px;
-}
-
-.bento-bg {
+.cinematic-image,
+.cinematic-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.4;
+  opacity: 0.75;
+  transform: scale(1.05);
+  transition: transform 10s ease-out, opacity 0.8s ease;
+  z-index: 0;
+}
+
+.act-fullscreen:hover .cinematic-image,
+.act-fullscreen:hover .cinematic-video {
   transform: scale(1);
-  transition: opacity 0.6s ease, transform 4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  opacity: 1;
 }
 
-.bento-card:hover .bento-bg {
-  opacity: 0.7;
-  transform: scale(1.08);
-}
-
-.bento-overlay {
+.cinematic-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    to top,
-    rgba(3, 4, 9, 0.98) 0%,
-    rgba(3, 4, 9, 0.55) 50%,
-    transparent 100%
-  );
-}
-
-.bento-grain {
-  position: absolute;
-  inset: 0;
-  /* Procedural-ish grain via layered gradients (no external assets). */
-  background:
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.020) 0px, rgba(255,255,255,0.020) 1px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 4px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 6px);
-  mix-blend-mode: overlay;
-  opacity: 0.38;
+  z-index: 10;
   pointer-events: none;
 }
 
-.enter-arrow {
+.cinematic-overlay.act2 { background: linear-gradient(to top right, rgba(3,4,9,0.98) 0%, rgba(3,4,9,0.60) 40%, rgba(3,4,9,0.1) 100%); }
+.cinematic-overlay.act3 { background: radial-gradient(circle at center, rgba(0,0,0,0.05) 0%, rgba(3,4,9,0.9) 100%), linear-gradient(to bottom, rgba(3,4,9,0.4), rgba(3,4,9,0.8)); }
+
+/* 🌟 核心修复 2：彻底放开遮罩，只保留顶底的微弱压暗，释放中间 3D 粒子的光芒 */
+.cinematic-overlay.act4 {
+  background: linear-gradient(to bottom, rgba(3,4,9,0.95) 0%, transparent 20%, transparent 80%, rgba(3,4,9,0.95) 100%);
+}
+
+.cinematic-content {
   position: absolute;
-  top: 1.5rem;
-  right: 1.5rem;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translate(-10px, 10px);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 20;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.bento-card:hover .enter-arrow {
-  opacity: 1;
-  transform: translate(0, 0);
-  background: rgba(0, 240, 255, 0.15);
-  border-color: rgba(0, 240, 255, 0.4);
-  color: #00f0ff;
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-}
-
-.bento-ambient {
-  position: absolute;
   inset: 0;
-  background:
-    radial-gradient(820px 420px at 30% 25%, rgba(120, 160, 255, 0.18), transparent 58%),
-    radial-gradient(820px 420px at 70% 20%, rgba(0, 240, 255, 0.10), transparent 60%),
-    linear-gradient(180deg, rgba(3, 4, 9, 0.2), rgba(0, 0, 0, 0.85));
+  display: flex;
+  pointer-events: none;
 }
 
-.bento-ambient.alt {
-  background:
-    radial-gradient(820px 420px at 70% 18%, rgba(157, 78, 221, 0.20), transparent 60%),
-    radial-gradient(820px 420px at 30% 40%, rgba(0, 240, 255, 0.10), transparent 60%),
-    linear-gradient(180deg, rgba(3, 4, 9, 0.20), rgba(0, 0, 0, 0.86));
-}
-
-.bento-ambient.purple {
-  background:
-    radial-gradient(820px 420px at 35% 22%, rgba(199, 125, 255, 0.22), transparent 60%),
-    radial-gradient(820px 420px at 70% 34%, rgba(0, 240, 255, 0.08), transparent 66%),
-    linear-gradient(180deg, rgba(3, 4, 9, 0.24), rgba(0, 0, 0, 0.88));
-}
-
-.bento-ambient.workbench {
-  background:
-    radial-gradient(820px 420px at 25% 25%, rgba(0, 240, 255, 0.10), transparent 60%),
-    radial-gradient(820px 420px at 80% 20%, rgba(120, 160, 255, 0.18), transparent 62%),
-    linear-gradient(180deg, rgba(8, 10, 20, 0.22), rgba(0, 0, 0, 0.90));
-}
-
-.bento-content {
-  position: relative;
-  z-index: 2;
-  padding: 22px 20px;
+.cine-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 12vh 48px;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 240px;
-  backdrop-filter: blur(18px);
 }
 
-.bento-tag {
-  width: fit-content;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(209, 213, 219, 0.9);
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-}
+.act2 .cine-container { justify-content: flex-end; align-items: flex-start; text-align: left; }
+.act3 .cine-container { justify-content: flex-end; align-items: flex-end; text-align: right; }
 
-.bento-title {
-  font-size: 26px;
+.cine-tags { display: flex; gap: 12px; margin-bottom: 2vh; }
+.cine-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; padding: 6px 12px; border-radius: 999px; backdrop-filter: blur(8px); font-weight: 900; }
+.cine-tag.cyan { color: #00f0ff; border: 1px solid rgba(0, 240, 255, 0.30); background: rgba(0, 240, 255, 0.1); }
+.cine-tag.purple { color: #9d4edd; border: 1px solid rgba(157, 78, 221, 0.30); background: rgba(157, 78, 221, 0.1); }
+.cine-tag.orange { color: #ff6b00; border: 1px solid rgba(255, 107, 0, 0.30); background: rgba(255, 107, 0, 0.1); }
+
+/* 🌟 核心修复 1：强制单行显示，防止中文孤字换行 */
+.cine-title {
+  font-size: clamp(36px, 5vw, 64px);
   font-weight: 1000;
+  line-height: 1.15;
   letter-spacing: -0.02em;
+  margin-bottom: 2vh;
+  color: #fff;
+  text-shadow: 0 4px 24px rgba(0,0,0,0.8);
+  white-space: nowrap; 
 }
 
-.bento-desc {
-  color: rgba(226, 232, 240, 0.92);
-  line-height: 1.55;
-  max-width: 52ch;
+.cine-desc {
+  font-size: clamp(15px, 1.5vw, 18px);
+  color: rgba(209, 213, 219, 0.95);
+  max-width: 600px;
+  line-height: 1.6;
+  font-weight: 300;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.8);
 }
 
-.bento-mini {
-  margin-top: 4px;
-  font-size: 12px;
+.cine-gradient-text-2 { background: linear-gradient(to right, #00f0ff, #fff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.cine-gradient-text-3 { background: linear-gradient(to left, #ff6b00, #9d4edd); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* ==========================================
+   Act 4: Semantic Galaxy 极简 HUD 样式
+   ========================================== */
+.cinematic-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  /* 🌟 核心修复 2 补充：全局极其缓慢的推轨缩放，不管 Threejs 怎么渲染，整个星系一定在动！ */
+  animation: galaxy-fly-through 40s linear infinite alternate;
+}
+
+@keyframes galaxy-fly-through {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.15); }
+}
+
+.hud-layout {
+  justify-content: space-between;
+  padding: 10vh 6vw;
+}
+
+.hud-header {
+  max-width: 600px;
+}
+
+.hud-kicker {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: rgba(255,255,255,0.7);
+  margin-bottom: 12px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-bracket {
+  color: rgba(0, 240, 255, 0.6);
+  font-weight: normal;
+}
+
+/* 🌟 核心修复 1：强制不换行 */
+.hud-title {
+  font-size: clamp(32px, 4vw, 56px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-shadow: 0 4px 24px rgba(0,0,0,0.8);
+  margin-bottom: 16px;
+  white-space: nowrap;
+}
+
+.hud-desc {
+  font-size: clamp(14px, 1.2vw, 16px);
+  color: rgba(255,255,255,0.85);
+  line-height: 1.6;
+  border-left: 2px solid rgba(0,240,255,0.6);
+  padding-left: 16px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+.hud-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.hud-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(10, 15, 26, 0.6);
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,240,255,0.2);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 30px rgba(0, 240, 255, 0.1);
+}
+
+.hud-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #00f0ff;
+  box-shadow: 0 0 10px #00f0ff; animation: act4-pulse 2s infinite;
+}
+
+.hud-status-text {
+  font-size: 11px; letter-spacing: 0.2em; font-weight: 700; color: #fff; text-transform: uppercase;
+}
+
+.hud-metrics {
+  display: flex;
+  gap: 40px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'Inter', sans-serif;
+  font-size: 28px;
+  font-weight: 300;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(255,255,255,0.3);
+}
+
+.metric span {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.5);
+  font-weight: 700;
+}
+
+@keyframes act4-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+/* ==========================================
+   ACT 5: Unified Scientific IDE (融合工作台预览)
+   ========================================== */
+
+.workbench-integrated {
+  position: relative;
+  background: #000;
+  cursor: default;
+}
+
+.workbench-hud {
+  position: relative;
+}
+
+.workbench-bg-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* Keep the viewport readable while allowing the cinematic video to show through. */
+.workbench-bg-viewport::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  /* Center is kept brighter to preserve the cinematic focal point. */
+  background:
+    radial-gradient(900px 520px at 50% 52%, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.46)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.30));
+}
+
+.cinematic-video.workbench-bg {
+  opacity: 0.84;
+  /* Higher contrast but keep mid-tones visible under HUD blocks. */
+  filter: contrast(1.18) brightness(0.86) saturate(1.10);
+}
+
+.ar-grid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.34;
+  background-image:
+    radial-gradient(rgba(0, 240, 255, 0.11) 1px, transparent 0),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+  background-size: 46px 46px, 220px 220px, 220px 220px;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+.viewport-scanline {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.62;
+  background:
+    linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 240, 255, 0.05) 50%),
+    linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+  background-size: 100% 4px, 3px 100%;
+  mix-blend-mode: screen;
+}
+
+.viewport-hud-overlay {
+  position: absolute;
+  top: 40px;
+  right: 40px;
+  text-align: right;
+  color: rgba(0, 240, 255, 0.95);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+  z-index: 3;
+}
+
+/* Scattered HUD: keep ide-frame for TDD, but render as an unboxed HUD layer. */
+.ide-frame.hud-layer {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  height: 100%;
+  padding: clamp(18px, 3.2vw, 44px);
+  pointer-events: none;
+}
+
+.hud-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hud-id-box {
+  pointer-events: none;
+  color: rgba(0, 240, 255, 0.95);
+  background: rgba(0, 240, 255, 0.05);
+  padding: 6px 12px;
+  border: 1px solid rgba(0, 240, 244, 0.22);
+}
+
+.hud-id-box .value {
+  font-weight: 900;
+  margin-left: 6px;
+}
+
+.hud-center-aim {
+  opacity: 0.8;
+}
+
+.hud-center-aim-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 18px rgba(0, 240, 255, 0.12));
+}
+
+.hud-status-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   opacity: 0.78;
 }
 
-.bento-actions {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.status-dot-blink {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(0, 240, 255, 0.95);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.65);
+  animation: act4-pulse 1.2s infinite;
 }
 
-.bento-btn {
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: rgba(0, 240, 255, 0.16);
-  border: 1px solid rgba(0, 240, 255, 0.36);
-  color: #e6fdff;
-  cursor: pointer;
+.hud-pane-left,
+.hud-pane-right {
+  position: absolute;
+  top: clamp(86px, 14vh, 160px);
+  width: min(360px, 28vw);
+  pointer-events: auto;
+}
+
+.hud-pane-left {
+  left: clamp(14px, 3.2vw, 44px);
+}
+
+.hud-pane-right {
+  right: clamp(14px, 3.2vw, 44px);
+}
+
+.pane-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: rgba(0, 240, 255, 0.62);
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.20);
+  padding-bottom: 5px;
+  width: fit-content;
+  text-transform: uppercase;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.70);
+}
+
+.pane-content {
+  max-height: min(420px, 56vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 18px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+
+.chat-bubble {
+  font-size: clamp(12px, 1.05vw, 14px);
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.chat-bubble .author {
+  display: block;
+  font-size: 9px;
   font-weight: 900;
+  color: rgba(0, 240, 255, 0.95);
+  letter-spacing: 0.18em;
+  margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
-.bento-btn:hover {
-  background: rgba(0, 240, 255, 0.24);
+.msg-user {
+  margin-top: 14px;
+  opacity: 0.58;
+  font-style: italic;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  padding-top: 10px;
 }
 
-.bento-link {
-  color: rgba(238, 242, 255, 0.82);
+.code-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: clamp(11px, 0.95vw, 13px);
+  color: rgba(165, 180, 252, 0.94);
+  line-height: 1.7;
+}
+
+.code-block pre {
+  margin: 0;
+  white-space: pre;
+}
+
+.hud-bottom-cta {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(18px, 4.8vh, 56px);
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: auto;
+}
+
+.cta-inner {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.10);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cta-tip {
+  margin: 0 0 14px;
+  font-size: 10px;
+  letter-spacing: 0.30em;
+  color: rgba(255, 255, 255, 0.40);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cta-buttons {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-main-glow {
+  background: rgba(0, 240, 255, 0.96);
+  color: #000;
+  padding: 14px 30px;
+  border-radius: 8px;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.14em;
   text-decoration: none;
-  font-size: 12px;
+  box-shadow: 0 0 34px rgba(0, 240, 255, 0.42);
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+  text-transform: uppercase;
 }
 
-.bento-link:hover {
+.btn-main-glow:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 0 54px rgba(0, 240, 255, 0.70);
+  filter: brightness(1.02);
+}
+
+.btn-sub-link {
+  font-size: 10px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.46);
+  letter-spacing: 0.22em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.btn-sub-link:hover {
+  color: rgba(255, 255, 255, 0.86);
   text-decoration: underline;
 }
 
-.asset-hint {
-  margin-top: 8px;
-  font-size: 12px;
-  opacity: 0.82;
-  color: rgba(251, 191, 36, 0.95);
+.hud-corners {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
 }
 
-.card-grid {
-  margin-top: 18px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+.corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(0, 240, 255, 0.30);
 }
 
-.card {
-  padding: 14px;
-  border-radius: 16px;
-  background:
-    radial-gradient(520px 240px at 30% 20%, rgba(120, 160, 255, 0.10), transparent 58%),
-    radial-gradient(520px 240px at 80% 20%, rgba(157, 78, 221, 0.10), transparent 58%),
-    rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(14px);
-  box-shadow:
-    0 18px 70px rgba(0, 0, 0, 0.38),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+.corner.top-left { top: 18px; left: 18px; border-right: none; border-bottom: none; }
+.corner.top-right { top: 18px; right: 18px; border-left: none; border-bottom: none; }
+.corner.bottom-left { bottom: 18px; left: 18px; border-right: none; border-top: none; }
+.corner.bottom-right { bottom: 18px; right: 18px; border-left: none; border-top: none; }
+
+.compute-status-hud {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  z-index: 9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.34);
+  text-transform: uppercase;
+  pointer-events: none;
 }
 
-.card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(120, 160, 255, 0.32);
-  box-shadow:
-    0 22px 86px rgba(0, 0, 0, 0.46),
-    0 0 40px rgba(0, 240, 255, 0.06),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+.compute-status-hud .value {
+  color: rgba(0, 240, 255, 0.90);
+  margin: 0 8px 0 6px;
 }
 
-.card-k {
-  font-size: 12px;
-  opacity: 0.7;
+.compute-status-hud .divider {
+  margin: 0 12px;
+  opacity: 0.22;
 }
 
-.card-v {
-  margin-top: 6px;
-  font-size: 14px;
+.foot-minimal {
+  position: fixed;
+  bottom: 24px;
+  left: 0;
+  width: 100%;
+  z-index: 3200;
+  pointer-events: none;
 }
 
-.workbench {
-  margin-top: 18px;
-  display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr;
-  gap: 12px;
-}
-
-.wb-pane {
-  min-height: 160px;
-  padding: 14px;
-  border-radius: 16px;
-  background:
-    radial-gradient(520px 240px at 20% 10%, rgba(0, 240, 255, 0.09), transparent 60%),
-    rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(14px);
-  box-shadow:
-    0 18px 70px rgba(0, 0, 0, 0.38),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-}
-
-.wb-title {
-  font-size: 12px;
-  opacity: 0.72;
-  margin-bottom: 10px;
-}
-
-.wb-code {
-  white-space: pre-wrap;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.wb-preview {
-  height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px dashed rgba(255, 255, 255, 0.16);
-  opacity: 0.85;
-}
-
-.launch-row {
-  margin-top: 16px;
-  display: flex;
-  justify-content: center;
-}
-
-.launch {
-  padding: 12px 18px;
-  border-radius: 14px;
-  background: rgba(120, 160, 255, 0.26);
-  border: 1px solid rgba(120, 160, 255, 0.45);
-  color: #eef2ff;
-  text-decoration: none;
-}
-
-.foot {
-  padding: 26px 0 32px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.foot-inner {
-  width: min(1040px, 100%);
+.foot-minimal-inner {
+  width: min(1400px, calc(100% - 48px));
   margin: 0 auto;
   display: flex;
   justify-content: space-between;
-  opacity: 0.72;
-  font-size: 12px;
   gap: 10px;
   flex-wrap: wrap;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.48;
 }
 
-.foot-link {
+.foot-minimal .foot-link {
+  pointer-events: auto;
   color: rgba(255, 255, 255, 0.9);
   text-decoration: none;
   font-weight: 900;
 }
 
-.foot-link:hover {
+.foot-minimal .foot-link:hover {
   text-decoration: underline;
 }
 
-.sep {
-  opacity: 0.6;
-  margin: 0 8px;
-}
+.sep { opacity: 0.6; margin: 0 8px; }
 
+/* =========================================
+   响应式适配 (Mobile & Tablet)
+   ========================================= */
 @media (max-width: 920px) {
-  .bento-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .act3-grid,
-  .act5-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .bento-lg {
-    grid-column: auto;
-    min-height: 340px;
-  }
-
-  .bento-actions {
-    justify-content: flex-start;
-  }
-
-  .card-grid {
-    grid-template-columns: 1fr;
-  }
-  .workbench {
-    grid-template-columns: 1fr;
+  .hud-pane-left,
+  .hud-pane-right {
+    width: min(320px, 34vw);
+    top: clamp(76px, 12vh, 140px);
   }
 }
 
 @media (max-width: 860px) {
-  .scroll-nav {
-    display: none;
-  }
+  .scroll-nav { display: none; }
 }
 
-/* =========================================
-   移动端 (Mobile) 响应式适配补丁
-   ========================================= */
 @media (max-width: 768px) {
-  /* 1. 恢复视觉重心：手机屏幕高度有限，取消过度的上提拉 */
-  .brand {
-    margin-top: 0vh;
-    padding: 20px 10px;
+  .brand { margin-top: 0vh; padding: 20px 10px; }
+  .omnibar-kbd, .omnibar-kbd-hint, .omnibar-actions, .omnibar-shell .btn, .omnibar-shell a.btn { display: none !important; }
+  .desktop-only { display: none !important; }
+  .mobile-only { display: inline !important; }
+  .omnibar-shell { padding: 10px 14px; }
+  .omnibar-input { font-size: 13px; width: 100%; }
+  .hero-cta { flex-direction: column; align-items: center; gap: 12px; padding: 0 20px; margin-top: 32px; }
+  .cta { width: 100%; max-width: 300px; text-align: center; padding: 14px 24px; }
+  
+  .cine-container { padding: 10vh 24px; }
+  
+  /* 移动端屏幕窄，允许换行 */
+  .cine-title, .hud-title {
+    white-space: normal; 
+    word-break: keep-all; 
+  }
+  
+  .hud-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .hud-metrics { gap: 20px; }
+  .metric { font-size: 18px; }
+  
+  .viewport-hud-overlay { top: 20px; right: 20px; }
+
+  .hud-pane-right { display: none; }
+  .hud-pane-left {
+    width: calc(100% - (clamp(18px, 3.2vw, 44px) * 2));
+    left: clamp(18px, 3.2vw, 44px);
+    right: auto;
+    top: clamp(96px, 15vh, 160px);
   }
 
-  /* 2. 隐藏手机端无用的快捷键提示 */
-  .omnibar-hint,
-  .omnibar-kbd,
-  .omnibar-kbd-hint {
-    display: none !important;
-  }
+  .hud-bottom-cta { width: calc(100% - 36px); }
+  .cta-buttons { flex-direction: column; gap: 12px; }
+  .btn-main-glow { width: 100%; text-align: center; }
+}
 
-  /* 3. 释放输入框：隐藏 Omni-Bar 内部的按钮 */
-  /* 手机端用户敲击软键盘上的“前往/确认”键即可触发 Enter (Run)，无需占用屏幕宽度的按钮 */
-  .omnibar-actions,
-  .omnibar-shell .btn,
-  .omnibar-shell a.btn {
-    display: none !important;
-  }
+@media (max-height: 720px) {
+  .hud-pane-left,
+  .hud-pane-right { top: clamp(70px, 10vh, 120px); }
+  .pane-content { max-height: min(320px, 44vh); padding: 14px; }
+  .hud-bottom-cta { bottom: 14px; }
+}
 
-  /* 4. 给输入框最大空间，并缩小一点字号 */
-  .omnibar-shell {
-    padding: 10px 14px; /* 增加一点内边距让触摸更舒服 */
-  }
-
-  .omnibar-input {
-    font-size: 13px; /* 让长 placeholder 能多显示几个字 */
-    width: 100%;
-  }
-
-  /* 5. 底部大按钮 (CTA) 友好堆叠 */
-  .hero-cta {
-    flex-direction: column; /* 改为垂直排列 */
-    align-items: center;
-    gap: 12px;
-    padding: 0 20px;
-    margin-top: 32px;
-  }
-
-  .cta {
-    width: 100%; /* 按钮占满全宽，更符合手机端触摸习惯 */
-    max-width: 300px;
-    text-align: center;
-    padding: 14px 24px;
-  }
+@media (prefers-reduced-motion: reduce) {
+  .viewport-scanline { display: none; }
+  .status-dot-blink { animation: none; }
 }
 </style>

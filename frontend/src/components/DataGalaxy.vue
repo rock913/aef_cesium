@@ -1,324 +1,427 @@
 <template>
   <div class="galaxy" data-testid="data-galaxy">
-    <div class="galaxy-top">
-      <div class="galaxy-title">Semantic Galaxy (MVP)</div>
-      <div class="galaxy-sub">{{ nodes.length }} nodes · {{ clusters.length }} clusters · Search → focus</div>
-
-      <div class="galaxy-search">
-        <input
-          v-model="q"
-          class="galaxy-input"
-          type="text"
-          placeholder="Search cluster: wetlands / hydrology / migration / 鄱阳湖…"
-          @keydown.enter.prevent="applyQuery"
-          aria-label="Data galaxy search"
-        />
-        <button class="galaxy-btn" type="button" @click="applyQuery">Focus</button>
-        <button class="galaxy-btn secondary" type="button" @click="resetFocus">Reset</button>
-      </div>
-
-      <div v-if="activeCluster" class="galaxy-hint">
-        Focus: <span class="pill">{{ activeCluster.name }}</span>
-        <span class="sep">·</span>
-        <span class="k">Tip</span>
-        <span class="v">Try: "poyang", "湿地", "hydrology"</span>
-      </div>
-    </div>
-
-    <div class="galaxy-canvas-wrap">
-      <canvas ref="canvasEl" class="galaxy-canvas" />
+    <div ref="wrapEl" class="galaxy-wrap" aria-label="Autonomous semantic galaxy">
+      <div ref="webglEl" class="webgl" aria-hidden="true" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import {
-  computeClusterStats,
-  defaultGalaxyClusters,
-  generateGalaxyNodes,
-  matchGalaxyQuery,
-} from '../utils/galaxy.js'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-const canvasEl = ref(null)
+const wrapEl = ref(null)
+const webglEl = ref(null)
 
-const clusters = defaultGalaxyClusters()
-const nodes = generateGalaxyNodes({ seed: 21, count: 900, clusters })
-const stats = computeClusterStats(nodes, clusters)
+// The three core clusters (kept small & explicit so copy remains stable).
+const clusters = Object.freeze([
+  {
+    id: 'geo',
+    name: 'Geo & Hydrology',
+    meta: '鄱阳湖水文 / 地质演变',
+    hex: '#00F0FF',
+    color: 0x00F0FF,
+    center: { x: 25, y: 10, z: -15 },
+    nodes: 4500,
+  },
+  {
+    id: 'bio',
+    name: 'Genos Sequences',
+    meta: '基因组学 / 注意力机制',
+    hex: '#9D4EDD',
+    color: 0x9D4EDD,
+    center: { x: -20, y: -15, z: 10 },
+    nodes: 3200,
+  },
+  {
+    id: 'mat',
+    name: 'Porous Materials',
+    meta: '航天多孔合金 / 热力学',
+    hex: '#FF6B00',
+    color: 0xFF6B00,
+    center: { x: 5, y: 20, z: 25 },
+    nodes: 2800,
+  },
+])
 
-const q = ref('')
-const activeClusterId = ref('')
+let THREE = null
+let scene = null
+let camera = null
+let renderer = null
+let galaxy = null
+let connections = null
+let lookAtTarget = null
+let _raf = 0
+let _resizeUnsub = null
 
-const activeCluster = computed(() => {
-  const id = activeClusterId.value
-  return id ? stats[id] : null
-})
-
-const cam = {
-  x: 0,
-  y: 0,
-  zoom: 1.0,
-  tx: 0,
-  ty: 0,
-  tzoom: 1.0,
+const _state = {
+  t0: 0,
+  stepStart: 0,
+  stepIndex: 0,
+  running: false,
 }
 
-let _raf = 0
-let _ctx = null
-let _dpr = 1
-
-function _resize() {
-  const el = canvasEl.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  const w = Math.max(1, Math.floor(rect.width))
-  const h = Math.max(1, Math.floor(rect.height))
-  _dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
-
-  el.width = Math.floor(w * _dpr)
-  el.height = Math.floor(h * _dpr)
-
-  if (_ctx) {
-    _ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0)
+function _prefersReducedMotion() {
+  try {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch (_) {
+    return false
   }
+}
+
+function _easeInOutQuad(t) {
+  const x = Math.max(0, Math.min(1, Number(t) || 0))
+  return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2
 }
 
 function _lerp(a, b, t) {
   return a + (b - a) * t
 }
 
-function _toScreen(n, w, h) {
-  const sx = (n.x - cam.x) * cam.zoom * 360 + w / 2
-  const sy = (n.y - cam.y) * cam.zoom * 360 + h / 2
-  return { sx, sy }
-}
-
-function _draw() {
-  const el = canvasEl.value
-  if (!el || !_ctx) return
-
-  const w = el.width / _dpr
-  const h = el.height / _dpr
-
-  // Ease camera
-  cam.x = _lerp(cam.x, cam.tx, 0.08)
-  cam.y = _lerp(cam.y, cam.ty, 0.08)
-  cam.zoom = _lerp(cam.zoom, cam.tzoom, 0.08)
-
-  _ctx.clearRect(0, 0, w, h)
-
-  // Background glow
-  const g = _ctx.createRadialGradient(w * 0.5, h * 0.4, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7)
-  g.addColorStop(0, 'rgba(120,160,255,0.14)')
-  g.addColorStop(0.35, 'rgba(0,0,0,0)')
+function _createGlowTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32)
+  g.addColorStop(0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.2, 'rgba(255,255,255,0.85)')
   g.addColorStop(1, 'rgba(0,0,0,0)')
-  _ctx.fillStyle = g
-  _ctx.fillRect(0, 0, w, h)
-
-  // Draw nodes
-  const focusId = activeClusterId.value
-
-  for (let i = 0; i < nodes.length; i += 1) {
-    const n = nodes[i]
-    const { sx, sy } = _toScreen(n, w, h)
-    if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue
-
-    const isFocus = focusId && n.clusterId === focusId
-    const hue = stats[n.clusterId]?.hue ?? 210
-
-    const r = isFocus ? (2.1 + n.mass * 18) : (1.2 + n.mass * 12)
-    const a = isFocus ? 0.92 : 0.42
-
-    _ctx.beginPath()
-    _ctx.fillStyle = `hsla(${hue}, 90%, 70%, ${a})`
-    _ctx.arc(sx, sy, r, 0, Math.PI * 2)
-    _ctx.fill()
-  }
-
-  // Cluster labels
-  _ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-  _ctx.textBaseline = 'top'
-
-  for (const c of clusters) {
-    const s = stats[c.id]
-    if (!s || !s.count) continue
-
-    const { sx, sy } = _toScreen({ x: s.cx, y: s.cy }, w, h)
-    if (sx < -80 || sy < -40 || sx > w + 80 || sy > h + 60) continue
-
-    const isActive = focusId === c.id
-    const hue = s.hue
-
-    _ctx.fillStyle = isActive ? `hsla(${hue}, 95%, 75%, 0.95)` : 'rgba(255,255,255,0.55)'
-    _ctx.fillText(c.name, sx + 10, sy + 8)
-
-    _ctx.beginPath()
-    _ctx.strokeStyle = isActive ? `hsla(${hue}, 95%, 75%, 0.55)` : 'rgba(255,255,255,0.14)'
-    _ctx.lineWidth = isActive ? 2 : 1
-    _ctx.arc(sx, sy, isActive ? 10 : 7, 0, Math.PI * 2)
-    _ctx.stroke()
-  }
-
-  _raf = window.requestAnimationFrame(_draw)
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 64, 64)
+  return new THREE.CanvasTexture(canvas)
 }
 
-function applyQuery() {
-  const id = matchGalaxyQuery(q.value, clusters)
-  if (!id) return
-  activeClusterId.value = id
+function _buildGalaxyPoints(total = 18000) {
+  const geometry = new THREE.BufferGeometry()
+  const positions = new Float32Array(total * 3)
+  const colors = new Float32Array(total * 3)
+  const sizes = new Float32Array(total)
 
-  const s = stats[id]
-  if (s) {
-    cam.tx = s.cx
-    cam.ty = s.cy
-    cam.tzoom = 1.85
+  const white = new THREE.Color(0xffffff)
+  const dark = new THREE.Color(0x2a3a5a)
+
+  for (let i = 0; i < total; i += 1) {
+    let px = 0
+    let py = 0
+    let pz = 0
+    let size = Math.random() * 0.5 + 0.2
+    let finalColor = dark
+
+    if (Math.random() < 0.85) {
+      const c = clusters[Math.floor(Math.random() * clusters.length)]
+      const center = new THREE.Vector3(c.center.x, c.center.y, c.center.z)
+      const radius = Math.pow(Math.random(), 2.5) * 20
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+
+      px = center.x + radius * Math.sin(phi) * Math.cos(theta)
+      py = center.y + radius * Math.sin(phi) * Math.sin(theta)
+      pz = center.z + radius * Math.cos(phi)
+
+      finalColor = new THREE.Color(c.color).lerp(white, Math.random() * 0.4)
+      size = Math.random() * 1.5 + 0.5
+    } else {
+      px = (Math.random() - 0.5) * 120
+      py = (Math.random() - 0.5) * 120
+      pz = (Math.random() - 0.5) * 120
+      finalColor = dark
+    }
+
+    positions[i * 3] = px
+    positions[i * 3 + 1] = py
+    positions[i * 3 + 2] = pz
+
+    colors[i * 3] = finalColor.r
+    colors[i * 3 + 1] = finalColor.g
+    colors[i * 3 + 2] = finalColor.b
+
+    sizes[i] = size
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: { pointTexture: { value: _createGlowTexture() } },
+    vertexShader: `
+      attribute float size;
+      attribute vec3 color;
+      varying vec3 vColor;
+      void main() {
+        vColor = color;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (120.0 / -mvPosition.z);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D pointTexture;
+      varying vec3 vColor;
+      void main() {
+        gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
+      }
+    `,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    transparent: true,
+  })
+
+  const points = new THREE.Points(geometry, material)
+  return points
+}
+
+function _buildConnections() {
+  const pts = clusters.map((c) => new THREE.Vector3(c.center.x, c.center.y, c.center.z))
+  const geo = new THREE.BufferGeometry().setFromPoints([pts[0], pts[1], pts[2], pts[0]])
+  const mat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.15,
+    blending: THREE.AdditiveBlending,
+  })
+  return new THREE.Line(geo, mat)
+}
+
+function _getTourSequence() {
+  const viewFar = {
+    pos: new THREE.Vector3(0, 0, 90),
+    target: new THREE.Vector3(0, 0, 0),
+    durationMs: 5200,
+    holdMs: 1200,
+  }
+
+  const closeups = clusters.map((c) => {
+    const center = new THREE.Vector3(c.center.x, c.center.y, c.center.z)
+    const dir = center.clone().normalize().multiplyScalar(20)
+    return {
+      pos: center.clone().add(dir),
+      target: center,
+      durationMs: 4200,
+      holdMs: 1500,
+    }
+  })
+
+  return [viewFar, closeups[0], closeups[1], closeups[2], viewFar]
+}
+
+function _advanceTour(now) {
+  if (!_state.running || !camera || !lookAtTarget) return
+  const seq = _getTourSequence()
+  const step = seq[_state.stepIndex % seq.length]
+  if (!step) return
+
+  if (!_state.stepStart) _state.stepStart = now
+  const t = (now - _state.stepStart) / Math.max(1, step.durationMs)
+
+  if (t >= 1) {
+    camera.position.copy(step.pos)
+    lookAtTarget.copy(step.target)
+
+    if (!_state._holdUntil) _state._holdUntil = now + (step.holdMs || 0)
+    if (now >= _state._holdUntil) {
+      _state.stepIndex += 1
+      _state.stepStart = now
+      _state._holdUntil = 0
+    }
+    return
+  }
+
+  const e = _easeInOutQuad(t)
+  // Smoothly interpolate camera + target.
+  // We keep previous values by blending from current towards the step target.
+  camera.position.set(
+    _lerp(camera.position.x, step.pos.x, e),
+    _lerp(camera.position.y, step.pos.y, e),
+    _lerp(camera.position.z, step.pos.z, e)
+  )
+  lookAtTarget.set(
+    _lerp(lookAtTarget.x, step.target.x, e),
+    _lerp(lookAtTarget.y, step.target.y, e),
+    _lerp(lookAtTarget.z, step.target.z, e)
+  )
+}
+
+function _onResize() {
+  const root = wrapEl.value
+  if (!root || !camera || !renderer) return
+  const rect = root.getBoundingClientRect()
+  const w = Math.max(1, Math.floor(rect.width))
+  const h = Math.max(1, Math.floor(rect.height))
+  camera.aspect = w / h
+  camera.updateProjectionMatrix()
+  renderer.setSize(w, h)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+}
+
+function _tick(now) {
+  _raf = window.requestAnimationFrame(_tick)
+  if (!renderer || !scene || !camera) return
+
+  const t = Number(now || 0)
+
+  if (!_prefersReducedMotion()) {
+    _advanceTour(t)
+  }
+
+  try {
+    camera.lookAt(lookAtTarget)
+  } catch (_) {
+    // ignore
+  }
+
+  // Make the galaxy breathe subtly.
+  if (galaxy) {
+    galaxy.rotation.y += 0.0003
+    galaxy.rotation.z += 0.0001
+  }
+  if (connections) {
+    connections.rotation.y += 0.0003
+    connections.rotation.z += 0.0001
+  }
+  renderer.render(scene, camera)
+}
+
+async function _init() {
+  const host = webglEl.value
+  const root = wrapEl.value
+  if (!host || !root) return
+
+  try {
+    const mod = await import('three')
+    THREE = mod
+  } catch (_) {
+    return
+  }
+
+  const rect = root.getBoundingClientRect()
+  const w = Math.max(1, Math.floor(rect.width))
+  const h = Math.max(1, Math.floor(rect.height))
+
+  scene = new THREE.Scene()
+  scene.background = new THREE.Color(0x020306)
+  scene.fog = new THREE.FogExp2(0x020306, 0.012)
+
+  camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000)
+  camera.position.set(0, 0, 80)
+  lookAtTarget = new THREE.Vector3(0, 0, 0)
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+  renderer.setSize(w, h)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  host.innerHTML = ''
+  host.appendChild(renderer.domElement)
+
+  // Particle count: scale down a bit on smaller viewports.
+  const particleCount = w * h < 900 * 520 ? 12000 : 18000
+  galaxy = _buildGalaxyPoints(particleCount)
+  connections = _buildConnections()
+  scene.add(galaxy)
+  scene.add(connections)
+
+  _state.running = true
+  _state.stepStart = 0
+  _state.stepIndex = 0
+  _state._holdUntil = 0
+
+  // Start render loop.
+  _raf = window.requestAnimationFrame(_tick)
+
+  const onResize = () => _onResize()
+  window.addEventListener('resize', onResize, { passive: true })
+  _resizeUnsub = () => {
+    try {
+      window.removeEventListener('resize', onResize)
+    } catch (_) {
+      // ignore
+    }
   }
 }
 
-function resetFocus() {
-  activeClusterId.value = ''
-  cam.tx = 0
-  cam.ty = 0
-  cam.tzoom = 1.0
+function _dispose() {
+  _state.running = false
+  if (_raf) {
+    try {
+      window.cancelAnimationFrame(_raf)
+    } catch (_) {
+      // ignore
+    }
+  }
+  _raf = 0
+
+  try {
+    _resizeUnsub && _resizeUnsub()
+  } catch (_) {
+    // ignore
+  }
+  _resizeUnsub = null
+
+  try {
+    if (galaxy) {
+      galaxy.geometry?.dispose?.()
+      galaxy.material?.dispose?.()
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    if (connections) {
+      connections.geometry?.dispose?.()
+      connections.material?.dispose?.()
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  galaxy = null
+  connections = null
+
+  try {
+    renderer?.dispose?.()
+  } catch (_) {
+    // ignore
+  }
+  renderer = null
+
+  try {
+    const host = webglEl.value
+    if (host) host.innerHTML = ''
+  } catch (_) {
+    // ignore
+  }
+
+  scene = null
+  camera = null
+  lookAtTarget = null
 }
 
 onMounted(() => {
-  try {
-    const el = canvasEl.value
-    if (!el) return
-    _ctx = el.getContext('2d', { alpha: true })
-    _resize()
-
-    window.addEventListener('resize', _resize, { passive: true })
-
-    // Start subtle drift
-    cam.tx = 0
-    cam.ty = 0
-    cam.tzoom = 1.0
-
-    _raf = window.requestAnimationFrame(_draw)
-  } catch (_) {
-    // ignore
-  }
+  _init()
 })
 
 onBeforeUnmount(() => {
-  try {
-    if (_raf) window.cancelAnimationFrame(_raf)
-  } catch (_) {
-    // ignore
-  }
-  try {
-    window.removeEventListener('resize', _resize)
-  } catch (_) {
-    // ignore
-  }
+  _dispose()
 })
 </script>
 
 <style scoped>
 .galaxy {
-  margin-top: 18px;
-  padding: 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.galaxy-top {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.galaxy-title {
-  font-weight: 900;
-  letter-spacing: 0.4px;
-}
-
-.galaxy-sub {
-  font-size: 12px;
-  opacity: 0.72;
-}
-
-.galaxy-search {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.galaxy-input {
-  flex: 1;
-  min-width: min(360px, 100%);
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #eef2ff;
-  outline: none;
-}
-
-.galaxy-input:focus {
-  border-color: rgba(120, 160, 255, 0.7);
-  box-shadow: 0 0 0 4px rgba(120, 160, 255, 0.18);
-}
-
-.galaxy-btn {
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: rgba(120, 160, 255, 0.18);
-  border: 1px solid rgba(120, 160, 255, 0.35);
-  color: #eef2ff;
-  cursor: pointer;
-}
-
-.galaxy-btn.secondary {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.galaxy-hint {
-  font-size: 12px;
-  opacity: 0.86;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.sep {
-  margin: 0 8px;
-  opacity: 0.55;
-}
-
-.k {
-  opacity: 0.7;
-}
-
-.v {
-  opacity: 0.9;
-}
-
-.galaxy-canvas-wrap {
-  margin-top: 12px;
-  width: 100%;
-  height: 360px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: radial-gradient(800px 520px at 30% 20%, rgba(0, 255, 255, 0.06), transparent 60%),
-    radial-gradient(920px 680px at 70% 50%, rgba(255, 120, 120, 0.06), transparent 60%),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.18));
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.galaxy-canvas {
   width: 100%;
   height: 100%;
-  display: block;
+}
+
+.galaxy-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #020306;
+}
+
+.webgl {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 </style>
