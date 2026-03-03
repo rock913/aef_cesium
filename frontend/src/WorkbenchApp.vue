@@ -1,61 +1,71 @@
 <template>
   <div class="wb" data-testid="workbench">
-    <!-- Z-index: 0 — full-screen twin engine (Cesium owns the viewport) -->
-    <div class="wb-engine" aria-label="Cesium Twin">
-      <CesiumViewer
-        ref="cesiumViewer"
-        :initial-location="scenario?.camera || undefined"
-        @viewer-ready="onViewerReady"
-      />
-      <div v-if="!viewerReady" class="wb-engine-status">正在唤醒 Cesium…</div>
-    </div>
-
-    <!-- Z-index: 10 — holographic HUD (mouse passes through empty areas) -->
-    <div class="wb-ui-layer" aria-label="Workbench HUD">
-      <header class="wb-panel wb-top">
-        <div class="wb-brand">
-          <div class="k">Zero2x</div>
-          <div class="t">AI‑Native Workbench</div>
-          <div class="wb-context" data-testid="workbench-context">
-            CONTEXT: <span class="v">{{ scenario?.id || '—' }}</span>
-            <span class="sep">///</span>
-            <span class="v">{{ scenario?.targetName || '—' }}</span>
-          </div>
-        </div>
-
-        <div class="wb-actions">
-          <a class="btn secondary" href="/">Back</a>
+    <div class="ide" aria-label="Zero2x Spatial IDE">
+      <header class="ide-top" aria-label="Workbench Top Bar">
+        <div class="ide-title">ZERO2X 021 WORKBENCH</div>
+        <div class="ide-top-actions">
+          <button class="top-link" type="button" @click="toggleImmersive">{{ isImmersive ? '退出沉浸' : '沉浸模式 (F11)' }}</button>
         </div>
       </header>
 
-      <section class="wb-panel wb-left" aria-label="Agent Flow">
-        <div class="pane-title">021 MODEL FLOW</div>
-        <pre class="pane-pre">{{ agentText }}</pre>
+      <div class="ide-body">
+        <aside v-show="isAgentOpen" class="ide-aside left" aria-label="Agent Sidebar">
+          <AgentPanel :text="agentText" @execute="runStub" @reset="reset" />
+        </aside>
 
-        <div class="pane-row">
-          <button class="btn" type="button" @click="runStub">EXECUTE ON TWIN</button>
-          <button class="btn secondary" type="button" @click="reset">Reset</button>
-        </div>
-      </section>
+        <main class="ide-main" aria-label="Main Canvas">
+          <div v-show="!isImmersive" class="ide-tabs" aria-label="Tabs">
+            <div class="tab active">Spatial Canvas</div>
+            <div class="tab ghost">Dataframe.csv</div>
+          </div>
 
-      <section class="wb-panel wb-right" aria-label="Code Editor">
-        <div class="pane-title">CODE</div>
-        <div class="editor-shell">
-          <MonacoLazyEditor v-model="code" language="python" />
-        </div>
-      </section>
+          <div class="ide-canvas" aria-label="Canvas">
+            <EngineRouter ref="engineRouter" :scenario="scenario" @viewer-ready="onViewerReady" />
+            <div v-if="!viewerReady" class="engine-status">正在唤醒 Cesium…</div>
+
+            <TimelineHUD v-show="!isImmersive" class="timeline-hud" @execute="runStub" />
+          </div>
+        </main>
+
+        <aside v-show="isEditorOpen" class="ide-aside right" aria-label="Editor Sidebar">
+          <EditorPanel>
+            <MonacoLazyEditor v-model="code" language="python" />
+          </EditorPanel>
+        </aside>
+      </div>
+
+      <div v-if="isOmniOpen" class="omnibox-layer" aria-label="OmniCommand Layer" @pointerdown.self="closeOmni">
+        <OmniCommand
+          :open="isOmniOpen"
+          v-model="omniText"
+          :context-label="scenario?.id || ''"
+          @submit="submitOmni"
+          @close="closeOmni"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import CesiumViewer from './components/CesiumViewer.vue'
 import MonacoLazyEditor from './components/MonacoLazyEditor.vue'
 import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
+import EngineRouter from './views/workbench/EngineRouter.vue'
+import AgentPanel from './views/workbench/components/AgentPanel.vue'
+import EditorPanel from './views/workbench/components/EditorPanel.vue'
+import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
+import OmniCommand from './views/workbench/components/OmniCommand.vue'
 
-const cesiumViewer = ref(null)
+const engineRouter = ref(null)
 const viewerReady = ref(false)
+
+const isAgentOpen = ref(true)
+const isEditorOpen = ref(true)
+const isImmersive = ref(false)
+
+const isOmniOpen = ref(false)
+const omniText = ref('')
 
 const contextId = ref('poyang')
 const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
@@ -125,21 +135,61 @@ function reset() {
 }
 
 function _flyToScenario() {
-  const sc = scenario.value
-  const cam = sc?.camera
-  if (!cam) return
   try {
-    const d = Number(cam.duration_s)
-    const duration = Number.isFinite(d) && d > 0 ? d : 3.8
-    cesiumViewer.value?.flyTo?.(cam, duration)
-  } catch (_) {
-    // ignore
-  }
+    engineRouter.value?.flyToScenario?.()
+  } catch (_) { }
 }
 
 function onViewerReady() {
   viewerReady.value = true
   _flyToScenario()
+}
+
+function toggleImmersive() {
+  isImmersive.value = !isImmersive.value
+  if (isImmersive.value) {
+    isAgentOpen.value = false
+    isEditorOpen.value = false
+  } else {
+    isAgentOpen.value = true
+    isEditorOpen.value = true
+  }
+}
+
+function openOmni() {
+  isOmniOpen.value = true
+}
+
+function closeOmni() {
+  isOmniOpen.value = false
+}
+
+function submitOmni() {
+  // MVP: treat OmniCommand input as the lastIntent and replay the demo plan.
+  try {
+    lastIntent.value = String(omniText.value || '').trim()
+    window.sessionStorage?.setItem?.('z2x:lastIntent', lastIntent.value)
+  } catch (_) { }
+  closeOmni()
+  runStub()
+}
+
+function onKeydown(e) {
+  if (!e) return
+  const k = String(e.key || '').toLowerCase()
+  if (k === 'f11') {
+    e.preventDefault()
+    toggleImmersive()
+    return
+  }
+  if ((e.metaKey || e.ctrlKey) && k === 'k') {
+    e.preventDefault()
+    openOmni()
+    return
+  }
+  if (k === 'escape' && isOmniOpen.value) {
+    closeOmni()
+  }
 }
 
 watch(
@@ -156,6 +206,8 @@ onMounted(() => {
   } catch (_) {
     // ignore
   }
+
+  window.addEventListener('keydown', onKeydown)
 
   try {
     const ctxFromUrl = parseWorkbenchContextFromSearch(window.location.search)
@@ -179,6 +231,12 @@ onBeforeUnmount(() => {
   } catch (_) {
     // ignore
   }
+
+  try {
+    window.removeEventListener('keydown', onKeydown)
+  } catch (_) {
+    // ignore
+  }
 })
 </script>
 
@@ -192,201 +250,162 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.wb-engine {
+.ide {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(1200px 800px at 50% 20%, rgba(120, 160, 255, 0.10), rgba(0, 0, 0, 0.25)),
+    linear-gradient(180deg, #05070f, #000);
 }
 
-.wb-engine :deep(.cesium-viewer-container) {
-  width: 100%;
-  height: 100%;
+.ide-top {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(5, 8, 16, 0.86);
 }
 
-.wb-engine-status {
+.ide-title {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  letter-spacing: 0.18em;
+  color: rgba(0, 240, 255, 0.95);
+  font-weight: 900;
+}
+
+.ide-top-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.top-link {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.top-link:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.ide-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.ide-aside {
+  width: 360px;
+  flex-shrink: 0;
+  padding: 12px;
+  background: rgba(10, 15, 26, 0.92);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ide-aside.right {
+  width: 420px;
+  border-right: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ide-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+
+.ide-tabs {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(5, 8, 16, 0.86);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tab {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-top: 2px solid transparent;
+  opacity: 0.72;
+}
+
+.tab.active {
+  opacity: 0.95;
+  border-top-color: rgba(0, 240, 255, 0.95);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.tab.ghost {
+  opacity: 0.45;
+}
+
+.ide-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.engine-status {
   position: absolute;
   left: 18px;
   bottom: 18px;
-  z-index: 1;
+  z-index: 5;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.30);
+  background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.10);
   font-size: 12px;
   backdrop-filter: blur(12px);
 }
 
-.wb-ui-layer {
+.timeline-hud {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.omnibox-layer {
   position: fixed;
   inset: 0;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.wb-panel {
-  pointer-events: auto;
-  background: rgba(10, 15, 26, 0.40);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 16px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
-}
-
-.wb-top {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  right: 18px;
-  height: 62px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-}
-
-.wb-brand .k {
-  font-size: 12px;
-  opacity: 0.78;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.wb-brand .t {
-  font-weight: 900;
-  letter-spacing: 0.4px;
-}
-
-.wb-context {
-  margin-top: 4px;
-  font-size: 11px;
-  opacity: 0.78;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.wb-context .v {
-  opacity: 0.92;
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-.wb-context .sep {
-  margin: 0 8px;
-  opacity: 0.42;
-}
-
-.wb-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 9px 12px;
-  border-radius: 12px;
-  background: rgba(120, 160, 255, 0.18);
-  border: 1px solid rgba(120, 160, 255, 0.35);
-  color: #eef2ff;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.btn.secondary {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.wb-left,
-.wb-right {
-  position: absolute;
-  top: 96px;
-  bottom: 18px;
-  width: min(420px, 34vw);
-  padding: 12px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.wb-left {
-  left: 18px;
-}
-
-.wb-right {
-  right: 18px;
-}
-
-.pane-title {
-  font-size: 12px;
-  opacity: 0.75;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 900;
-}
-
-.pane-pre {
-  flex: 1;
-  white-space: pre-wrap;
-  overflow: auto;
-  padding: 10px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-  line-height: 1.45;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-}
-
-.pane-row {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-}
-
-.editor-shell {
-  flex: 1;
-  min-height: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.28);
+  z-index: 50;
+  display: grid;
+  place-items: start center;
+  padding-top: 64px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
 }
 
 @media (max-width: 980px) {
-  .wb-ui-layer {
-    position: relative;
-    inset: auto;
-    padding: 12px;
-    pointer-events: auto;
+  .ide-aside {
+    width: 320px;
   }
-
-  .wb-engine {
-    position: relative;
-    height: 52vh;
+  .ide-aside.right {
+    width: 360px;
   }
+}
 
-  .wb-top {
-    position: relative;
-    left: auto;
-    right: auto;
-    top: auto;
-    margin-bottom: 12px;
+@media (max-width: 860px) {
+  .ide-body {
+    flex-direction: column;
   }
-
-  .wb-left,
-  .wb-right {
-    position: relative;
-    top: auto;
-    bottom: auto;
-    left: auto;
-    right: auto;
+  .ide-aside,
+  .ide-aside.right {
     width: 100%;
-    height: 320px;
-    margin-bottom: 12px;
+    height: 260px;
   }
 }
 </style>

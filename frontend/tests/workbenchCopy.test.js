@@ -16,8 +16,11 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).toContain('Agent (demo):')
     expect(s).toContain("sessionStorage?.getItem?.('z2x:lastContext')")
 
-    // zero2x_v6: full-screen twin with floating glass HUD panels.
-    expect(s).toMatch(/pointer-events:\s*none/)
-    expect(s).toMatch(/backdrop-filter:\s*blur\(/)
+    // zero2x_v6: Spatial IDE layout (Analytical by default, Immersive via F11).
+    expect(s).toMatch(/沉浸模式|Immersive/i)
+    expect(s).toContain('F11')
+    expect(s).toMatch(/<aside[\s>]/)
+    expect(s).toMatch(/EngineRouter|engine-router/i)
+    expect(s).toMatch(/Cmd\+K|Ctrl\+K|⌘K|OmniCommand/i)
   })
 })
