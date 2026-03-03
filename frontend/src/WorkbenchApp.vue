@@ -42,22 +42,23 @@
 
         <main class="ide-main" aria-label="Main Canvas">
           <div v-show="!isImmersive" class="ide-tabs" aria-label="Tabs">
-            <TabBar :tabs="tabs" :active-id="activeTabId" @select="setActiveTab" />
+            <TabBar
+              :tabs="openTabs"
+              :active-id="activeTabId"
+              @select="setActiveTab"
+              @close="closeTab"
+              @new-tab="openNewTab"
+            />
           </div>
 
           <div class="ide-canvas" aria-label="Canvas">
-            <EngineRouter
-              v-show="activeTabId === 'twin'"
-              ref="engineRouter"
-              :scenario="scenario"
-              @viewer-ready="onViewerReady"
-            />
-            <div v-if="activeTabId === 'twin' && !viewerReady" class="engine-status">正在唤醒 Cesium…</div>
+            <EngineRouter v-show="activeTab?.kind === 'twin'" ref="engineRouter" :scenario="scenario" @viewer-ready="onViewerReady" />
+            <div v-if="activeTab?.kind === 'twin' && !viewerReady" class="engine-status">正在唤醒 Cesium…</div>
 
-            <DataTableTab v-if="activeTabId === 'table'" :rows="tableRows" />
-            <ChartsTab v-if="activeTabId === 'charts'" :series="chartSeries" />
+            <DataTableTab v-if="activeTab?.kind === 'table'" :rows="tableRows" />
+            <ChartsTab v-if="activeTab?.kind === 'charts'" :series="chartSeries" />
 
-            <LayerTree :layers="layers" />
+            <LayerTree v-model:layers="layers" />
 
             <TheaterHUD
               v-if="isImmersive"
@@ -131,7 +132,7 @@ const demoPresets = Object.freeze([
     label: '[展演] 鄱阳湖近十年水网演变',
     contextId: 'poyang',
     mode: 'theater',
-    activeTabId: 'twin',
+    activeTabKind: 'twin',
     hint: '自动进入沉浸态',
   },
   {
@@ -139,7 +140,7 @@ const demoPresets = Object.freeze([
     label: '[下钻] 调出余杭城建异动审计算法',
     contextId: 'yuhang',
     mode: 'lab',
-    activeTabId: 'twin',
+    activeTabKind: 'twin',
     hint: '自动展开代码视图',
   },
   {
@@ -147,7 +148,7 @@ const demoPresets = Object.freeze([
     label: '[看宏观] 进入沉浸演示态 (Twin)',
     contextId: 'poyang',
     mode: 'theater',
-    activeTabId: 'twin',
+    activeTabKind: 'twin',
     hint: '看宏观 => 自动进入沉浸态',
   },
   {
@@ -155,7 +156,7 @@ const demoPresets = Object.freeze([
     label: '[看代码] 进入硬核作业态 (Editor)',
     contextId: 'yuhang',
     mode: 'lab',
-    activeTabId: 'twin',
+    activeTabKind: 'twin',
     hint: '看代码 => 自动进入作业态',
   },
   {
@@ -163,7 +164,7 @@ const demoPresets = Object.freeze([
     label: '[看数据] 打开 Data Table',
     contextId: 'poyang',
     mode: 'lab',
-    activeTabId: 'table',
+    activeTabKind: 'table',
     hint: '自动切到表格 Tab',
   },
   {
@@ -171,25 +172,82 @@ const demoPresets = Object.freeze([
     label: '[看图表] 打开 2D Charts',
     contextId: 'poyang',
     mode: 'lab',
-    activeTabId: 'charts',
+    activeTabKind: 'charts',
     hint: '自动切到图表 Tab',
   },
 ])
 
-const tabs = Object.freeze([
-  { id: 'twin', title: 'Twin View', kind: 'twin' },
-  { id: 'table', title: 'Data Table', kind: 'table' },
-  { id: 'charts', title: '2D Charts', kind: 'charts' },
+const openTabs = ref([
+  { id: 'twin', title: 'Twin View', kind: 'twin', closable: false },
+  { id: 'table-1', title: 'Data Table', kind: 'table', closable: true },
+  { id: 'charts-1', title: '2D Charts', kind: 'charts', closable: true },
 ])
 
 const activeTabId = ref('twin')
 
-function setActiveTab(id) {
-  const v = String(id || '').trim().toLowerCase()
-  activeTabId.value = v === 'table' ? 'table' : v === 'charts' ? 'charts' : 'twin'
+const activeTab = computed(() => {
+  const arr = openTabs.value || []
+  return arr.find((t) => t.id === activeTabId.value) || arr[0] || { id: 'twin', title: 'Twin View', kind: 'twin' }
+})
+
+function _nextId(prefix) {
+  const ids = new Set((openTabs.value || []).map((t) => t.id))
+  for (let i = 1; i < 99; i += 1) {
+    const id = `${prefix}-${i}`
+    if (!ids.has(id)) return id
+  }
+  return `${prefix}-${Date.now()}`
 }
 
-const layers = Object.freeze([
+function setActiveTab(id) {
+  const v = String(id || '').trim()
+  if (!v) return
+  const exists = (openTabs.value || []).some((t) => t.id === v)
+  if (!exists) return
+  activeTabId.value = v
+  try {
+    window.sessionStorage?.setItem?.('z2x:lastTab', activeTabId.value)
+  } catch (_) { }
+}
+
+function openNewTab(kind) {
+  const k = String(kind || '').trim().toLowerCase()
+  if (k !== 'table' && k !== 'charts') return
+  const id = _nextId(k)
+  const title = k === 'charts' ? '2D Charts' : 'Data Table'
+  openTabs.value = [...(openTabs.value || []), { id, title, kind: k, closable: true }]
+  setActiveTab(id)
+}
+
+function closeTab(id) {
+  const v = String(id || '').trim()
+  if (!v || v === 'twin') return
+  const arr = openTabs.value || []
+  const idx = arr.findIndex((t) => t.id === v)
+  if (idx < 0) return
+  const next = arr.filter((t) => t.id !== v)
+  openTabs.value = next
+  if (activeTabId.value === v) {
+    const fallback = next[idx - 1] || next[idx] || next[0] || { id: 'twin' }
+    setActiveTab(fallback.id)
+  }
+}
+
+function ensureTabKind(kind) {
+  const k = String(kind || '').trim().toLowerCase()
+  if (k === 'twin') {
+    setActiveTab('twin')
+    return
+  }
+  const existing = (openTabs.value || []).find((t) => t.kind === k)
+  if (existing) {
+    setActiveTab(existing.id)
+    return
+  }
+  openNewTab(k)
+}
+
+const layers = ref([
   { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true },
   { id: 'boundaries', name: 'Vector Boundaries', enabled: true },
   { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false },
@@ -304,7 +362,7 @@ function setMode(next) {
   } catch (_) { }
 
   // In Theater mode, default back to Twin View to maximize impact.
-  if (mode.value === 'theater') setActiveTab('twin')
+  if (mode.value === 'theater') ensureTabKind('twin')
 }
 
 function openOmni() {
@@ -331,7 +389,7 @@ function applyPreset(preset) {
   if (nextContext) contextId.value = nextContext
   setMode(p.mode)
 
-  if (p.activeTabId) setActiveTab(p.activeTabId)
+  if (p.activeTabKind) ensureTabKind(p.activeTabKind)
 
   try {
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
@@ -391,6 +449,9 @@ onMounted(() => {
 
     const m = window.sessionStorage?.getItem?.('z2x:lastMode') || ''
     mode.value = String(m).trim().toLowerCase() === 'theater' ? 'theater' : 'lab'
+
+    const lastTab = window.sessionStorage?.getItem?.('z2x:lastTab') || ''
+    if (String(lastTab).trim()) setActiveTab(lastTab)
 
     lastIntent.value = window.sessionStorage?.getItem?.('z2x:lastIntent') || ''
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)

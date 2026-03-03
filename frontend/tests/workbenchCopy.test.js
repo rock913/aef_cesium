@@ -36,8 +36,13 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).toMatch(/Data Table/i)
     expect(s).toMatch(/2D Charts/i)
 
+    // Remember last active tab for repeat visits
+    expect(s).toContain("sessionStorage?.setItem?.('z2x:lastTab'")
+    expect(s).toContain("sessionStorage?.getItem?.('z2x:lastTab'")
+
     // Theater HUD + layer tree widgets
     expect(s).toMatch(/TheaterHUD|核心研判结论/i)
     expect(s).toMatch(/LayerTree|LAYER TREE/i)
+    expect(s).toMatch(/v-model:layers|update:layers/i)
   })
 })
