@@ -1,7 +1,8 @@
 
 .PHONY: help test test-fast test-contract test-integration test-backend-api lint \
 	docker-dev-up docker-dev-down docker-dev-logs docker-dev-ps docker-dev-pytest docker-dev-vitest docker-dev-check \
-	docker-prod-up docker-prod-down docker-prod-logs docker-prod-ps docker-prod-check
+	docker-prod-up docker-prod-down docker-prod-logs docker-prod-ps docker-prod-check \
+	deploy-prod-local
 
 # Prefer local workspace virtualenv if present.
 PYTHON ?= python3
@@ -190,3 +191,9 @@ docker-prod-check:
 		echo "❌ missing/incorrect content-type: /zero2x/ui/act3_oneporous.webp"; exit 1; \
 	fi
 	@echo "✅ docker-prod-check OK"
+
+
+# --- Local production deploy (systemd+nginx, ports 8506/8507) ---
+
+deploy-prod-local:
+	@bash deploy/scripts/deploy_prod_local_8506_8507.sh
