@@ -40,6 +40,12 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).toContain("sessionStorage?.setItem?.('z2x:lastTab'")
     expect(s).toContain("sessionStorage?.getItem?.('z2x:lastTab'")
 
+    // Persist full IDE state: open tabs + layer tree
+    expect(s).toContain("sessionStorage?.setItem?.('z2x:openTabs'")
+    expect(s).toContain("sessionStorage?.getItem?.('z2x:openTabs'")
+    expect(s).toContain("sessionStorage?.setItem?.('z2x:layers'")
+    expect(s).toContain("sessionStorage?.getItem?.('z2x:layers'")
+
     // Theater HUD + layer tree widgets
     expect(s).toMatch(/TheaterHUD|核心研判结论/i)
     expect(s).toMatch(/LayerTree|LAYER TREE/i)

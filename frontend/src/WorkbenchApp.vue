@@ -52,7 +52,13 @@
           </div>
 
           <div class="ide-canvas" aria-label="Canvas">
-            <EngineRouter v-show="activeTab?.kind === 'twin'" ref="engineRouter" :scenario="scenario" @viewer-ready="onViewerReady" />
+            <EngineRouter
+              v-show="activeTab?.kind === 'twin'"
+              ref="engineRouter"
+              :scenario="scenario"
+              :layers="layers"
+              @viewer-ready="onViewerReady"
+            />
             <div v-if="activeTab?.kind === 'twin' && !viewerReady" class="engine-status">正在唤醒 Cesium…</div>
 
             <DataTableTab v-if="activeTab?.kind === 'table'" :rows="tableRows" />
@@ -253,6 +259,62 @@ const layers = ref([
   { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false },
 ])
 
+function _safeJsonParse(s, fallback) {
+  try {
+    return JSON.parse(String(s || ''))
+  } catch (_) {
+    return fallback
+  }
+}
+
+function _normalizeTabs(arr) {
+  const a = Array.isArray(arr) ? arr : []
+  const out = []
+  const seen = new Set()
+  for (const t of a) {
+    const id = String(t?.id || '').trim()
+    const kind = String(t?.kind || '').trim().toLowerCase()
+    if (!id || seen.has(id)) continue
+    if (kind !== 'twin' && kind !== 'table' && kind !== 'charts') continue
+    const title = String(t?.title || (kind === 'twin' ? 'Twin View' : kind === 'table' ? 'Data Table' : '2D Charts')).trim()
+    const closable = kind === 'twin' ? false : !!t?.closable
+    seen.add(id)
+    out.push({ id, kind, title, closable })
+  }
+  if (!out.some((t) => t.kind === 'twin')) {
+    out.unshift({ id: 'twin', title: 'Twin View', kind: 'twin', closable: false })
+  }
+  return out
+}
+
+function _normalizeLayers(arr) {
+  const a = Array.isArray(arr) ? arr : []
+  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
+  const defaults = new Map([
+    ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true }],
+    ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: true }],
+    ['anomaly-mask', { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false }],
+  ])
+
+  const out = []
+  const seen = new Set()
+  for (const l of a) {
+    const id = String(l?.id || '').trim()
+    if (!allowed.has(id) || seen.has(id)) continue
+    const base = defaults.get(id)
+    out.push({
+      id,
+      name: String(l?.name || base?.name || id),
+      enabled: l?.enabled === undefined ? !!base?.enabled : !!l.enabled,
+    })
+    seen.add(id)
+  }
+  for (const [id, base] of defaults.entries()) {
+    if (!seen.has(id)) out.push({ ...base })
+  }
+  return out
+}
+
 const tableRows = computed(() => {
   const sc = scenario.value
   return [
@@ -433,6 +495,26 @@ watch(
   }
 )
 
+watch(
+  () => openTabs.value,
+  (v) => {
+    try {
+      window.sessionStorage?.setItem?.('z2x:openTabs', JSON.stringify(v))
+    } catch (_) { }
+  },
+  { deep: true }
+)
+
+watch(
+  () => layers.value,
+  (v) => {
+    try {
+      window.sessionStorage?.setItem?.('z2x:layers', JSON.stringify(v))
+    } catch (_) { }
+  },
+  { deep: true }
+)
+
 onMounted(() => {
   try {
     document.body.style.overflow = 'hidden'
@@ -450,8 +532,20 @@ onMounted(() => {
     const m = window.sessionStorage?.getItem?.('z2x:lastMode') || ''
     mode.value = String(m).trim().toLowerCase() === 'theater' ? 'theater' : 'lab'
 
+    const tabsRaw = window.sessionStorage?.getItem?.('z2x:openTabs') || ''
+    const tabsParsed = _normalizeTabs(_safeJsonParse(tabsRaw, null))
+    if (tabsParsed && tabsParsed.length) {
+      openTabs.value = tabsParsed
+    }
+
     const lastTab = window.sessionStorage?.getItem?.('z2x:lastTab') || ''
     if (String(lastTab).trim()) setActiveTab(lastTab)
+
+    const layersRaw = window.sessionStorage?.getItem?.('z2x:layers') || ''
+    const layersParsed = _normalizeLayers(_safeJsonParse(layersRaw, null))
+    if (layersParsed && layersParsed.length) {
+      layers.value = layersParsed
+    }
 
     lastIntent.value = window.sessionStorage?.getItem?.('z2x:lastIntent') || ''
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
