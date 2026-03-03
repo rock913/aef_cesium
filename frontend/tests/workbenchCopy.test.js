@@ -22,5 +22,13 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).toMatch(/<aside[\s>]/)
     expect(s).toMatch(/EngineRouter|engine-router/i)
     expect(s).toMatch(/Cmd\+K|Ctrl\+K|⌘K|OmniCommand/i)
+
+    // Explicit mode toggle (top-center, leader-visible)
+    expect(s).toMatch(/Mode Toggle|显性|拨片|切换/i)
+    expect(s).toMatch(/Theater/i)
+    expect(s).toMatch(/Lab/i)
+
+    // Stateful demo presets: scenario + UI state binding
+    expect(s).toMatch(/demoPresets|Stateful|预置演示/i)
   })
 })

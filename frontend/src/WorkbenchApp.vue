@@ -3,13 +3,40 @@
     <div class="ide" aria-label="Zero2x Spatial IDE">
       <header class="ide-top" aria-label="Workbench Top Bar">
         <div class="ide-title">ZERO2X 021 WORKBENCH</div>
-        <div class="ide-top-actions">
-          <button class="top-link" type="button" @click="toggleImmersive">{{ isImmersive ? '退出沉浸' : '沉浸模式 (F11)' }}</button>
+        <div class="ide-top-center" aria-label="Explicit Mode Toggle">
+          <div class="mode-toggle" role="group" aria-label="Mode Toggle">
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="mode === 'theater'"
+              :class="{ active: mode === 'theater' }"
+              @click="setMode('theater')"
+            >
+              🎬 沉浸汇报视图 (Theater / F11)
+            </button>
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="mode === 'lab'"
+              :class="{ active: mode === 'lab' }"
+              @click="setMode('lab')"
+            >
+              🛠️ 硬核分析视图 (Lab)
+            </button>
+            <div class="mode-knob" :class="{ right: mode === 'lab' }" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="ide-top-actions" aria-label="Top Actions">
+          <button class="top-link" type="button" @click="openOmni">Omni (Cmd/Ctrl+K)</button>
         </div>
       </header>
 
       <div class="ide-body">
-        <aside v-show="isAgentOpen" class="ide-aside left" aria-label="Agent Sidebar">
+        <aside
+          class="ide-aside left"
+          :class="{ collapsed: isImmersive }"
+          aria-label="Agent Sidebar"
+        >
           <AgentPanel :text="agentText" @execute="runStub" @reset="reset" />
         </aside>
 
@@ -27,7 +54,11 @@
           </div>
         </main>
 
-        <aside v-show="isEditorOpen" class="ide-aside right" aria-label="Editor Sidebar">
+        <aside
+          class="ide-aside right"
+          :class="{ collapsed: isImmersive }"
+          aria-label="Editor Sidebar"
+        >
           <EditorPanel>
             <MonacoLazyEditor v-model="code" language="python" />
           </EditorPanel>
@@ -39,7 +70,9 @@
           :open="isOmniOpen"
           v-model="omniText"
           :context-label="scenario?.id || ''"
+          :presets="demoPresets"
           @submit="submitOmni"
+          @select-preset="applyPreset"
           @close="closeOmni"
         />
       </div>
@@ -60,15 +93,31 @@ import OmniCommand from './views/workbench/components/OmniCommand.vue'
 const engineRouter = ref(null)
 const viewerReady = ref(false)
 
-const isAgentOpen = ref(true)
-const isEditorOpen = ref(true)
-const isImmersive = ref(false)
+const mode = ref('lab')
+const isImmersive = computed(() => mode.value === 'theater')
 
 const isOmniOpen = ref(false)
 const omniText = ref('')
 
 const contextId = ref('poyang')
 const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
+
+const demoPresets = Object.freeze([
+  {
+    id: 'demo:poyang:theater',
+    label: '[展演] 鄱阳湖近十年水网演变',
+    contextId: 'poyang',
+    mode: 'theater',
+    hint: '自动进入沉浸态',
+  },
+  {
+    id: 'demo:yuhang:lab',
+    label: '[下钻] 调出余杭城建异动审计算法',
+    contextId: 'yuhang',
+    mode: 'lab',
+    hint: '自动展开代码视图',
+  },
+])
 
 function buildCodeStub(s) {
   const id = String(s?.id || '').trim() || 'poyang'
@@ -145,15 +194,12 @@ function onViewerReady() {
   _flyToScenario()
 }
 
-function toggleImmersive() {
-  isImmersive.value = !isImmersive.value
-  if (isImmersive.value) {
-    isAgentOpen.value = false
-    isEditorOpen.value = false
-  } else {
-    isAgentOpen.value = true
-    isEditorOpen.value = true
-  }
+function setMode(next) {
+  const v = String(next || '').trim().toLowerCase()
+  mode.value = v === 'theater' ? 'theater' : 'lab'
+  try {
+    window.sessionStorage?.setItem?.('z2x:lastMode', mode.value)
+  } catch (_) { }
 }
 
 function openOmni() {
@@ -174,12 +220,34 @@ function submitOmni() {
   runStub()
 }
 
+function applyPreset(preset) {
+  const p = preset || {}
+  const nextContext = String(p.contextId || '').trim().toLowerCase()
+  if (nextContext) contextId.value = nextContext
+  setMode(p.mode)
+
+  try {
+    window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
+  } catch (_) { }
+
+  try {
+    const u = new URL(window.location.href)
+    u.searchParams.set('context', contextId.value)
+    window.history.replaceState({}, '', u.toString())
+  } catch (_) {
+    // ignore
+  }
+
+  closeOmni()
+  runStub()
+}
+
 function onKeydown(e) {
   if (!e) return
   const k = String(e.key || '').toLowerCase()
   if (k === 'f11') {
     e.preventDefault()
-    toggleImmersive()
+    setMode(isImmersive.value ? 'lab' : 'theater')
     return
   }
   if ((e.metaKey || e.ctrlKey) && k === 'k') {
@@ -213,6 +281,9 @@ onMounted(() => {
     const ctxFromUrl = parseWorkbenchContextFromSearch(window.location.search)
     const ctxFromStorage = window.sessionStorage?.getItem?.('z2x:lastContext') || ''
     contextId.value = String(ctxFromUrl || ctxFromStorage || 'poyang').trim().toLowerCase() || 'poyang'
+
+    const m = window.sessionStorage?.getItem?.('z2x:lastMode') || ''
+    mode.value = String(m).trim().toLowerCase() === 'theater' ? 'theater' : 'lab'
 
     lastIntent.value = window.sessionStorage?.getItem?.('z2x:lastIntent') || ''
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
@@ -264,6 +335,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: relative;
   padding: 0 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(5, 8, 16, 0.86);
@@ -280,6 +352,75 @@ onBeforeUnmount(() => {
 .ide-top-actions {
   display: flex;
   gap: 10px;
+}
+
+.ide-top-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.mode-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 0;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(0, 0, 0, 0.35)),
+    radial-gradient(700px 60px at 50% 0%, rgba(0, 240, 255, 0.18), rgba(0, 0, 0, 0));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 10px 30px rgba(0, 0, 0, 0.55);
+  min-width: min(560px, calc(100vw - 220px));
+  max-width: 720px;
+}
+
+.mode-btn {
+  position: relative;
+  z-index: 2;
+  border: none;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mode-btn.active {
+  color: rgba(0, 0, 0, 0.90);
+  font-weight: 900;
+}
+
+.mode-knob {
+  position: absolute;
+  inset: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(0, 240, 255, 0.62)),
+    radial-gradient(60px 22px at 20% 20%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 8px 22px rgba(0, 0, 0, 0.45);
+  transform: translateX(0);
+  transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mode-knob.right {
+  transform: translateX(calc(100% + 3px));
 }
 
 .top-link {
@@ -308,12 +449,32 @@ onBeforeUnmount(() => {
   background: rgba(10, 15, 26, 0.92);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
+  transition:
+    width 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ide-aside.right {
   width: 420px;
   border-right: none;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ide-aside.collapsed {
+  width: 0 !important;
+  padding: 0;
+  opacity: 0;
+  border-color: transparent;
+}
+
+.ide-aside.left.collapsed {
+  transform: translateX(-24px);
+}
+
+.ide-aside.right.collapsed {
+  transform: translateX(24px);
 }
 
 .ide-main {
