@@ -6,15 +6,15 @@
 
       <div class="hero-center">
         <div class="brand">
-          <div class="brand-kicker">MODEL 021</div>
+          <div class="brand-kicker">PROJECT MODEL 021</div>
           <div class="brand-title">zero2x</div>
           <div class="brand-sub">From awe to action. AI-Native 渐进式科研工作台</div>
         </div>
 
         <div class="omnibar" role="search">
           <div class="omnibar-hint">
-            <span class="desktop-only">Press <kbd class="omnibar-kbd-hint">⌘K</kbd> to start your research</span>
-            <span class="mobile-only">Start your research below</span>
+            <span class="desktop-only">Press <kbd class="omnibar-kbd-hint">⌘K</kbd> to initiate scientific inquiry</span>
+            <span class="mobile-only">Describe your research intent below</span>
           </div>
           <div class="omnibar-shell" @click="focusOmni">
             <svg class="omnibar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -24,17 +24,17 @@
               <span class="kbd">K</span>
             </div>
             <button class="btn omnibar-btn" type="button" @click.stop="submit">Run</button>
-            <a class="btn secondary omnibar-btn" :href="takeMeToEarthHref" @click.stop.prevent="goAct2">进入第二幕</a>
+            <a class="btn secondary omnibar-btn" :href="takeMeToEarthHref" @click.stop.prevent="goAct2">进入视窗</a>
           </div>
           <div v-if="result" class="omnibar-result">
-            <div class="result-title">AI Preview</div>
+            <div class="result-title">021_BASE_MODEL_PREVIEW</div>
             <pre class="result-pre">{{ result }}</pre>
           </div>
         </div>
 
         <div class="hero-cta">
-          <a class="cta" href="#act-2">开始宇宙漫游</a>
-          <a class="cta ghost" :href="takeMeToEarthHref" @click.prevent="goAct2">进入第二幕：启动宏观孪生</a>
+          <a class="cta" href="#act-2">向下滚动 · 跨尺度科研探索</a>
+          <a class="cta ghost" :href="takeMeToEarthHref" @click.prevent="goAct2">进入视窗：宏观孪生</a>
         </div>
       </div>
 
@@ -61,11 +61,11 @@
         <div class="cinematic-content act2">
           <div class="cine-container">
             <div class="cine-tags">
-              <span class="cine-tag cyan">GeoGPT</span>
+              <span class="cine-tag cyan">021 Foundation</span>
               <span class="cine-tag purple">OneAstronomy</span>
             </div>
             <h2 class="cine-title">从深空暗场，<br />到<span class="cine-gradient-text-2">轨道晨昏线</span>。</h2>
-            <p class="cine-desc">宏观引擎：打破空间尺度。021 将天基算力的广袤与地球科学的细节，无缝统一在同一个可平滑缩放的数字孪生坐标系中。</p>
+            <p class="cine-desc">宏观引擎：021 科学基础模型实现了天基算力与地学细节的无缝统一。在同一个平滑缩放的数字孪生坐标系中，审视行星级的多维演变。</p>
             <div v-if="assetHint" class="asset-hint">{{ assetHint }}</div>
           </div>
         </div>
@@ -86,11 +86,11 @@
         <div class="cinematic-content act3">
           <div class="cine-container">
             <div class="cine-tags">
-              <span class="cine-tag purple">Genos</span>
+              <span class="cine-tag purple">OneGenome</span>
               <span class="cine-tag orange">OnePorous</span>
             </div>
             <h2 class="cine-title">直视物质的<br /><span class="cine-gradient-text-3">相变临界点</span>。</h2>
-            <p class="cine-desc">微观引擎：穿透物质表象。当生命密码的发光流体穿透航空晶格，我们在极微距暗场下，见证结构生物学与材料热力学的跨模态耦合。</p>
+            <p class="cine-desc">微观引擎：见证 OneGenome 基因序列与 OnePorous 材料晶格的耦合。我们在分子尺度的暗场下，重构科研范式并完成跨模态科学发现。</p>
           </div>
         </div>
       </section>
@@ -114,12 +114,12 @@
             <!-- 顶部文案：克制、紧凑 -->
             <div class="hud-header">
               <div class="hud-kicker">
-                <span class="hud-bracket">[</span> STAGE 4 / MODEL 021 <span class="hud-bracket">]</span>
+                <span class="hud-bracket">[</span> HAINA DATA HUB / 海纳数据底座 <span class="hud-bracket">]</span>
               </div>
               <!-- 强制不换行，杜绝“海”字掉落 -->
-              <h2 class="hud-title">Embedding 语义星海</h2>
+              <h2 class="hud-title">Embedding 联邦数据图谱</h2>
               <p class="hud-desc">
-                数据范式跃迁：孤立的表格被粉碎为十万级向量，高维空间中的自主聚类，让跨学科隐秘关联在此坍缩成星云。
+                数据范式跃迁：海量多源异构数据经由 021 模型向量化，在海纳底座中坍缩为语义星云。跨域关联在此实现自主推演与精准调度。
               </p>
             </div>
 
@@ -127,7 +127,7 @@
             <div class="hud-footer">
               <div class="hud-status">
                 <span class="hud-dot" aria-hidden="true"></span>
-                <span class="hud-status-text">Autonomous Reasoning in Progress</span>
+                <span class="hud-status-text">Federated Computing Active</span>
               </div>
               
               <div class="hud-metrics">
@@ -136,12 +136,8 @@
                   102,400
                 </div>
                 <div class="metric">
-                  <span>DIMENSIONS</span>
-                  1,536
-                </div>
-                <div class="metric">
-                  <span>CLUSTERS</span>
-                  3
+                  <span>THROUGHPUT</span>
+                  12 GB/s
                 </div>
               </div>
             </div>
@@ -173,8 +169,8 @@
           <!-- 顶部：全局状态 (不占用中间视窗) -->
           <div class="hud-top-bar" aria-hidden="true">
             <div class="hud-id-box">
-              <span class="label">WORKSPACE:</span>
-              <span class="value">ORBIT_ALPHA_021</span>
+              <span class="label">MODEL_STATUS:</span>
+              <span class="value">021_BASE_STABLE</span>
             </div>
             <div class="hud-center-aim">
               <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="rgba(0,240,255,0.42)" stroke-width="1" aria-hidden="true">
@@ -184,49 +180,38 @@
             </div>
             <div class="hud-status-box">
               <span class="status-dot-blink" aria-hidden="true"></span>
-              LIVE_INFERENCE_READY
+              PIPELINE_READY
             </div>
           </div>
 
           <!-- 左侧：Agent 对话块 (轻量、可滚动、保留 AGENT_FLOW 门禁) -->
           <div class="hud-pane-left" aria-label="Agent flow preview">
-            <div class="pane-tag">AGENT_FLOW / AGENT_INTENT_FLOW</div>
+            <div class="pane-tag">AGENT_EXECUTION_STREAM</div>
             <div class="pane-content chat-bubble">
               <div class="msg-ai">
                 <span class="author">021_BRAIN:</span>
-                已成功挂载鄱阳湖近十年水位数据集。正在分析东方白鹳栖息地适宜性与水位的非线性关联…
+                海纳底座已就绪。正在解析多维科研意图，启动 021 基础模型进行跨尺度推理与知识合成。
               </div>
-              <div class="msg-user">帮我生成评估脚本，并实时可视化。</div>
             </div>
           </div>
 
           <!-- 右侧：代码块 (无重底色，释放中心负空间) -->
           <div class="hud-pane-right" aria-label="Code preview">
-            <div class="pane-tag">INFERENCE_LOGIC.PY</div>
+            <div class="pane-tag">RESEARCH_CONTEXT.YAML</div>
             <div class="pane-content code-block">
-              <pre>import geogpt_engine as z2x
-
-# 1. 挂载联邦数据集
-dataset = z2x.mount_data('poyang_v4')
-
-# 2. 调用 021 进行推理
-res = z2x.agent_inference(
-    model='021-science',
-    intent='habitat_assessment'
-)
-
-# 3. 投射至视窗
-z2x.render_viewport(res)
-</pre>
+              <pre>platform: zero2x_v0.21
+core_model: 021_foundation
+data_hub: haina_federated
+status: ready_for_dispatch</pre>
             </div>
           </div>
 
           <!-- 底部中心：核心行动点 (视觉锚点) -->
           <div class="hud-bottom-cta">
             <div class="cta-inner">
-              <p class="cta-tip">READY TO BUILD? LAUNCH THE FULL ENVIRONMENT</p>
+              <p class="cta-tip">ASCEND TO THE AI-NATIVE WORKBENCH</p>
               <div class="cta-buttons">
-                <a :href="workbenchLaunchpadHref" class="btn-main-glow" @click.prevent="goWorkbenchLaunchpad">LAUNCH SCIENTIFIC WORKSPACE</a>
+                <a :href="workbenchLaunchpadHref" class="btn-main-glow" @click.prevent="goWorkbenchLaunchpad">LAUNCH 021 WORKSPACE</a>
                 <a href="/demo" class="btn-sub-link" title="Tools / Validation system">EXPLORE SCENARIO VALIDATION</a>
               </div>
             </div>
@@ -248,21 +233,19 @@ z2x.render_viewport(res)
         </div>
 
         <div class="compute-status-hud" aria-hidden="true">
-          <span>COMPUTE:</span><span class="value">NANHU HUB</span>
+          <span>COMPUTE_HUB:</span><span class="value">NANHU CLUSTER</span>
           <span class="divider">|</span>
-          <span>NODES:</span><span class="value">512 H800</span>
-          <span class="divider">|</span>
-          <span>SYSTEM_HEALTH:</span><span class="value">99.8%</span>
+          <span>SYSTEM_VERSION:</span><span class="value">0.21_ALPHA</span>
         </div>
       </section>
 
       <footer class="foot-minimal">
         <div class="foot-minimal-inner">
-          <div class="foot-left">Zero2x 021 | AI-Native 渐进式科研工作台</div>
+          <div class="foot-left">Zero2x | AI-Native 渐进式科研工作台</div>
           <div class="foot-right">
-            <a class="foot-link" href="/demo" title="Tools / Validation system">Demo</a>
+            <a class="foot-link" href="/demo" title="Tools / Validation system">Validation</a>
             <span class="sep">·</span>
-            <span>Dev 8404/8405 · Prod 8406/8407</span>
+            <span>© 2026 ZJ Lab</span>
           </div>
         </div>
       </footer>
@@ -282,9 +265,9 @@ const query = ref('')
 const result = ref('')
 
 const placeholders = [
-  '请输入您的科学猜想... (例：叠加近十年水文变化与鸟类迁徙轨迹)',
-  '例：构建一个鄱阳湖东方白鹳栖息地监测 Agent',
-  '例：搜索“造山带地壳生长”，点亮相关数据簇',
+  '请输入科研意图... (如：分析特定海域叶绿素浓度)',
+  '调用 OneGenome 引擎分析特定序列',
+  '使用 021 模型进行跨尺度演化模拟',
 ]
 
 const idx = ref(0)
@@ -294,7 +277,7 @@ const takeMeToEarthHref = buildAct2ChoreoHref('poyang')
 const act2Href = buildAct2ChoreoHref('')
 const workbenchHref = '/workbench'
 // Launchpad passes a lightweight context parameter to the heavy workbench.
-const workbenchLaunchpadHref = '/workbench?context=poyang'
+const workbenchLaunchpadHref = '/workbench?context=021_research'
 
 const act2CinematicVideoOk = ref(true)
 const act3CinematicVideoOk = ref(true)

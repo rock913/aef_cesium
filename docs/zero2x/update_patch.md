@@ -73,7 +73,7 @@ WebM 视频底层嵌入机制：
         </div>
 
         <div class="hero-cta">
-          <a class="cta" href="#act-2">开始宇宙漫游</a>
+          <a class="cta" href="#act-2">向下滚动 · 跨尺度科研探索</a>
           <a class="cta ghost" :href="takeMeToEarthHref" @click.prevent="goAct2">进入第二幕：飞向鄱阳湖</a>
         </div>
       </div>
@@ -143,7 +143,7 @@ WebM 视频底层嵌入机制：
 
           <div class="cinematic-content act3">
             <div class="cine-tags">
-              <span class="cine-tag purple">Genos</span>
+              <span class="cine-tag purple">OneGenome</span>
               <span class="cine-tag orange">OnePorous</span>
             </div>
             <h2 class="cine-title">
@@ -265,7 +265,7 @@ const query = ref('')
 const result = ref('')
 
 const placeholders = [
-  '请输入您的科学猜想... (例：叠加近十年水文变化与鸟类迁徙轨迹)',
+  '请输入科研意图... (如：分析特定海域叶绿素浓度)',
   '例：构建一个鄱阳湖东方白鹳栖息地监测 Agent',
   '例：搜索“造山带地壳生长”，点亮相关数据簇',
 ]

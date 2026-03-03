@@ -1160,6 +1160,32 @@ _tile_inflight_lock = asyncio.Lock()
 _tile_inflight: Dict[tuple, asyncio.Event] = {}
 
 
+def _looks_like_non_image_payload(body: bytes) -> bool:
+    """Best-effort detection of upstream error payloads.
+
+    Tile servers/proxies occasionally return HTML/JSON bodies with 200 status.
+    If the browser tries to decode them as an image, Cesium can throw
+    `InvalidStateError: The source image could not be decoded` and stop rendering.
+    """
+
+    if not body:
+        return True
+
+    head = body[:512].lstrip()
+    lower = head.lower()
+
+    if lower.startswith(b"<!doctype") or lower.startswith(b"<html") or (b"<html" in lower):
+        return True
+    if lower.startswith(b"<head") or lower.startswith(b"<script"):
+        return True
+
+    # Common API error formats.
+    if head.startswith(b"{") or head.startswith(b"["):
+        return True
+
+    return False
+
+
 def _tile_fallback_response(
     cache_key: tuple,
     *,
@@ -2135,9 +2161,13 @@ async def proxy_osm_tile(z: int, x: int, y: int):
             return await _fallback("upstream", upstream_status=status)
 
         body = resp.content
-        content_type = resp.headers.get("Content-Type", "image/png")
+        content_type = resp.headers.get("Content-Type") or ""
         cache_control = resp.headers.get("Cache-Control")
         expires = resp.headers.get("Expires")
+
+        ct = content_type.split(";")[0].strip().lower()
+        if (ct and (not ct.startswith("image/"))) or _looks_like_non_image_payload(body):
+            return await _fallback("non-image", upstream_status=status)
 
         headers: Dict[str, str] = {
             # Ensure clients can cache even if upstream headers are missing.
@@ -2147,7 +2177,8 @@ async def proxy_osm_tile(z: int, x: int, y: int):
         if expires:
             headers["Expires"] = expires
 
-        media_type = content_type.split(";")[0].strip() or "image/png"
+        # OSM raster tiles are PNG. Keep media_type strict to avoid decode errors.
+        media_type = "image/png"
         _tile_cache_set(cache_key, body, media_type, headers)
 
         resp_headers = dict(headers)
@@ -2282,9 +2313,13 @@ async def proxy_bing_tile(request: Request, url: str = Query(...)):
             return await _fallback("upstream", upstream_status=status)
 
         body = upstream_resp.content
-        content_type = upstream_resp.headers.get("Content-Type") or "image/jpeg"
+        content_type = upstream_resp.headers.get("Content-Type") or ""
         cache_control = upstream_resp.headers.get("Cache-Control")
         expires = upstream_resp.headers.get("Expires")
+
+        ct = content_type.split(";")[0].strip().lower()
+        if (ct and (not ct.startswith("image/"))) or _looks_like_non_image_payload(body):
+            return await _fallback("non-image", upstream_status=status)
 
         headers: Dict[str, str] = {
             "Cache-Control": cache_control or "public, max-age=86400",
@@ -2294,7 +2329,7 @@ async def proxy_bing_tile(request: Request, url: str = Query(...)):
         if expires:
             headers["Expires"] = expires
 
-        media_type = content_type.split(";")[0].strip() or "image/jpeg"
+        media_type = ct or "image/jpeg"
         _tile_cache_set(cache_key, body, media_type, headers)
 
         resp_headers = dict(headers)

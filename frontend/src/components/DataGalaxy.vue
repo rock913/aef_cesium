@@ -25,8 +25,8 @@ const clusters = Object.freeze([
   },
   {
     id: 'bio',
-    name: 'Genos Sequences',
-    meta: '基因组学 / 注意力机制',
+    name: 'OneGenome Sequences',
+    meta: 'OneGenome 基因序列 / 注意力机制',
     hex: '#9D4EDD',
     color: 0x9D4EDD,
     center: { x: -20, y: -15, z: 10 },

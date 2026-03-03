@@ -4,7 +4,9 @@
 
 ## 当前 Landing 使用的 4 张核心卡片 WebP
 
-Landing 现在收敛为四张基座模型卡片（宏观：GeoGPT / OneAstronomy；微观：Genos / OnePorous）。对应背景图文件名固定为：
+Landing 现在收敛为四张基座模型卡片（宏观：021 Foundation / OneAstronomy；微观：OneGenome / OnePorous）。
+
+对应背景图文件名固定为（文件名保持不变，便于离线与发布流程稳定）：
 
 - `act2_geogpt.webp`
 - `act2_astronomy.webp`

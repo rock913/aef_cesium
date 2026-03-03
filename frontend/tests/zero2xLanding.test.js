@@ -27,7 +27,7 @@ describe('Zero2x landing wiring (TDD)', () => {
     expect(s).toContain('第二幕：宏观孪生')
     expect(s).toContain('第四幕：数据星海')
     expect(s).toContain('buildAct2ChoreoHref')
-    expect(s).toContain('进入第二幕')
+    expect(s).toContain('进入视窗')
     expect(s).toContain('poyang')
 
     // Act 4 is videoized (no heavy WebGL galaxy on landing).
@@ -43,6 +43,6 @@ describe('Zero2x landing wiring (TDD)', () => {
     expect(s).toContain('hud-center-aim-container')
 
     // Act 5 launch passes context into the heavy workbench route.
-    expect(s).toContain('/workbench?context=poyang')
+    expect(s).toContain('/workbench?context=021_research')
   })
 })

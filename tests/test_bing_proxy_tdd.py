@@ -69,3 +69,26 @@ def test_bing_proxy_proxies_allowed_tile_and_adds_cors_header(client_and_main):
     assert resp.headers.get("access-control-allow-origin") == "*"
     assert resp.headers.get("x-aef-basemap") == "bing"
     assert resp.content == b"jpegbytes"
+
+
+def test_bing_proxy_falls_back_on_non_image_payload(client_and_main):
+    client, main = client_and_main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/html; charset=utf-8"},
+            content=b"<!doctype html><html><body>upstream error</body></html>",
+        )
+
+    main.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    resp = client.get(
+        "/api/bing-proxy",
+        params={"url": "https://ecn.t1.tiles.virtualearth.net/tiles/a21101.jpeg?n=z&g=15485"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-aef-tile-fallback") == "1"
+    assert resp.headers.get("x-aef-basemap") == "bing"
+    assert resp.headers.get("content-type", "").startswith("image/png")
+    assert resp.content.startswith(b"\x89PNG\r\n\x1a\n")

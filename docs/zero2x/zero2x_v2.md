@@ -23,7 +23,7 @@ AI 交互流：Vercel AI SDK。放弃传统的固定页面路由，采用 UI as 
 工程实现 & 借鉴：
 对标：Kepler.gl (Uber开源的大规模地理数据可视化)、Google Earth Engine (GEE) 的 Web Editor。
 工具栈：直接引入 CesiumJS。Cesium 是目前 Web 端最强大的 3D 地球开源引擎，完美支持时间轴驱动 (Timeline) 和海量 GeoJSON/热力图覆盖。2天内可快速实现一个加载全球地形并在特定区域（如鄱阳湖）高亮发光的地月系统模型。
-3. 微观凝视：Genos (长程生命解码器)
+3. 微观凝视：OneGenome (长程生命解码器)
 分镜：穿透细胞，展现极其震撼的发光 DNA 双螺旋与分形注意力网络。
 工程实现 & 借鉴：
 对标：AlphaFold Protein Structure Database (蛋白质3D交互)。
