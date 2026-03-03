@@ -98,3 +98,14 @@ DEPLOY_SUDO_INTERACTIVE=1 sudo bash "$REPO_ROOT/deploy/scripts/deploy_release.sh
 _echo "Done"
 echo "✅ release_id=$release_id"
 echo "✅ current -> $(readlink -f "$BASE_PATH/current")"
+
+echo
+echo "==> Verify (fingerprint)"
+echo "Frontend URL: ${FRONTEND_URL}"
+if command -v curl >/dev/null 2>&1; then
+  echo "--- ${FRONTEND_URL} headers ---"
+  curl -fsSI "${FRONTEND_URL}" | sed -n '1,12p' || true
+  echo "--- main asset referenced by index.html ---"
+  curl -fsS "${FRONTEND_URL}" | tr -d '\r' | grep -Eo '/assets/index-[^"\x27>]+\.js' | head -n 1 || true
+  echo "Tip: if you are checking docker-prod, use http://127.0.0.1:8406/ (different deployment target)."
+fi

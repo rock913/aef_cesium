@@ -106,6 +106,13 @@ make docker-prod-up
 make docker-prod-check
 ```
 
+如果 `8406/8407` 已经在运行并且你想“更新到当前工作区最新源码构建的 dist”，用：
+
+```bash
+make docker-prod-update
+make docker-prod-check
+```
+
 说明（常见误解）：
 
 - `8406/8407` 的 Docker Prod 是“运行形态接近生产”（nginx 静态 dist + 同源 `/api` 反代），但它**仍然会在启动时从当前工作区源码 build 镜像**。
@@ -143,6 +150,8 @@ make docker-prod-check
 ```bash
 make deploy-prod-local
 ```
+
+注意：`deploy-prod-local` 更新的是 **8506/8507（systemd+nginx 真生产）**，不会影响 `8406/8407` 的 Docker Prod。
 
 它会自动：读取 `/opt/oneearth/cesium_app_v6/.env.prod` 注入 Vite 构建变量 → `npm ci && npm run build` → 打包 → 解包到 `/opt/oneearth/cesium_app_v6/releases/<release_id>` → 调用 `deploy/scripts/deploy_release.sh` 完成原子切换与健康检查。
 

@@ -1,7 +1,7 @@
 
 .PHONY: help test test-fast test-contract test-integration test-backend-api lint \
 	docker-dev-up docker-dev-down docker-dev-logs docker-dev-ps docker-dev-pytest docker-dev-vitest docker-dev-check \
-	docker-prod-up docker-prod-down docker-prod-logs docker-prod-ps docker-prod-check \
+	docker-prod-up docker-prod-update docker-prod-down docker-prod-logs docker-prod-ps docker-prod-check \
 	deploy-prod-local
 
 # Prefer local workspace virtualenv if present.
@@ -148,6 +148,17 @@ docker-prod-up:
 	fi
 	@$(MAKE) _docker_prod_ports_free
 	$(_PROD_COMPOSE) up -d --build
+
+# Update an already-running docker-prod stack (rebuild/recreate containers)
+# without failing when 8406/8407 are already bound by the current stack.
+docker-prod-update:
+	@echo "Using env file: $(_PROD_ENV_FILE)"
+	@if [ ! -f "$(_PROD_ENV_FILE)" ]; then \
+		echo "❌ Missing env file: $(_PROD_ENV_FILE)"; \
+		echo "   Create one of: .env.prod or .env (see .env.example)"; \
+		exit 2; \
+	fi
+	$(_PROD_COMPOSE) up -d --build --force-recreate
 
 docker-prod-down:
 	$(_PROD_COMPOSE) down
