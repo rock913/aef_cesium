@@ -15,8 +15,7 @@
   - `/demo`：Alpha Earth Demo（Missions + AI Console + Cesium 场景验证）
   - `/workbench`：AI‑Native 工作台壳（路由级拆包；Monaco 等重依赖按需加载）
 - Dev 研发环境已 Docker 化并固化端口：前端 8404 / 后端 8405（推荐使用 `make docker-dev-up`）。
-- Prod（Docker 版/本机模拟生产）端口：前端 8406 / 后端 8407（推荐使用 `make docker-prod-up`）。
-- Prod（服务器 systemd+nginx 真生产）端口：前端 8506 / 后端 8507（推荐使用 GitHub Actions 或 `make deploy-prod-local`）。
+- Prod（本分支唯一生产方式：Docker Prod）端口：前端 8406 / 后端 8407（推荐使用 `make docker-prod-up`）。
 - 一键验收门禁：
   - Dev：`make docker-dev-check`（smoke + pytest + vitest）
   - Prod：`make docker-prod-check`（smoke + nginx 静态资源 + /api 反代）
@@ -35,6 +34,12 @@
 - [docs/架构升级与敏捷开发.md](docs/架构升级与敏捷开发.md) - 基于仓库真实现状的工程化/Dev Docker/TDD 指南
 - [docs/oneearth_v6.6.md](docs/oneearth_v6.6.md) - 最新迭代说明（如与 v6 有差异以该文档为准）
 - [docs/deploy_github_actions.md](docs/deploy_github_actions.md) - GitHub Actions 持续集成/发布
+
+> 重要说明（接口/端口口径）：
+>
+> - “真生产 8506/8507（systemd+nginx）”属于主项目的部署口径；**本分支不再维护该方式**。
+> - 本分支只保留 Docker Prod（8406/8407）作为可复现、可验收的生产形态。
+> - 如必须对齐 8506/8507 的外部访问口径，推荐在宿主机用 nginx 做端口映射/反代到 8406/8407，而不是在本仓库内维护两套生产体系。
 
 ## 🏗️ 技术架构
 
@@ -123,37 +128,6 @@ make docker-prod-check
 - Dev 后端：`http://127.0.0.1:8405`（Swagger：`/docs`）
 - Prod 前端：`http://127.0.0.1:8406`
 - Prod 后端：`http://127.0.0.1:8407`（Swagger：`/docs`）
-
-服务器真生产（systemd+nginx）：
-
-- Prod Frontend（nginx）：`http://127.0.0.1:8506`
-- Prod Backend（systemd）：`http://127.0.0.1:8507`（Swagger：`/docs`）
-
-### 一键更新到生产端（8506/8507，服务器）
-
-本仓库有两条推荐路径：
-
-1) GitHub Actions（推荐团队协作/可追溯/可回滚）：
-
-- 运行工作流：`.github/workflows/deploy_prod.yml`
-- 在 Actions 页面手动触发（`workflow_dispatch`），填入 `ref`（branch/tag/SHA），它会：跑测试 → 构建 dist → 打包 release → SSH 上传 → 切换 `/opt/oneearth/cesium_app_v6/current` → 重启后端 → reload nginx → 健康检查（失败自动回滚）。
-
-2) 服务器本机一条命令（需要 sudo 密码）：
-
-前提：服务器采用 release 目录结构（见 `docs/deploy_github_actions.md`），并存在：
-
-- `/opt/oneearth/cesium_app_v6/.env.prod`
-- systemd 服务：`oneearth-v6-backend-8507`
-
-执行：
-
-```bash
-make deploy-prod-local
-```
-
-注意：`deploy-prod-local` 更新的是 **8506/8507（systemd+nginx 真生产）**，不会影响 `8406/8407` 的 Docker Prod。
-
-它会自动：读取 `/opt/oneearth/cesium_app_v6/.env.prod` 注入 Vite 构建变量 → `npm ci && npm run build` → 打包 → 解包到 `/opt/oneearth/cesium_app_v6/releases/<release_id>` → 调用 `deploy/scripts/deploy_release.sh` 完成原子切换与健康检查。
 
 页面入口：
 
