@@ -13,9 +13,14 @@ import gsap from 'gsap'
 import { useResearchStore } from '../../../stores/researchStore.js'
 import { disposeThreeEngine } from './threeDispose.js'
 import { executeQuantumDive } from './quantumDive.js'
-import { createBloomPipeline } from './threePostprocessing.js'
+import { createBloomPipeline, updateBloomParams } from './threePostprocessing.js'
+import { mapLayersToThreeParams } from './threeLayerMapping.js'
 
 const emit = defineEmits(['ready'])
+
+const props = defineProps({
+  layers: { type: Array, default: () => [] },
+})
 
 const container = ref(null)
 const store = useResearchStore()
@@ -31,6 +36,12 @@ let renderPass = null
 let bloomPass = null
 let animationId = null
 let onResize = null
+
+let macroMesh = null
+let microMesh = null
+let microMaterial = null
+
+let _macroSpinTween = null
 
 function _buildMacroScene(scene) {
   // Minimal procedural galaxy using InstancedMesh (size tuned for dev; can scale up later).
@@ -50,6 +61,7 @@ function _buildMacroScene(scene) {
   }
 
   scene.add(mesh)
+  macroMesh = mesh
 }
 
 function _buildMicroScene(scene) {
@@ -66,6 +78,7 @@ function _buildMicroScene(scene) {
     thickness: 0.5,
   })
   const mesh = markRaw(new THREE.InstancedMesh(geometry, material, count))
+  microMaterial = material
 
   const tmp = new THREE.Object3D()
   const grid = Math.ceil(Math.cbrt(count))
@@ -82,6 +95,169 @@ function _buildMicroScene(scene) {
   }
 
   scene.add(mesh)
+  microMesh = mesh
+}
+
+function _applyThreeLayerMapping(layers) {
+  const mapped = mapLayersToThreeParams(layers)
+
+  if (macroMesh) {
+    try {
+      macroMesh.visible = !!mapped.macroSpiralVisible
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (microMesh) {
+    try {
+      microMesh.visible = !!mapped.microAtomsVisible
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (microMaterial) {
+    try {
+      microMaterial.transparent = true
+      microMaterial.opacity = mapped.microMaterial.opacity
+      microMaterial.transmission = mapped.microMaterial.transmission
+      microMaterial.ior = mapped.microMaterial.ior
+      microMaterial.needsUpdate = true
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (bloomPass) {
+    try {
+      updateBloomParams(bloomPass, {
+        strength: mapped.bloom.enabled ? mapped.bloom.strength : 0,
+        threshold: mapped.bloom.threshold,
+        radius: mapped.bloom.radius,
+      })
+    } catch (_) {
+      // ignore
+    }
+  }
+}
+
+async function highlightMacroCluster() {
+  if (!macroMesh) return
+  const mat = macroMesh.material
+  if (!mat || !mat.color) return
+  try {
+    gsap.killTweensOf(mat.color)
+  } catch (_) {
+    // ignore
+  }
+
+  const from = { r: mat.color.r, g: mat.color.g, b: mat.color.b }
+  const to = { r: 0.2, g: 1.0, b: 1.0 }
+
+  await new Promise((resolve) => {
+    gsap.to(from, {
+      r: to.r,
+      g: to.g,
+      b: to.b,
+      duration: 0.45,
+      ease: 'power2.out',
+      onUpdate: () => {
+        try {
+          mat.color.setRGB(from.r, from.g, from.b)
+        } catch (_) {
+          // ignore
+        }
+      },
+      onComplete: () => {
+        gsap.to(from, {
+          r: 1,
+          g: 1,
+          b: 1,
+          duration: 0.9,
+          ease: 'power2.out',
+          onUpdate: () => {
+            try {
+              mat.color.setRGB(from.r, from.g, from.b)
+            } catch (_) {
+              // ignore
+            }
+          },
+          onComplete: resolve,
+        })
+      },
+    })
+  })
+}
+
+async function spinMacroCamera({ duration = 3.0, revolutions = 1.0 } = {}) {
+  if (!camera) return
+  try {
+    _macroSpinTween?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+
+  const r = Math.max(6, Math.hypot(camera.position.x, camera.position.z) || 12)
+  const start = Math.atan2(camera.position.z, camera.position.x)
+  const state = { t: 0 }
+
+  await new Promise((resolve) => {
+    _macroSpinTween = gsap.to(state, {
+      t: 1,
+      duration: Math.max(0.2, Number(duration) || 3.0),
+      ease: 'power1.inOut',
+      onUpdate: () => {
+        const a = start + state.t * (Math.PI * 2) * (Number(revolutions) || 1.0)
+        try {
+          camera.position.x = Math.cos(a) * r
+          camera.position.z = Math.sin(a) * r
+          camera.lookAt(0, 0, 0)
+        } catch (_) {
+          // ignore
+        }
+      },
+      onComplete: resolve,
+    })
+  })
+}
+
+async function rebuildMicroLattice() {
+  if (!microMesh) return
+  // Quick "bond break/reform" vibe: jitter positions then settle.
+  const count = microMesh.count || 0
+  if (!count) return
+
+  const tmp = new THREE.Object3D()
+  const base = []
+  for (let i = 0; i < Math.min(count, 600); i += 1) {
+    const m = new THREE.Matrix4()
+    microMesh.getMatrixAt(i, m)
+    base.push(m)
+  }
+
+  function jitter(scale) {
+    for (let i = 0; i < base.length; i += 1) {
+      tmp.matrix.copy(base[i])
+      tmp.position.setFromMatrixPosition(tmp.matrix)
+      tmp.position.x += (Math.random() - 0.5) * scale
+      tmp.position.y += (Math.random() - 0.5) * scale
+      tmp.position.z += (Math.random() - 0.5) * scale
+      tmp.updateMatrix()
+      microMesh.setMatrixAt(i, tmp.matrix)
+    }
+    microMesh.instanceMatrix.needsUpdate = true
+  }
+
+  jitter(0.8)
+  await new Promise((r) => setTimeout(r, 220))
+  jitter(0.25)
+  await new Promise((r) => setTimeout(r, 180))
+  // restore
+  for (let i = 0; i < base.length; i += 1) {
+    microMesh.setMatrixAt(i, base[i])
+  }
+  microMesh.instanceMatrix.needsUpdate = true
 }
 
 function initEngine() {
@@ -185,9 +361,22 @@ function animate() {
 
 onMounted(() => {
   initEngine()
+  _applyThreeLayerMapping(props.layers)
   animate()
   emit('ready')
 })
+
+watch(
+  () => props.layers,
+  (v) => {
+    try {
+      _applyThreeLayerMapping(v)
+    } catch (_) {
+      // ignore
+    }
+  },
+  { deep: true }
+)
 
 watch(
   () => store.currentScale.value,
@@ -206,6 +395,12 @@ watch(
     activeScene = next === 'micro' ? microScene : macroScene
   }
 )
+
+defineExpose({
+  highlightMacroCluster,
+  spinMacroCamera,
+  rebuildMicroLattice,
+})
 
 onBeforeUnmount(() => {
   try {
@@ -233,6 +428,9 @@ onBeforeUnmount(() => {
   renderPass = null
   bloomPass = null
   animationId = null
+  macroMesh = null
+  microMesh = null
+  microMaterial = null
 })
 </script>
 

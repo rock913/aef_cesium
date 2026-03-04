@@ -1,57 +1,163 @@
 <template>
   <div class="tree" aria-label="Layer Tree">
     <div class="k">LAYER TREE</div>
-    <div class="item" v-for="(l, i) in layers" :key="l.id">
-      <div class="row">
-        <label class="left">
-          <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
-          <span class="name">{{ l.name }}</span>
-        </label>
-        <div class="ops" aria-label="Reorder">
-          <button class="op" type="button" :disabled="i === 0" title="Move Up" @click="move(l.id, -1)">↑</button>
-          <button class="op" type="button" :disabled="i === layers.length - 1" title="Move Down" @click="move(l.id, 1)">↓</button>
+
+    <div class="g" :class="{ inactive: currentScale !== 'earth' }" aria-label="Earth Layers">
+      <div class="gh">EARTH</div>
+      <div class="item" v-for="(l, i) in earthLayers" :key="l.id">
+        <div class="row">
+          <label class="left">
+            <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
+            <span class="name">{{ l.name }}</span>
+          </label>
+          <div class="ops" aria-label="Reorder">
+            <button class="op" type="button" :disabled="i === 0" title="Move Up" @click="moveWithin('earth', l.id, -1)">↑</button>
+            <button class="op" type="button" :disabled="i === earthLayers.length - 1" title="Move Down" @click="moveWithin('earth', l.id, 1)">↓</button>
+          </div>
+        </div>
+
+        <div class="params" v-if="l && l.params" aria-label="Layer Params">
+          <div class="param">
+            <span class="pk">Opacity</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              :value="Number(l.params.opacity ?? 0.8)"
+              @input="setParam(l.id, 'opacity', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtPct(l.params.opacity) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'anomaly-mask'">
+            <span class="pk">Threshold</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.threshold ?? 0.1)"
+              @input="setParam(l.id, 'threshold', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.threshold) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'anomaly-mask'">
+            <span class="pk">Palette</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.palette || '')"
+              placeholder="FF4D6D"
+              @change="setParam(l.id, 'palette', $event?.target?.value)"
+            />
+          </div>
         </div>
       </div>
+    </div>
 
-      <div class="params" v-if="l && l.params" aria-label="Layer Params">
-        <div class="param">
-          <span class="pk">Opacity</span>
-          <input
-            class="rng"
-            type="range"
-            min="0"
-            max="1"
-            step="0.02"
-            :value="Number(l.params.opacity ?? 0.8)"
-            @input="setParam(l.id, 'opacity', $event?.target?.value)"
-          />
-          <span class="pv">{{ fmtPct(l.params.opacity) }}</span>
+    <div class="g" :class="{ inactive: currentScale === 'earth' }" aria-label="Three Layers">
+      <div class="gh">THREE</div>
+      <div class="item" v-for="(l, i) in threeLayers" :key="l.id">
+        <div class="row">
+          <label class="left">
+            <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
+            <span class="name">{{ l.name }}</span>
+          </label>
+          <div class="ops" aria-label="Reorder">
+            <button class="op" type="button" disabled title="Move Up">↑</button>
+            <button class="op" type="button" disabled title="Move Down">↓</button>
+          </div>
         </div>
 
-        <div class="param" v-if="String(l.id) === 'anomaly-mask'">
-          <span class="pk">Threshold</span>
-          <input
-            class="rng"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            :value="Number(l.params.threshold ?? 0.1)"
-            @input="setParam(l.id, 'threshold', $event?.target?.value)"
-          />
-          <span class="pv">{{ fmtNum(l.params.threshold) }}</span>
-        </div>
+        <div class="params" v-if="l && l.params" aria-label="Layer Params">
+          <div class="param" v-if="String(l.id) === 'bloom'">
+            <span class="pk">Strength</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              :value="Number(l.params.strength ?? 1.1)"
+              @input="setParam(l.id, 'strength', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.strength) }}</span>
+          </div>
 
-        <div class="param" v-if="String(l.id) === 'anomaly-mask'">
-          <span class="pk">Palette</span>
-          <input
-            class="txt"
-            type="text"
-            spellcheck="false"
-            :value="String(l.params.palette || '')"
-            placeholder="FF4D6D"
-            @change="setParam(l.id, 'palette', $event?.target?.value)"
-          />
+          <div class="param" v-if="String(l.id) === 'bloom'">
+            <span class="pk">Threshold</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.threshold ?? 0.65)"
+              @input="setParam(l.id, 'threshold', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.threshold) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'bloom'">
+            <span class="pk">Radius</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.radius ?? 0.15)"
+              @input="setParam(l.id, 'radius', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.radius) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'micro-atoms'">
+            <span class="pk">Opacity</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              :value="Number(l.params.opacity ?? 0.85)"
+              @input="setParam(l.id, 'opacity', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtPct(l.params.opacity) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'micro-atoms'">
+            <span class="pk">Transmission</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.transmission ?? 0.85)"
+              @input="setParam(l.id, 'transmission', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.transmission) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'micro-atoms'">
+            <span class="pk">IOR</span>
+            <input
+              class="rng"
+              type="range"
+              min="1"
+              max="2"
+              step="0.01"
+              :value="Number(l.params.ior ?? 1.4)"
+              @input="setParam(l.id, 'ior', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.ior) }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -59,8 +165,11 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 const props = defineProps({
   layers: { type: Array, default: () => [] },
+  currentScale: { type: String, default: 'earth' },
 })
 
 const emit = defineEmits(['update:layers'])
@@ -70,16 +179,35 @@ function toggle(id) {
   emit('update:layers', next)
 }
 
-function move(id, dir) {
-  const arr = [...(props.layers || [])]
-  const idx = arr.findIndex((l) => l.id === id)
+const earthLayers = computed(() => {
+  const ids = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
+  return (props.layers || []).filter((l) => ids.has(String(l?.id || '')))
+})
+
+const threeLayers = computed(() => {
+  const ids = new Set(['bloom', 'macro-spiral', 'micro-atoms'])
+  return (props.layers || []).filter((l) => ids.has(String(l?.id || '')))
+})
+
+function moveWithin(group, id, dir) {
+  // Only Earth layers participate in meaningful ordering today.
+  const g = String(group || '')
+  if (g !== 'earth') return
+
+  const order = earthLayers.value.map((l) => l.id)
+  const idx = order.indexOf(id)
   if (idx < 0) return
   const j = idx + (dir < 0 ? -1 : 1)
-  if (j < 0 || j >= arr.length) return
-  const tmp = arr[idx]
-  arr[idx] = arr[j]
-  arr[j] = tmp
-  emit('update:layers', arr)
+  if (j < 0 || j >= order.length) return
+
+  const a = [...(props.layers || [])]
+  const fullIdx = a.findIndex((l) => l.id === order[idx])
+  const fullJ = a.findIndex((l) => l.id === order[j])
+  if (fullIdx < 0 || fullJ < 0) return
+  const tmp = a[fullIdx]
+  a[fullIdx] = a[fullJ]
+  a[fullJ] = tmp
+  emit('update:layers', a)
 }
 
 function setParam(id, key, raw) {
@@ -87,7 +215,7 @@ function setParam(id, key, raw) {
   const next = (props.layers || []).map((l) => {
     if (l.id !== id) return l
     const params = { ...(l.params || {}) }
-    if (k === 'opacity' || k === 'threshold') {
+    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior') {
       const n = Number(raw)
       if (Number.isFinite(n)) params[k] = n
       return { ...l, params }
@@ -137,6 +265,27 @@ function fmtNum(v) {
   opacity: 0.78;
   font-weight: 900;
   margin-bottom: 8px;
+}
+
+.g {
+  margin-top: 10px;
+}
+
+.g:first-of-type {
+  margin-top: 0;
+}
+
+.gh {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.70;
+  font-weight: 900;
+  margin: 2px 6px 6px;
+}
+
+.g.inactive {
+  opacity: 0.45;
 }
 
 .row {

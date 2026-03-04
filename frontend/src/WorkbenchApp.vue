@@ -100,7 +100,7 @@
             <DataTableTab v-if="activeTab?.kind === 'table'" :rows="tableRows" />
             <ChartsTab v-if="activeTab?.kind === 'charts'" :series="chartSeries" />
 
-            <LayerTree v-model:layers="layers" />
+            <LayerTree v-model:layers="layers" :current-scale="researchStore.currentScale" />
 
             <TheaterHUD
               v-if="isImmersive"
@@ -148,6 +148,7 @@ import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSea
 import { apiService } from './services/api.js'
 import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
+import { TaskQueue } from './utils/taskQueue.js'
 import AgentPanel from './views/workbench/components/AgentPanel.vue'
 import EditorPanel from './views/workbench/components/EditorPanel.vue'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
@@ -162,6 +163,7 @@ const engineRouter = ref(null)
 const viewerReady = ref(false)
 
 const researchStore = useResearchStore()
+const executeQueue = new TaskQueue()
 
 const mode = ref('lab')
 const isImmersive = computed(() => mode.value === 'theater')
@@ -199,6 +201,32 @@ const demoPresets = Object.freeze([
       { id: 'gee-heatmap', enabled: true, params: { opacity: 0.75 } },
       { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
       { id: 'anomaly-mask', enabled: true, params: { opacity: 0.50, threshold: 0.12, palette: 'FF4D6D' } },
+    ],
+  },
+  {
+    id: 'demo:gaia_cluster:macro',
+    label: '[v7] Gaia Cluster (Macro EXECUTE)',
+    contextId: 'poyang',
+    scale: 'macro',
+    mode: 'theater',
+    activeTabKind: 'twin',
+    hint: '宏观：Bloom + Spiral + 高亮/环绕',
+    layers: [
+      { id: 'bloom', enabled: true, params: { strength: 1.35, threshold: 0.62, radius: 0.18 } },
+      { id: 'macro-spiral', enabled: true, params: {} },
+    ],
+  },
+  {
+    id: 'demo:protein_fold:micro',
+    label: '[v7] Protein Fold (Micro EXECUTE)',
+    contextId: 'poyang',
+    scale: 'micro',
+    mode: 'theater',
+    activeTabKind: 'twin',
+    hint: '微观：材质调参 + 晶格重组',
+    layers: [
+      { id: 'bloom', enabled: true, params: { strength: 1.15, threshold: 0.70, radius: 0.12 } },
+      { id: 'micro-atoms', enabled: true, params: { opacity: 0.82, transmission: 0.88, ior: 1.45 } },
     ],
   },
   {
@@ -347,6 +375,9 @@ const layers = ref([
   { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } },
   { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } },
   { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+  { id: 'bloom', name: 'Bloom FX', enabled: true, params: { strength: 1.1, threshold: 0.65, radius: 0.15 } },
+  { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} },
+  { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
 ])
 
 function _safeJsonParse(s, fallback) {
@@ -379,11 +410,14 @@ function _normalizeTabs(arr) {
 
 function _normalizeLayers(arr) {
   const a = Array.isArray(arr) ? arr : []
-  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
+  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'bloom', 'macro-spiral', 'micro-atoms'])
   const defaults = new Map([
     ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } }],
     ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } }],
     ['anomaly-mask', { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } }],
+    ['bloom', { id: 'bloom', name: 'Bloom FX', enabled: true, params: { strength: 1.1, threshold: 0.65, radius: 0.15 } }],
+    ['macro-spiral', { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} }],
+    ['micro-atoms', { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } }],
   ])
 
   const out = []
@@ -407,6 +441,20 @@ function _normalizeLayers(arr) {
       const thr = Number(nextParams.threshold)
       if (Number.isFinite(thr)) nextParams.threshold = Math.max(0, Math.min(1, thr))
       if (nextParams.palette !== undefined) nextParams.palette = String(nextParams.palette || '').trim()
+    }
+    if (id === 'bloom') {
+      const s = Number(nextParams.strength)
+      if (Number.isFinite(s)) nextParams.strength = Math.max(0, Math.min(3, s))
+      const thr = Number(nextParams.threshold)
+      if (Number.isFinite(thr)) nextParams.threshold = Math.max(0, Math.min(1, thr))
+      const r = Number(nextParams.radius)
+      if (Number.isFinite(r)) nextParams.radius = Math.max(0, Math.min(1, r))
+    }
+    if (id === 'micro-atoms') {
+      const tr = Number(nextParams.transmission)
+      if (Number.isFinite(tr)) nextParams.transmission = Math.max(0, Math.min(1, tr))
+      const ior = Number(nextParams.ior)
+      if (Number.isFinite(ior)) nextParams.ior = Math.max(1, Math.min(2, ior))
     }
     out.push({
       id,
@@ -520,92 +568,140 @@ function runStub() {
 }
 
 async function runExecute() {
-  if (executeBusy.value) return
-  executeBusy.value = true
-  theaterReport.value = ''
-
   try {
+    if (executeBusy.value) return
+    executeBusy.value = true
+    theaterReport.value = ''
+
     // Always maximize impact: Twin first.
     ensureTabKind('twin')
 
-    const sc = scenario.value
-    const backend = sc?.backend || {}
-    const modeId = String(backend.mode || '').trim()
-    const locationId = String(backend.location || '').trim()
-    const missionId = String(backend.mission_id || '').trim()
+    const scale = researchStore.currentScale.value
 
-    const q = String(lastIntent.value || '').trim()
-    const intro = [
-      'Agent (demo):',
-      `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
-      q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`,
-      `- Backend: mode=${modeId || '—'}, location=${locationId || '—'}`,
-      '- Step 1: 准备图层 (tiles/geojson)',
-      '- Step 2: 计算统计 (stats)',
-      '- Step 3: 生成研判 (analysis/report)',
-    ].join('\n')
-    _type(intro)
+    await executeQueue.enqueue(async () => {
+      const sc = scenario.value
+      const q = String(lastIntent.value || '').trim()
 
-    // Ensure required layers are enabled for a meaningful render.
-    try {
-      layers.value = (layers.value || []).map((l) => {
-        if (l.id === 'gee-heatmap') return { ...l, enabled: true }
-        return l
-      })
-    } catch (_) {
-      // ignore
-    }
+      if (scale === 'macro') {
+        const intro = [
+          'Agent (v7):',
+          `- Scale: macro`,
+          `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
+          q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`,
+          '- Step 1: 调参 LayerTree -> Bloom/Spiral',
+          '- Step 2: 高亮星系簇 + 环绕镜头',
+        ].join('\n')
+        _type(intro)
 
-    // If backend isn't ready, keep the UI responsive and stay deterministic.
-    try {
-      const health = await apiService.healthCheck()
-      if (!health?.gee_initialized) {
+        await engineRouter.value?.highlightMacroCluster?.()
+        await engineRouter.value?.spinMacroCamera?.({ duration: 3.0, revolutions: 1.0 })
         theaterReport.value = [
-          'Backend note:',
-          '- GEE 未初始化，已保留 UI→引擎联动链路。',
-          '- 如需真实 tiles，请配置后端 Earth Engine 环境。'
+          'Macro brief:',
+          '- 已在 ThreeTwin 中执行高亮与环绕。',
+          '- 可用 LayerTree 调整 Bloom Strength/Threshold/Radius。',
         ].join('\n')
         return
       }
-    } catch (_) {
-      // ignore health failures; proceed best-effort
-    }
 
-    // Stats + analysis/report are optional but upgrade Theater HUD to “business-grade”.
-    if (modeId && locationId) {
-      const statsResp = await apiService.getStats(modeId, locationId)
-      const stats = statsResp?.stats
+      if (scale === 'micro') {
+        const intro = [
+          'Agent (v7):',
+          `- Scale: micro`,
+          `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
+          q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`,
+          '- Step 1: 调参 LayerTree -> Material',
+          '- Step 2: 晶格重组动画 (rebuild)',
+        ].join('\n')
+        _type(intro)
 
-      let analysisText = ''
-      if (missionId) {
-        try {
-          const analysisResp = await apiService.getAnalysis(missionId, stats)
-          analysisText = String(analysisResp?.analysis || '').trim()
-        } catch (_) {
-          analysisText = ''
+        await engineRouter.value?.rebuildMicroLattice?.()
+        theaterReport.value = [
+          'Micro brief:',
+          '- 已触发晶格扰动与回稳。',
+          '- 可用 LayerTree 调整 Opacity/Transmission/IOR。',
+        ].join('\n')
+        return
+      }
+
+      // earth (default)
+      const backend = sc?.backend || {}
+      const modeId = String(backend.mode || '').trim()
+      const locationId = String(backend.location || '').trim()
+      const missionId = String(backend.mission_id || '').trim()
+
+      const intro = [
+        'Agent (demo):',
+        `- Scale: earth`,
+        `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
+        q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`,
+        `- Backend: mode=${modeId || '—'}, location=${locationId || '—'}`,
+        '- Step 1: 准备图层 (tiles/geojson)',
+        '- Step 2: 计算统计 (stats)',
+        '- Step 3: 生成研判 (analysis/report)',
+      ].join('\n')
+      _type(intro)
+
+      // Ensure required layers are enabled for a meaningful render.
+      try {
+        layers.value = (layers.value || []).map((l) => {
+          if (l.id === 'gee-heatmap') return { ...l, enabled: true }
+          return l
+        })
+      } catch (_) {
+        // ignore
+      }
+
+      // If backend isn't ready, keep the UI responsive and stay deterministic.
+      try {
+        const health = await apiService.healthCheck()
+        if (!health?.gee_initialized) {
+          theaterReport.value = [
+            'Backend note:',
+            '- GEE 未初始化，已保留 UI→引擎联动链路。',
+            '- 如需真实 tiles，请配置后端 Earth Engine 环境。'
+          ].join('\n')
+          return
         }
+      } catch (_) {
+        // ignore health failures; proceed best-effort
       }
 
-      let reportText = ''
-      if (missionId) {
-        try {
-          const reportResp = await apiService.getReport(missionId, stats)
-          reportText = String(reportResp?.report || '').trim()
-        } catch (_) {
-          reportText = ''
+      // Stats + analysis/report are optional but upgrade Theater HUD to “business-grade”.
+      if (modeId && locationId) {
+        const statsResp = await apiService.getStats(modeId, locationId)
+        const stats = statsResp?.stats
+
+        let analysisText = ''
+        if (missionId) {
+          try {
+            const analysisResp = await apiService.getAnalysis(missionId, stats)
+            analysisText = String(analysisResp?.analysis || '').trim()
+          } catch (_) {
+            analysisText = ''
+          }
         }
-      }
 
-      const lines = []
-      if (analysisText) {
-        lines.push('Analysis:', analysisText)
+        let reportText = ''
+        if (missionId) {
+          try {
+            const reportResp = await apiService.getReport(missionId, stats)
+            reportText = String(reportResp?.report || '').trim()
+          } catch (_) {
+            reportText = ''
+          }
+        }
+
+        const lines = []
+        if (analysisText) {
+          lines.push('Analysis:', analysisText)
+        }
+        if (reportText) {
+          if (lines.length) lines.push('')
+          lines.push('Brief:', reportText)
+        }
+        if (lines.length) theaterReport.value = lines.join('\n')
       }
-      if (reportText) {
-        if (lines.length) lines.push('')
-        lines.push('Brief:', reportText)
-      }
-      if (lines.length) theaterReport.value = lines.join('\n')
-    }
+    })
   } catch (e) {
     theaterReport.value = `Backend error: ${e?.message || String(e)}`
   } finally {
@@ -746,6 +842,17 @@ watch(
     } catch (_) { }
   },
   { deep: true }
+)
+
+watch(
+  () => researchStore.currentScale.value,
+  () => {
+    try {
+      executeQueue.cancel('scale-switch')
+    } catch (_) {
+      // ignore
+    }
+  }
 )
 
 onMounted(() => {

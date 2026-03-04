@@ -5,11 +5,17 @@
       ref="earthTwin"
       class="absolute inset-0"
       :scenario="scenario"
-      :layers="layers"
+      :layers="earthLayers"
       @viewer-ready="$emit('viewer-ready', $event)"
     />
 
-    <ThreeTwin v-else class="absolute inset-0" @ready="onThreeReady" />
+    <ThreeTwin
+      v-else
+      ref="threeTwin"
+      class="absolute inset-0"
+      :layers="layers"
+      @ready="onThreeReady"
+    />
   </div>
 </template>
 
@@ -19,7 +25,7 @@ import { useResearchStore } from '../../stores/researchStore.js'
 import EngineRouter from './EngineRouter.vue'
 import ThreeTwin from './engines/ThreeTwin.vue'
 
-defineProps({
+const props = defineProps({
   scenario: { type: Object, default: null },
   layers: { type: Array, default: () => [] },
 })
@@ -29,7 +35,13 @@ const emit = defineEmits(['viewer-ready'])
 const store = useResearchStore()
 const isEarth = computed(() => store.currentScale.value === 'earth')
 
+const earthLayers = computed(() => {
+  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
+  return (Array.isArray(props.layers) ? props.layers : []).filter((l) => allowed.has(String(l?.id || '')))
+})
+
 const earthTwin = ref(null)
+const threeTwin = ref(null)
 
 function onThreeReady() {
   try {
@@ -47,7 +59,34 @@ function flyToScenario() {
   }
 }
 
+async function highlightMacroCluster() {
+  try {
+    return await threeTwin.value?.highlightMacroCluster?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function spinMacroCamera(opts) {
+  try {
+    return await threeTwin.value?.spinMacroCamera?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function rebuildMicroLattice() {
+  try {
+    return await threeTwin.value?.rebuildMicroLattice?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
 defineExpose({
   flyToScenario,
+  highlightMacroCluster,
+  spinMacroCamera,
+  rebuildMicroLattice,
 })
 </script>
