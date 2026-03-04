@@ -19,6 +19,9 @@ old_version/
 .env.*
 !.env.example
 
+# Local env copies
+.env_copy
+
 # Secrets (do not commit)
 docs/aef-project-*.json
 docs/aef.txt
