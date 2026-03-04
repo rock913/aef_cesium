@@ -58,22 +58,36 @@ Zero2x 021 v7.0: 全尺度空间交互系统与双模态引擎开发蓝图
 - ✅ v7.x UI 重构（update_patch_0303 as-built）已完成：
   - HUD overlay 采用严格 flex 骨架：`workbench-root` + `hud-layer(pointer-events-none)`
     - 实现：`frontend/src/WorkbenchApp.vue`
-  - RightArmor 右侧装甲上下分割：LayerTree（上）+ Monaco/Editor（下）
-    - 实现：`frontend/src/WorkbenchApp.vue`
+  - ✅ v7 IDE 布局（oneearth_v7.md 目标对齐）已落地：左-中-右三栏
+    - 左侧统一资产面板（Unified Artifacts）：LayerTree / Monaco / Charts placeholder / Reports
+      - 实现：`frontend/src/views/workbench/components/UnifiedArtifactsPanel.vue`
+    - 右侧 Copilot Chat：Prompt Gallery + Tool Calling Events 卡片
+      - 实现：`frontend/src/views/workbench/components/CopilotChatPanel.vue`
+    - Workbench 组装（左/中/右 rails）：`frontend/src/WorkbenchApp.vue`
   - LayerTree 按尺度条件渲染（降低噪音）：
     - `v-if="currentScale === 'earth'" | 'macro' | 'micro'`
     - 实现：`frontend/src/views/workbench/components/LayerTree.vue`
   - 玻璃拟态面板与滚动条样式统一：`glass-panel` + slim scrollbar
   - TDD 骨架验收（字符串 wiring 断言）：`frontend/tests/workbenchLayoutV7x.test.js`
 
+- ✅ v7 Copilot Tool Calling（后端 stub，可演示可迭代）已完成：
+  - API：`GET /api/v7/prompts`、`GET /api/v7/tools`、`POST /api/v7/copilot/execute`
+    - 实现：`backend/v7_copilot.py`（deterministic 关键词路由）
+    - 接入：`backend/main.py`（include_router）
+    - 测试：`tests/test_v7_copilot_api.py`
+  - 前端通过 `apiService.executeCopilot()` 拉取事件并渲染为卡片：
+    - 实现：`frontend/src/services/api.js` + `CopilotChatPanel.vue`
+
   快速验收（建议按此顺序）
 
   1) 前端单测：`cd frontend && npm test`
   2) 前端构建：`cd frontend && npm run build`
   3) 手动验收（Workbench）：
+    - IDE 三栏：左侧可切 Tab（Layer/Code/Charts/Reports），右侧可点 Prompt Gallery 触发执行
+    - Tool Calling Events：右侧会出现 [思考]/[调用工具]/[工具结果]/[输出] 卡片（来自 `/api/v7/copilot/execute`）
     - Earth：切换到 Earth，LayerTree 只影响 GEE/边界/Mask；EXECUTE 仍走后端 stats/analyze/report（后端未配也应有清晰提示）
-    - Macro：切换到 Macro，LayerTree 可调 Bloom/Spiral；点 EXECUTE 触发“高亮簇 + 环绕镜头”
-    - Micro：切换到 Micro，LayerTree 可调 micro material；点 EXECUTE 触发“晶格重组”
+    - Macro：切换到 Macro，LayerTree 可调 Bloom/Spiral；点 Run/EXECUTE 触发“高亮簇 + 环绕镜头”
+    - Micro：切换到 Micro，LayerTree 可调 micro material；点 Run/EXECUTE 触发“晶格重组”
 
   已知约束（当前版本是“可回归 MVP”）
 

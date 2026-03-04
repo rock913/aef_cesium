@@ -4,68 +4,98 @@ Zero2x 021 v7：Copilot 驱动的空间交互与核心场景开发蓝图
 
 ---
 
-实现进度（as-built，截至 2026-03-04）
+## 状态更新（As-built，截止 2026-03-05）
 
-已完成（可回归）
+本文件仍是 v7.1 的“验收规范 + 开发蓝图”，但当前仓库已经落地了一套可运行的 **v7.1 最小闭环（MVP）**：
 
-- ✅ UI：工作台已改为严格“左-中-右”三栏 IDE 布局
-	- 左侧统一资产面板：`frontend/src/views/workbench/components/UnifiedArtifactsPanel.vue`
-	- 中央 Twin Canvas：`frontend/src/views/workbench/EngineScaleRouter.vue`
-	- 右侧 Copilot Chat：`frontend/src/views/workbench/components/CopilotChatPanel.vue`
-	- 组装入口：`frontend/src/WorkbenchApp.vue`
+### 已完成（可运行 + 有门禁）
 
-- ✅ Tool Calling（v7 stub 协议已打通，前后端闭环可演示）
-	- 后端端点：
-		- `GET /api/v7/prompts`（Prompt Gallery 数据源）
-		- `GET /api/v7/tools`（工具定义列表）
-		- `POST /api/v7/copilot/execute`（返回结构化 events：thought/tool_call/tool_result/final）
-	- 实现：`backend/v7_copilot.py` + `backend/main.py`
-	- 合同测试：`tests/test_v7_copilot_api.py`
-	- 前端对接：`frontend/src/services/api.js` + `frontend/src/WorkbenchApp.vue`（渲染事件卡片 + 最小事件分发）
+**UI / 交互（前端）**
 
-- ✅ 双引擎底座（安全约束不破坏 v6）
-	- Earth 模式：Cesium（保持 v6 工作流）
-	- Macro/Micro 模式：ThreeTwin（互斥挂载 + Dispose Gate）
+- 右侧 Copilot Chat 已按 v7.1 伪代码完成三段式结构：Header / Chat History / Input Zone（chips 紧贴 textarea 上方，气泡左右分离，CoT 手风琴可折叠，busy 结束自动折叠并显示耗时）。
+- HUD overlay 默认 `pointer-events: none`，面板选择性 `pointer-events: auto`，保证 Twin（Cesium/Three）可拖拽交互（不再被透明层吃事件）。
 
-- ✅ 关键问题修复（影响演示体验）
-	- Twin 画布鼠标不可交互（地球拖拽不转）：修复 HUD overlay 抢事件问题（补齐 pointer-events 工具类 + 中央区域穿透）
-	- “毛乌素”场景跳转回“鄱阳湖”：补齐 `maowusu` 场景注册，避免 fallback 到默认场景
+**Demo 全覆盖（12+2 = 14）**
 
-已验证
+- 前端场景注册已覆盖 14 个 demo context（含新增 Demo 13 `global`），避免“context 不存在 -> fallback 乱跳”类问题。
+- Backend v7 Copilot stub：`/api/v7/prompts` 已提供 **>= 14** 个 prompt chips；`/api/v7/tools` 已注册一组“地学工具 + UI 工具”；`/api/v7/copilot/execute` 对 14 个 demo 做了确定性 keyword 路由并返回 tool-calling events。
 
-- ✅ 前端测试：`frontend` Vitest 全绿（新增 `frontend/tests/scenarios021.test.js` 作为场景注册回归门禁）
+**TDD 门禁（已启用）**
 
-当前差距（仍属蓝图阶段 / 未完全落地）
+- 前端 Vitest：
+  - CopilotChatPanel v7.1 UI 结构回归测试（header/history/input-zone + chips 顺序 + bubble/accordion）。
+  - 场景注册回归测试（核心 demo + yancheng/zhoukou/global 等）。
+- 后端 Pytest：
+  - v7 Copilot 合同测试：prompts 数量、关键工具存在性、Demo 13 code-gen 会触发 `write_to_editor`。
 
-- ⏳ Demo 1-14 的“真实工具链路”尚未实现：目前为 deterministic stub + 最小 UI 分发（scale/context/layers 级别）
-- ⏳ “Unified Artifacts” 的 CHARTS/REPORTS 仍主要为占位/文本预览，未形成可导出产物闭环（ECharts/Markdown/PDF）
-- ⏳ 工具覆盖面不足：缺少对 `add_cesium_imagery` / `add_cesium_vector` / `generate_report` / `write_to_editor` 等关键 UI 工具的统一实现
+**工具调用 → 结构化产物（Phase 1 最小闭环已落地）**
 
-下一步建议（按优先级，建议按 1→3 逐步验收）
+- 后端 v7 `/api/v7/tools` 已补齐 UI 工具定义：`add_cesium_imagery` / `add_cesium_vector` / `show_chart` / `render_bivariate_map` / `generate_report` / `write_to_editor` / `execute_editor_code`。
+- 后端 v7 `/api/v7/copilot/execute`（stub 路由）对 Demo 1–3 + NYC 已发出上述 UI 工具事件，使前端可以稳定落产物。
+- 前端已实现可测试的纯函数映射层，把 tool events 写入 Unified Artifacts（Layers/Charts/Reports/Code），并在 Cesium Earth scale 支持：
+  - `ai-imagery`：支持直接使用 `tile_url`（UrlTemplateImageryProvider）挂载 overlay。
+  - `ai-vector`：支持将 GeoJSON 作为 DataSource 挂载并在 LayerTree 开关。
+- TDD：前端 Vitest 覆盖 tool→artifacts 映射；后端 Pytest 合同测试覆盖关键 demo 的 tool emissions（imagery/vector/charts）。
 
-1) 先把“工具 → UI 产物”补齐为通用能力（v7 基础设施）
+### 当前差距（仍是 stub / 未打通的真实链路）
 
-- 新增前端工具分发器（建议集中在 `frontend/src/WorkbenchApp.vue` 或抽到 `frontend/src/services/copilotRuntime.js`）：
-	- `ui.add_cesium_imagery(tile_url, palette, threshold, opacity)`：自动挂载到 Cesium 图层列表，并在 LayerTree 可调
-	- `ui.add_cesium_vector(geojson, color_map)`：加载 GeoJSON 数据源并可在 LayerTree 开关
-	- `ui.generate_report(markdown)`：写入 Unified Artifacts 的 REPORTS tab（后续再做 PDF 导出）
-	- `ui.write_to_editor(code, language)`：写入 CODE tab（Monaco）
-
-2) 用 TDD 实现“经典三大场景”真实闭环（先做 Demo 1-3）
-
-- Demo 1（余杭 diff）/ Demo 3（毛乌素 cosine diff）：优先落地 `POST /api/v1/aef/compute_diff` 的最小可用实现（可先返回 mock tile_url，但必须走统一工具链路渲染）
-- Demo 2（亚马逊 kmeans）：落地 `POST /api/v1/aef/cluster` 的最小实现（可先 stub GeoJSON，但必须走 vector 工具链路渲染）
-- 每个 Demo 的验收标准固定为：
-	- Copilot Events 卡片正确
-	- Twin 发生可见变化（飞行 + 图层挂载）
-	- REPORTS 产生一段结构化 Markdown 结论
-
-3) 再拓展到“前沿开拓 + 极客炫技”
-
-- Demo 7/9/11 等：优先把“数据源接入方式 + Cesium 可视化载体（3D Tiles/CZML/Extrusion）”规范化成工具
-- Demo 13：将代码生成限定为可控 sandbox（仅允许 CustomShader/GLSL 模板插槽），并为执行添加开关与审计日志
+- **真实计算链路仍未打通**：
+  - 当前 Demo 1–3/NYC 的 UI 工具事件仍主要用于验证闭环（如示例 tile_url、示例 geojson、空 points/grid）。
+  - 与既有 `/api/v1/...`（如 compute_diff/cluster/stats/report）尚未串联。
+- **地学/渲染特效工具未落地**：
+  - terrain、custom shader、night mode、CZML 动画、3D tiles、subsurface/voxel 等仍处于蓝图层面（工具已命名但没有 UI/引擎侧的可视化实现）。
 
 ---
+
+## 下一步计划（按 v7.1 验收点推进，强制 TDD）
+
+目标：把“Copilot tool-calling events”变成 **确定性的 UI 产物**（Layers/Charts/Reports/Code），并让 Demo 1–3 先闭环，再逐步铺满 14 个 demo 的渲染能力。
+
+### Phase 1（已完成：工具 → Unified Artifacts 最小闭环）
+
+**1) 统一事件协议（前后端）**
+
+- 固化 v7 事件结构：`tool_call` / `tool_result` 的 `args/result` schema（先从 UI 工具开始）。
+- 在后端 `GET /api/v7/tools` 中补齐 UI 工具定义（至少：`add_cesium_imagery`、`add_cesium_vector`、`show_chart`、`render_bivariate_map`、`generate_report`、`write_to_editor`）。✅
+
+**2) 前端 applyCopilotEvents：把工具写入“结构化资产”**
+
+- `add_cesium_imagery` → 写入 LayerTree（含 palette/threshold/opacity 等参数）并立即在 Cesium Twin 生效。✅
+- `add_cesium_vector` → 写入一个 vector layer（GeoJSON）并可在 LayerTree 开关。✅
+- `show_chart` / `render_bivariate_map` → 写入 Charts tab 的稳定数据集（当前为 JSON 预览占位）。✅
+- `generate_report` → 写入 Reports tab（Markdown）。✅
+
+**TDD（前端门禁）**
+
+- 新增 Vitest：给定一组 tool events，断言 LayerTree/Charts/Reports/Code 的 state 发生预期变化（不跑 Cesium 引擎也能测）。✅
+
+### Phase 2：Demo 1–3 真实打通（先 Earth scale）
+
+- Demo 1/3：`aef_compute_diff` 走既有 `/api/v1/aef/compute_diff`（或现有后端已有等价端点），拿到 tile url 后触发 `add_cesium_imagery`。
+- Demo 2：`aef_kmeans_cluster` 走 `/api/v1/aef/cluster`，拿到 geojson 后触发 `add_cesium_vector`。
+- 产物同步：同时生成 `generate_report`（引用 stats/差异面积/置信度等字段），写入 Reports。
+
+**TDD（后端门禁）**
+
+- Pytest 合同测试升级：
+  - `execute` 返回的 events 必须包含 `add_cesium_imagery/add_cesium_vector/generate_report`（对应 demo）。
+  - 当外部依赖不可用（如 GEE 未初始化）时，仍需返回“可解释的降级事件”（例如 final + report 提示），保持 UI 可用与确定性。
+
+### Phase 3：补齐剩余 Demo 的“可视化最低可用实现（MVR）”
+
+- Demo 4–12：优先落地“可见的 UI 效果”，再逐步替换为真实算法：
+  - polyline / extruded polygons / czml time animation / globe transparency / custom shader（可以先用占位实现，但 UI 与参数要固定）。
+- Demo 13：code-gen 从 stub 走向“可运行脚本”：
+  - 先把 `execute_editor_code` 变成“安全的 UI 执行器”（允许限定 API 的 sandbox），再接入真实 GFS 数据纹理。
+- Demo 14：把 wormhole + scale 切换 + lattice 生成串成“观感闭环”（已具备基础能力，重点补 UI 工具与产物侧栏切换）。
+
+---
+
+## 当前验收定义（对齐 v7.1）
+
+- UI：右侧 Chat 必须是气泡 + CoT 手风琴 + chips 紧贴输入框；中央 Twin 可交互拖拽；左侧产物面板能承接 code/report/chart/layer。
+- Demo：14 个 prompt chips 点击后，**至少**触发稳定的飞行/缩放与一组可视化产物写入（哪怕产物为 stub，但结构与落点必须稳定）。
+- TDD：前端 Vitest 与后端 Pytest 合同测试必须覆盖上述最低闭环，不允许回归。
 
 一、 UI 架构重构：Copilot 驱动的“空间 IDE”布局
 
@@ -73,22 +103,67 @@ Zero2x 021 v7：Copilot 驱动的空间交互与核心场景开发蓝图
 
 1. 右侧中枢：021 Copilot Chat (动态对话与任务规划栏)
 
-位置： 屏幕最右侧，宽度约 400px，高度 100vh，侧边栏（可折叠）。
-设计灵感： GitHub Copilot Chat / Cursor IDE。
+位置：屏幕最右侧，宽度约 400px，高度 100vh，右侧边栏（可折叠 Collapse）。
+设计灵感：GitHub Copilot Chat / Cursor IDE / ChatGPT。
+视觉与交互重构指南：
+彻底告别“静态仪表盘”感，划分为界限分明的上、中、下三个区域：
 
-Prompt Gallery (预置指令库)：在输入框上方提供横向滚动的“场景胶囊 (Chips)”。用户点击如 [演示: 亚马逊雨林聚类]，输入框会自动填入完整的 Prompt 并执行。解决用户“不知道问什么、不想打字”的痛点。
+Top: 面板头部 (Header)
 
-思维链 (CoT) 与工具调用流：当用户输入后，界面以动态卡片展示 AI 思考过程：
+左侧显示标题 021 COPILOT，右侧提供明确的折叠/展开按钮 [⇥ Collapse]，允许用户随时收起侧边栏，将全屏空间还给地球视窗。
 
-[思考] 提取目标坐标...
+Middle: 对话流与动态卡片区 (Message History)
 
-[调用工具] camera_fly_to(lat=-10.04, lon=-55.42)
+气泡式对话：用户的输入与 AI 的回复必须以“对话气泡（Chat Bubbles）”区分。用户在右，AI 在左。
 
-[调用工具] aef_zero_shot_kmeans(k=6)
+折叠式思维链 (Collapsible CoT)：AI 的思考过程（如 [调用工具] aef_zero_shot_kmeans）封装在可折叠的 Accordion（手风琴组件）中。执行时展开，执行完毕自动折叠为 ✓ 分析完成 (耗时 3.2s)。
+
+Bottom: 沉浸式指令输入区 (Input Zone) - 核心优化点
+
+贴地悬浮：固定在屏幕最底部，采用悬浮磨砂质感。
+
+Prompt Gallery (预置指令胶囊)：必须紧贴在文本输入框的正上方，采用横向滚动的单行横排设计。点击任意胶囊，自动填入输入框并发送。
+
+💡 附加：右侧 Chat UI 结构伪代码 (供前端直接参考)
+
+<template>
+  <div class="copilot-sidebar w-[400px] h-screen flex flex-col bg-gray-900/90 backdrop-blur-md border-l border-white/10">
+    <!-- Top: Header -->
+    <div class="header h-14 flex justify-between items-center px-4 border-b border-white/10">
+      <span class="font-bold text-white tracking-widest">021 COPILOT</span>
+      <button @click="collapse" class="text-gray-400 hover:text-white">⇥ Collapse</button>
+    </div>
+
+    <!-- Middle: Chat History (Scrollable) -->
+    <div class="chat-history flex-1 overflow-y-auto p-4 space-y-4">
+      <!-- User Bubble -->
+      <div class="user-bubble ml-auto bg-blue-600 text-white p-3 rounded-lg max-w-[85%]">...</div>
+      <!-- AI CoT Accordion -->
+      <div class="ai-cot-accordion bg-black/30 border border-white/5 rounded p-2 text-sm text-gray-400">
+        <details><summary>✓ 分析完成 (耗时 3.2s)</summary>...调用过程...</details>
+      </div>
+    </div>
+
+    <!-- Bottom: Input Zone -->
+    <div class="input-zone p-4 bg-gray-900 border-t border-white/10 flex flex-col gap-2">
+      <!-- 🌟 Prompt Chips: 紧贴输入框上方 -->
+      <div class="prompt-chips flex overflow-x-auto pb-1 hide-scrollbar gap-2">
+        <button class="chip px-3 py-1 bg-white/5 hover:bg-white/10 rounded-full whitespace-nowrap text-xs text-cyan-400">✨ 余杭城建审计</button>
+        <button class="chip px-3 py-1 bg-white/5 hover:bg-white/10 rounded-full whitespace-nowrap text-xs text-cyan-400">✨ 亚马逊聚类</button>
+      </div>
+      <!-- Textarea & Send -->
+      <div class="relative">
+        <textarea class="w-full bg-black/50 border border-white/20 rounded-lg pl-3 pr-10 py-3 text-white" rows="2" placeholder="输入自然语言指令..."></textarea>
+        <button class="absolute right-2 bottom-3 text-cyan-400">↑</button>
+      </div>
+    </div>
+  </div>
+</template>
+
 
 2. 左侧仓库：统一资产与产物面板 (Unified Artifacts Tab)
 
-位置： 屏幕最左侧，宽度约 360px。
+位置：屏幕最左侧，宽度约 360px。
 
 Tab 1: 🗂️ LAYER & DATA：管理 GEE 瓦片图层，精细化调节 AlphaEarth 渲染管线的阈值与色标。
 
@@ -100,7 +175,7 @@ Tab 4: 📝 REPORTS：展示最终生成的结构化 Markdown 研判报告，支
 
 3. 中央视窗：无界空间底座 (The Twin Canvas)
 
-位置： Flex 布局撑满剩余空间。彻底去边框化，仅保留极简的 Scale Toggle (Earth/Macro/Micro)。
+位置：Flex 布局撑满剩余空间。彻底去边框化，仅保留极简的 Scale Toggle (Earth/Macro/Micro)。
 
 二、 核心 Demo 场景大盘与技术实现细节 (12+2 全矩阵)
 
@@ -168,7 +243,6 @@ Payload: { "metric": "cosine_similarity" }
 Copilot 执行流 (伪代码)：
 
 await ui.fly_to(coords=[38.5, 109.2], zoom=10)
-# LLM 智能选择 cosine_similarity 排除光照/季节的绝对值干扰
 real_growth = await tools.call('aef_compute_diff', roi='maowusu', years=[2019,2024], metric='cosine_similarity')
 await ui.add_cesium_imagery(real_growth.tile_url, palette='Greens')
 
@@ -202,7 +276,6 @@ Demo 5: 农田内涝隐形危机预警
 
 Copilot 执行流 (伪代码)：
 
-# LLM 准确理解“隐形水灾”需要调用 A02 维度
 water_stress = await tools.call('aef_extract_feature', roi='zhoukou', dim='A02')
 await ui.add_cesium_imagery(water_stress.tile_url, palette='Purples', opacity=0.7)
 
@@ -259,7 +332,6 @@ Copilot 执行流 (伪代码)：
 
 deformation = await tools.call('fetch_insar_displacement', roi='mauna_loa')
 thermal = await tools.call('fetch_lst_anomaly', roi='mauna_loa')
-# 生成着色器注入左侧代码编辑器并热执行
 shader_code = await tools.generate_cesium_custom_shader(vertex_displacement=deformation, fragment_heat=thermal)
 await ui.apply_custom_shader(shader_code)
 
@@ -277,7 +349,6 @@ Demo 9: 全球碳汇与三维生物量估算
 Copilot 执行流 (伪代码)：
 
 carbon_stats = await tools.call('estimate_carbon_stock', source='GEDI+AEF', roi='congo')
-# 在 Cesium 中利用 Extruded Polygon 实现 3D 拔地而起的效果
 await ui.add_cesium_extruded_polygons(carbon_stats.geojson, height_property='carbon_tonnes', color_property='density')
 
 
@@ -328,7 +399,6 @@ Demo 12: 极深地下矿脉高光谱解译
 
 Copilot 执行流 (伪代码)：
 
-# 设置地表半透明
 await ui.set_globe_transparency(0.5) 
 minerals = await tools.call('hyperspectral_unmixing', endmembers=['Fe', 'Li'], roi='pilbara')
 await ui.add_cesium_subsurface_model(minerals.3d_voxels)

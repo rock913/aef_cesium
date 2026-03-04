@@ -28,9 +28,13 @@
       </section>
 
       <section v-else-if="tab === 'charts'" class="panel" aria-label="Charts & Stats">
-        <div class="placeholder">
-          Charts placeholder (ECharts will land here).
+        <div v-if="charts && charts.length" class="charts-list" aria-label="Charts List">
+          <div v-for="c in charts" :key="c.id" class="chart-item">
+            <div class="chart-title">{{ c.title || c.kind || 'Chart' }}</div>
+            <pre class="chart-pre">{{ stringify(c.data) }}</pre>
+          </div>
         </div>
+        <div v-else class="placeholder">No charts yet. Run a Copilot prompt that emits show_chart.</div>
       </section>
 
       <section v-else class="panel" aria-label="Reports">
@@ -50,6 +54,7 @@ const props = defineProps({
   currentScale: { type: String, default: 'earth' },
   code: { type: String, default: '' },
   reportText: { type: String, default: '' },
+  charts: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:layers', 'update:code'])
@@ -73,6 +78,14 @@ const codeModel = computed({
     emit('update:code', String(v ?? ''))
   },
 })
+
+function stringify(v) {
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch (_) {
+    return String(v)
+  }
+}
 </script>
 
 <style scoped>
@@ -138,6 +151,35 @@ const codeModel = computed({
   padding: 12px;
   opacity: 0.75;
   font-size: 12px;
+}
+
+.charts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chart-item {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 10px;
+}
+
+.chart-title {
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+
+.chart-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0.9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
 .report-pre {

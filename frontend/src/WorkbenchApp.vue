@@ -73,6 +73,7 @@
             v-model:code="code"
             :current-scale="currentScale"
             :report-text="theaterReport"
+            :charts="charts"
           />
         </aside>
 
@@ -96,6 +97,7 @@
             :agent-text="agentText"
             :report-text="theaterReport"
             :events="copilotEvents"
+            @select-preset="onCopilotSelectPreset"
             @submit="onCopilotSubmit"
           />
         </aside>
@@ -135,6 +137,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
+import { applyCopilotArtifacts } from './utils/copilotArtifacts.js'
 import { apiService } from './services/api.js'
 import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
@@ -431,10 +434,14 @@ const layers = ref([
   { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } },
   { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } },
   { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+  { id: 'ai-imagery', name: 'AI Imagery Overlay', enabled: false, params: { opacity: 0.65, tile_url: '' } },
+  { id: 'ai-vector', name: 'AI Vector Overlay', enabled: false, params: { opacity: 0.90, geojson: null } },
   { id: 'bloom', name: 'Bloom FX', enabled: true, params: { strength: 1.1, threshold: 0.65, radius: 0.15 } },
   { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} },
   { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
 ])
+
+const charts = ref([])
 
 function _safeJsonParse(s, fallback) {
   try {
@@ -466,11 +473,13 @@ function _normalizeTabs(arr) {
 
 function _normalizeLayers(arr) {
   const a = Array.isArray(arr) ? arr : []
-  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'bloom', 'macro-spiral', 'micro-atoms'])
+  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-imagery', 'ai-vector', 'bloom', 'macro-spiral', 'micro-atoms'])
   const defaults = new Map([
     ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } }],
     ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } }],
     ['anomaly-mask', { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } }],
+    ['ai-imagery', { id: 'ai-imagery', name: 'AI Imagery Overlay', enabled: false, params: { opacity: 0.65, tile_url: '' } }],
+    ['ai-vector', { id: 'ai-vector', name: 'AI Vector Overlay', enabled: false, params: { opacity: 0.90, geojson: null } }],
     ['bloom', { id: 'bloom', name: 'Bloom FX', enabled: true, params: { strength: 1.1, threshold: 0.65, radius: 0.15 } }],
     ['macro-spiral', { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} }],
     ['micro-atoms', { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } }],
@@ -497,6 +506,12 @@ function _normalizeLayers(arr) {
       const thr = Number(nextParams.threshold)
       if (Number.isFinite(thr)) nextParams.threshold = Math.max(0, Math.min(1, thr))
       if (nextParams.palette !== undefined) nextParams.palette = String(nextParams.palette || '').trim()
+    }
+    if (id === 'ai-imagery') {
+      if (nextParams.tile_url !== undefined) nextParams.tile_url = String(nextParams.tile_url || '').trim()
+      if (nextParams.palette !== undefined) nextParams.palette = String(nextParams.palette || '').trim()
+      const thr = Number(nextParams.threshold)
+      if (Number.isFinite(thr)) nextParams.threshold = Math.max(0, Math.min(1, thr))
     }
     if (id === 'bloom') {
       const s = Number(nextParams.strength)
@@ -848,6 +863,28 @@ function onCopilotSubmit(text) {
 
 function applyCopilotEvents(events) {
   const arr = Array.isArray(events) ? events : []
+
+  // Phase 1 (v7.1): tool-calling events must write deterministic artifacts.
+  try {
+    const next = applyCopilotArtifacts(
+      {
+        layers: layers.value,
+        charts: charts.value,
+        code: code.value,
+        report: theaterReport.value,
+      },
+      arr
+    )
+    if (next && typeof next === 'object') {
+      if (Array.isArray(next.layers)) layers.value = next.layers
+      if (Array.isArray(next.charts)) charts.value = next.charts
+      if (typeof next.code === 'string') code.value = next.code
+      if (typeof next.report === 'string') theaterReport.value = next.report
+    }
+  } catch (_) {
+    // ignore
+  }
+
   for (const e of arr) {
     if (e?.type !== 'tool_call') continue
     const tool = String(e?.tool || '').trim()
@@ -867,6 +904,18 @@ function applyCopilotEvents(events) {
         if (lat < 0) contextId.value = 'amazon'
         else if (lat > 25 && lon > 110) contextId.value = 'yuhang'
         else if (lat > 35 && lon > 100 && lon < 120) contextId.value = 'maowusu'
+
+        // Persist context so UI/URL doesn't appear to "jump back".
+        try {
+          window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
+        } catch (_) { }
+        try {
+          const u = new URL(window.location.href)
+          u.searchParams.set('context', contextId.value)
+          window.history.replaceState({}, '', u.toString())
+        } catch (_) {
+          // ignore
+        }
       }
       continue
     }
@@ -884,6 +933,48 @@ function applyCopilotEvents(events) {
       }
       continue
     }
+  }
+}
+
+function onCopilotSelectPreset(preset) {
+  const id = String(preset?.id || '').trim().toLowerCase()
+  if (!id) return
+
+  // v7.1 spec: keep an IDE feel by default.
+  // Do NOT force Theater/Lab here; users can toggle via top bar / F11.
+  ensureTabKind('twin')
+
+  // Deterministic mapping: bind to a stable scenario + scale.
+  // Prefer explicit ids, but also support keyword contains for backward compat.
+  const setContextScale = (ctx, scale) => {
+    if (ctx) contextId.value = String(ctx)
+    if (scale) setScale(String(scale))
+  }
+
+  if (id === 'demo:yuhang_audit' || id.includes('yuhang')) setContextScale('yuhang', 'earth')
+  else if (id === 'demo:amazon_cluster' || id.includes('amazon')) setContextScale('amazon', 'earth')
+  else if (id === 'demo:maowusu_cos' || id.includes('maowusu')) setContextScale('maowusu', 'earth')
+  else if (id.includes('yancheng')) setContextScale('yancheng', 'earth')
+  else if (id.includes('zhoukou')) setContextScale('zhoukou', 'earth')
+  else if (id.includes('nyc') || id.includes('newyork')) setContextScale('nyc', 'earth')
+  else if (id.includes('congo')) setContextScale('congo', 'earth')
+  else if (id.includes('malacca')) setContextScale('malacca', 'earth')
+  else if (id.includes('pilbara')) setContextScale('pilbara', 'earth')
+  else if (id.includes('everest')) setContextScale('everest_lake', 'earth')
+  else if (id.includes('mauna')) setContextScale('mauna_loa', 'earth')
+  else if (id.includes('talatan')) setContextScale('talatan', 'earth')
+  else if (id.includes('wind') || id.includes('gfs') || id.includes('glsl')) setContextScale('global', 'earth')
+  else if (id.includes('wormhole') || id.includes('micro')) setContextScale(contextId.value || 'poyang', 'micro')
+
+  try {
+    window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
+  } catch (_) { }
+  try {
+    const u = new URL(window.location.href)
+    u.searchParams.set('context', contextId.value)
+    window.history.replaceState({}, '', u.toString())
+  } catch (_) {
+    // ignore
   }
 }
 
@@ -1048,6 +1139,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 
+.pointer-events-none {
+  pointer-events: none;
+}
+
+.pointer-events-auto {
+  pointer-events: auto;
+}
+
 .workbench-root {
   position: fixed;
   inset: 0;
@@ -1186,6 +1285,9 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   position: relative;
+  /* Let pointer events fall through to the engine canvas behind.
+     Interactive center panels (table/charts/status) explicitly opt-in. */
+  pointer-events: none;
 }
 
 .center-panel {

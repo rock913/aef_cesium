@@ -36,7 +36,7 @@ const store = useResearchStore()
 const isEarth = computed(() => store.currentScale.value === 'earth')
 
 const earthLayers = computed(() => {
-  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
+  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-imagery', 'ai-vector'])
   return (Array.isArray(props.layers) ? props.layers : []).filter((l) => allowed.has(String(l?.id || '')))
 })
 

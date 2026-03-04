@@ -282,7 +282,7 @@ function toggle(id) {
 }
 
 const earthLayers = computed(() => {
-  const ids = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
+  const ids = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-imagery', 'ai-vector'])
   return (props.layers || []).filter((l) => ids.has(String(l?.id || '')))
 })
 

@@ -105,6 +105,64 @@ function _removeOverlayEntry(id) {
   map.delete(id)
 }
 
+async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return
+
+  const id = 'ai-vector'
+  const sig = `ai-vector:${JSON.stringify(geojson || null)}:${String(color || '')}`
+  const existing = _overlayEntry(id)
+
+  if (existing?.kind === 'geojson' && existing.sig === sig) {
+    try {
+      existing.dataSource.show = !!enabled
+    } catch (_) {
+      // ignore
+    }
+    // opacity update is best-effort (some entity materials may not exist).
+    try {
+      const a = _clamp01(opacity, 0.9)
+      const css = String(color || '#00F0FF').trim() || '#00F0FF'
+      const c = Cesium.Color.fromCssColorString(css).withAlpha(Math.max(0.15, a))
+      for (const ent of existing.dataSource.entities.values) {
+        if (ent?.polyline?.material) ent.polyline.material = c
+        if (ent?.polygon?.material) ent.polygon.material = c.withAlpha(Math.max(0.10, a * 0.35))
+        if (ent?.point?.color) ent.point.color = c
+      }
+    } catch (_) {
+      // ignore
+    }
+    return
+  }
+
+  _removeOverlayEntry(id)
+  if (!geojson) return
+
+  try {
+    const a = _clamp01(opacity, 0.9)
+    const css = String(color || '#00F0FF').trim() || '#00F0FF'
+    const stroke = Cesium.Color.fromCssColorString(css).withAlpha(Math.max(0.15, a))
+    const fill = stroke.withAlpha(Math.max(0.10, a * 0.35))
+
+    const ds = await Cesium.GeoJsonDataSource.load(geojson, {
+      clampToGround: true,
+      stroke,
+      strokeWidth: 2,
+      fill,
+    })
+    if (token !== applyToken.value) return
+    try {
+      ds.show = !!enabled
+    } catch (_) {
+      // ignore
+    }
+    viewer.dataSources.add(ds)
+    _setOverlayEntry(id, { kind: 'geojson', dataSource: ds, sig })
+  } catch (_) {
+    // ignore
+  }
+}
+
 async function _ensureGeoJsonBoundaries({ enabled, opacity, token }) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return
@@ -337,6 +395,48 @@ async function _ensureImageryLayerForId({ id, enabled, opacity, options, token }
   }
 
   const opts = options && typeof options === 'object' ? options : {}
+  // AI imagery overlay: allow a direct tile template URL from tool-calling events.
+  if (id === 'ai-imagery') {
+    const direct = String((opts && (opts.tile_url || opts.url)) || '').trim()
+    const sig = `ai-imagery:${direct}:${JSON.stringify(opts)}`
+    const existing = _overlayEntry(id)
+
+    if (existing?.kind === 'imagery' && existing.sig === sig) {
+      try {
+        existing.layer.show = true
+        existing.layer.alpha = _clamp01(opacity, 0.65)
+      } catch (_) {
+        // ignore
+      }
+      return
+    }
+
+    _removeOverlayEntry(id)
+    if (!direct) return
+    if (token !== applyToken.value) return
+
+    try {
+      const provider = new Cesium.UrlTemplateImageryProvider({
+        url: direct,
+        tilingScheme: new Cesium.WebMercatorTilingScheme(),
+        maximumLevel: 24,
+        enablePickFeatures: false,
+      })
+      const layer = viewer.imageryLayers.addImageryProvider(provider)
+      try {
+        layer.__oneearthOverlay = true
+      } catch (_) {
+        // ignore
+      }
+      layer.alpha = _clamp01(opacity, 0.65)
+      layer.show = !!enabled
+      _setOverlayEntry(id, { kind: 'imagery', layer, sig })
+    } catch (_) {
+      // ignore
+    }
+    return
+  }
+
   const sig = `${id}:${mode}:${location}:${JSON.stringify(opts)}`
   const existing = _overlayEntry(id)
 
@@ -431,14 +531,31 @@ async function applyLayersAsync(layers) {
     // ignore
   }
 
-  // 2) Imagery overlays (GEE tiles via backend proxy)
+  // 2) AI vector overlay (GeoJSON)
+  try {
+    const l = arr.find((x) => String(x?.id || '') === 'ai-vector')
+    const enabled = !!l?.enabled
+    const opacity = _getLayerParam(l, 'opacity', 0.9)
+    const geojson = _getLayerParam(l, 'geojson', null)
+    const color = String(_getLayerParam(l, 'color', '#00F0FF') || '').trim() || '#00F0FF'
+    await _ensureAiVector({ enabled, opacity, geojson, token, color })
+  } catch (_) {
+    // ignore
+  }
+
+  // 3) Imagery overlays (GEE tiles via backend proxy, plus ai-imagery direct URL)
   for (const l of arr) {
     const id = String(l?.id || '').trim()
     if (!id || id === 'boundaries') continue
+    if (id === 'ai-vector') continue
     const enabled = !!l?.enabled
     const opacity = _getLayerParam(l, 'opacity', 0.8)
 
     const opts = {}
+    if (id === 'ai-imagery') {
+      const tileUrl = String(_getLayerParam(l, 'tile_url', '') || '').trim()
+      if (tileUrl) opts.tile_url = tileUrl
+    }
     if (id === 'anomaly-mask') {
       opts.variant = 'anomaly-mask'
       const thr = Number(_getLayerParam(l, 'threshold', 0.1))

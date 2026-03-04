@@ -59,6 +59,56 @@ _PRESETS: List[CopilotPreset] = [
         prompt="评估毛乌素沙地近5年真实治理成效，改用余弦相似度以排除秋冬植被枯黄干扰。",
     ),
     CopilotPreset(
+        id="demo:yancheng_coastline",
+        label="[演示] 盐城海岸线红线",
+        prompt="基于 AEF 16维特征，使用随机森林，划分自然滩涂与人工海堤的边界红线。",
+    ),
+    CopilotPreset(
+        id="demo:zhoukou_water_stress",
+        label="[演示] 周口农田内涝胁迫",
+        prompt="近期极端降雨，利用介电常数特征，扫描光学表象下农作物根系的隐形水灾风险。",
+    ),
+    CopilotPreset(
+        id="demo:talatan_pv_cooccurrence",
+        label="[演示] 塔拉滩光伏蓝海",
+        prompt="提取太阳能面板铺设区，并与植被恢复（生物量）特征层进行空间共现性计算。",
+    ),
+    CopilotPreset(
+        id="demo:everest_lake_glof",
+        label="[演示] 珠峰冰川湖溃决 (GLOF)",
+        prompt="融合高精度 DEM，测算当前冰碛湖体积，并模拟溃坝洪峰(GLOF) 3D路径。",
+    ),
+    CopilotPreset(
+        id="demo:mauna_loa_volcano",
+        label="[演示] 冒纳罗亚火山预判",
+        prompt="加载 InSAR 形变相位，结合热力异常，生成火山膨胀隆起的 3D 态势图。",
+    ),
+    CopilotPreset(
+        id="demo:congo_carbon_stock",
+        label="[演示] 刚果碳汇估算",
+        prompt="融合 GEDI 激光雷达树高，计算三维冠层碳储量，并以 3D 柱状体拉伸显示。",
+    ),
+    CopilotPreset(
+        id="demo:nyc_heat_income",
+        label="[演示] 纽约热岛×脆弱性",
+        prompt="将夏季地表温度 (LST) 与社区平均收入数据进行空间皮尔逊相关性计算。",
+    ),
+    CopilotPreset(
+        id="demo:malacca_oilspill",
+        label="[演示] 马六甲油污追踪",
+        prompt="利用 SAR 图像检测原油泄漏多边形，与过去 24 小时 AIS 船舶轨迹交集碰撞。",
+    ),
+    CopilotPreset(
+        id="demo:pilbara_unmixing",
+        label="[演示] 皮尔巴拉高光谱解译",
+        prompt="使用高光谱解混算法 (Spectral Unmixing)，寻找地表下方的铁矿与锂矿隐伏脉络。",
+    ),
+    CopilotPreset(
+        id="demo:global_wind_glsl",
+        label="[演示] 全球风场流体 (GLSL)",
+        prompt="用 GLSL 为我写一段基于 GFS 数据的全球风场流体渲染代码，并直接在地图上运行。",
+    ),
+    CopilotPreset(
         id="demo:wormhole_micro",
         label="[演示] 宏微虫洞跃迁",
         prompt="触发虫洞动画并切换到 micro，生成 SiO2 分子晶格。",
@@ -75,6 +125,42 @@ _TOOLS: List[ToolDef] = [
             "lon": {"type": "number"},
             "height": {"type": "number"},
             "duration_s": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="add_cesium_imagery",
+        description="Mount a raster imagery overlay onto Cesium (tile template URL).",
+        args_schema={
+            "tile_url": {"type": "string"},
+            "opacity": {"type": "number"},
+            "palette": {"type": "string"},
+            "threshold": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="add_cesium_vector",
+        description="Mount a vector overlay (GeoJSON) onto Cesium.",
+        args_schema={
+            "geojson": {"type": "object"},
+            "opacity": {"type": "number"},
+            "color": {"type": "string"},
+        },
+    ),
+    ToolDef(
+        name="show_chart",
+        description="Write a chart dataset into Charts & Stats artifacts.",
+        args_schema={
+            "kind": {"type": "string"},
+            "title": {"type": "string"},
+            "data": {"type": "object"},
+        },
+    ),
+    ToolDef(
+        name="render_bivariate_map",
+        description="Write a bivariate grid artifact (Charts/Maps placeholder).",
+        args_schema={
+            "title": {"type": "string"},
+            "data": {"type": "object"},
         },
     ),
     ToolDef(
@@ -99,6 +185,105 @@ _TOOLS: List[ToolDef] = [
             "k": {"type": "integer"},
             "use_dims": {"type": "string"},
         },
+    ),
+    ToolDef(
+        name="aef_supervised_boundary_extraction",
+        description="Extract supervised boundaries (e.g., coastline redline) with a specified model.",
+        args_schema={
+            "model": {"type": "string"},
+            "target": {"type": "string"},
+        },
+    ),
+    ToolDef(
+        name="aef_extract_feature",
+        description="Extract an AEF feature dim for a ROI.",
+        args_schema={
+            "roi": {"type": "string"},
+            "dim": {"type": "string"},
+        },
+    ),
+    ToolDef(
+        name="aef_spatial_co_occurrence",
+        description="Compute spatial co-occurrence between two layers.",
+        args_schema={
+            "layer1": {"type": "string"},
+            "layer2": {"type": "string"},
+        },
+    ),
+    ToolDef(
+        name="enable_3d_terrain",
+        description="Enable 3D terrain provider.",
+        args_schema={"terrain": {"type": "string"}},
+    ),
+    ToolDef(
+        name="calculate_3d_volume",
+        description="Calculate 3D volume of a glacial lake using DEM.",
+        args_schema={"roi": {"type": "string"}, "use_dem": {"type": "boolean"}},
+    ),
+    ToolDef(
+        name="simulate_glof_fluid",
+        description="Simulate GLOF flood path.",
+        args_schema={"origin": {"type": "string"}, "volume": {"type": "number"}},
+    ),
+    ToolDef(
+        name="fetch_insar_displacement",
+        description="Fetch InSAR displacement for a ROI.",
+        args_schema={"roi": {"type": "string"}},
+    ),
+    ToolDef(
+        name="fetch_lst_anomaly",
+        description="Fetch land surface temperature anomalies for a ROI.",
+        args_schema={"roi": {"type": "string"}},
+    ),
+    ToolDef(
+        name="generate_cesium_custom_shader",
+        description="Generate Cesium CustomShader code.",
+        args_schema={"vertex_displacement": {"type": "string"}, "fragment_heat": {"type": "string"}},
+    ),
+    ToolDef(
+        name="estimate_carbon_stock",
+        description="Estimate carbon stock for a ROI using given sources.",
+        args_schema={"source": {"type": "string"}, "roi": {"type": "string"}},
+    ),
+    ToolDef(
+        name="spatial_pearson_correlation",
+        description="Compute spatial pearson correlation between two variables over a ROI.",
+        args_schema={"var1": {"type": "string"}, "var2": {"type": "string"}, "roi": {"type": "string"}},
+    ),
+    ToolDef(
+        name="detect_sar_oil_spill",
+        description="Detect oil spill polygons from SAR.",
+        args_schema={"roi": {"type": "string"}},
+    ),
+    ToolDef(
+        name="intersect_ais_tracks",
+        description="Intersect AIS tracks with a target polygon over a time window.",
+        args_schema={"time_window": {"type": "string"}},
+    ),
+    ToolDef(
+        name="hyperspectral_unmixing",
+        description="Run hyperspectral spectral unmixing for a ROI.",
+        args_schema={"roi": {"type": "string"}, "endmembers": {"type": "array", "items": {"type": "string"}}},
+    ),
+    ToolDef(
+        name="get_gfs_uv_wind_data",
+        description="Get GFS wind (u/v) data url for rendering.",
+        args_schema={},
+    ),
+    ToolDef(
+        name="write_to_editor",
+        description="Write code/text to the Monaco editor.",
+        args_schema={"code": {"type": "string"}, "tab": {"type": "string"}},
+    ),
+    ToolDef(
+        name="execute_editor_code",
+        description="Execute code currently in the editor (sandboxed in UI).",
+        args_schema={},
+    ),
+    ToolDef(
+        name="generate_report",
+        description="Generate a short Markdown report and write it to Reports tab.",
+        args_schema={"text": {"type": "string"}},
     ),
     ToolDef(
         name="generate_molecular_lattice",
@@ -128,12 +313,37 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
 
     # Deterministic routing based on keywords.
     if "亚马逊" in p or "amazon" in lc or "聚类" in p or "k=6" in lc:
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"cluster": 1},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [-55.8, -10.2],
+                                [-55.8, -9.9],
+                                [-55.4, -9.9],
+                                [-55.4, -10.2],
+                                [-55.8, -10.2],
+                            ]
+                        ],
+                    },
+                }
+            ],
+        }
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -10.04485, "lon": -55.42936, "height": 90000, "duration_s": 4.0}),
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_kmeans_cluster", args={"k": 6, "use_dims": "all"}),
                 CopilotEvent(type="tool_result", tool="aef_kmeans_cluster", result={"status": "stub", "clusters": 6}),
+                CopilotEvent(type="tool_call", tool="add_cesium_vector", args={"geojson": geojson, "opacity": 0.9, "color": "#00F0FF"}),
+                CopilotEvent(type="tool_result", tool="add_cesium_vector", result="ok"),
+                CopilotEvent(type="tool_call", tool="generate_report", args={"text": "# 亚马逊零样本聚类（stub）\n\n- k=6 已生成（示例矢量覆盖）\n- 下一步：将真实 geojson 输出接入 add_cesium_vector\n"}),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
                 CopilotEvent(type="final", text="已生成聚类指令（stub），下一步可将结果渲染为 GeoJSON 图层。"),
             ]
         )
@@ -146,6 +356,10 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "yuhang", "years": [2017, 2024], "metric": "euclidean", "dim": "A00"}),
                 CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "stub", "tile_url": ""}),
+                CopilotEvent(type="tool_call", tool="add_cesium_imagery", args={"tile_url": "/api/basemap/osm/{z}/{x}/{y}.png", "opacity": 0.55, "palette": "Oranges", "threshold": 0.4}),
+                CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
+                CopilotEvent(type="tool_call", tool="generate_report", args={"text": "# 余杭城建审计（stub）\n\n- 已挂载示例 imagery overlay（用于验证工具链）\n- 下一步：compute_diff 返回真实 tile_url 后替换 overlay\n"}),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
                 CopilotEvent(type="final", text="已生成城建审计指令（stub），下一步可挂载 tiles 并生成报告。"),
             ]
         )
@@ -158,7 +372,150 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "maowusu", "years": [2019, 2024], "metric": "cosine_similarity", "dim": "A01"}),
                 CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "stub", "tile_url": ""}),
+                CopilotEvent(type="tool_call", tool="add_cesium_imagery", args={"tile_url": "/api/basemap/osm/{z}/{x}/{y}.png", "opacity": 0.50, "palette": "Greens", "threshold": 0.3}),
+                CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
+                CopilotEvent(type="tool_call", tool="generate_report", args={"text": "# 毛乌素生态穿透（stub）\n\n- 余弦相似度路径已选定\n- 已挂载示例 imagery overlay（用于验证 UI→引擎链路）\n"}),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
                 CopilotEvent(type="final", text="已生成生态穿透指令（stub），余弦相似度用于降低季节干扰。"),
+            ]
+        )
+        return events
+
+    if "盐城" in p or "海岸线" in p or "coast" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="aef_supervised_boundary_extraction", args={"model": "random_forest", "target": "coastline"}),
+                CopilotEvent(type="tool_result", tool="aef_supervised_boundary_extraction", result={"status": "stub", "features": 2}),
+                CopilotEvent(type="final", text="已生成海岸线红线划界指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "周口" in p or "内涝" in p or "胁迫" in p or "dielectric" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 33.63, "lon": 114.65, "height": 70000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="aef_extract_feature", args={"roi": "zhoukou", "dim": "A02"}),
+                CopilotEvent(type="tool_result", tool="aef_extract_feature", result={"status": "stub", "tile_url": ""}),
+                CopilotEvent(type="final", text="已生成内涝胁迫提取指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "塔拉滩" in p or "光伏" in p or "co-occurrence" in lc or "共现" in p:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 36.10, "lon": 101.70, "height": 180000, "duration_s": 4.2}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="aef_spatial_co_occurrence", args={"layer1": "A00_solar", "layer2": "A01_biomass"}),
+                CopilotEvent(type="tool_result", tool="aef_spatial_co_occurrence", result={"status": "stub", "matrix": ""}),
+                CopilotEvent(type="final", text="已生成光伏×生物量共现性计算指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "珠峰" in p or "冰川湖" in p or "glof" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 28.04, "lon": 86.93, "height": 220000, "duration_s": 4.4}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="enable_3d_terrain", args={"terrain": "cesium_world_terrain"}),
+                CopilotEvent(type="tool_result", tool="enable_3d_terrain", result="ok"),
+                CopilotEvent(type="tool_call", tool="calculate_3d_volume", args={"roi": "everest_lake", "use_dem": True}),
+                CopilotEvent(type="tool_result", tool="calculate_3d_volume", result={"status": "stub", "volume": 0.0}),
+                CopilotEvent(type="tool_call", tool="simulate_glof_fluid", args={"origin": "everest_lake", "volume": 0.0}),
+                CopilotEvent(type="tool_result", tool="simulate_glof_fluid", result={"status": "stub", "path": []}),
+                CopilotEvent(type="final", text="已生成 GLOF 体积测算与路径模拟指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "冒纳罗亚" in p or "火山" in p or "insar" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 19.48, "lon": -155.61, "height": 240000, "duration_s": 4.4}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fetch_insar_displacement", args={"roi": "mauna_loa"}),
+                CopilotEvent(type="tool_result", tool="fetch_insar_displacement", result={"status": "stub"}),
+                CopilotEvent(type="tool_call", tool="fetch_lst_anomaly", args={"roi": "mauna_loa"}),
+                CopilotEvent(type="tool_result", tool="fetch_lst_anomaly", result={"status": "stub"}),
+                CopilotEvent(type="tool_call", tool="generate_cesium_custom_shader", args={"vertex_displacement": "insar", "fragment_heat": "lst"}),
+                CopilotEvent(type="tool_result", tool="generate_cesium_custom_shader", result={"status": "stub", "code": ""}),
+                CopilotEvent(type="final", text="已生成火山形变×热异常可视化指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "刚果" in p or "碳" in p or "gedi" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -1.20, "lon": 23.70, "height": 320000, "duration_s": 4.6}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="estimate_carbon_stock", args={"source": "GEDI+AEF", "roi": "congo"}),
+                CopilotEvent(type="tool_result", tool="estimate_carbon_stock", result={"status": "stub", "geojson": None}),
+                CopilotEvent(type="final", text="已生成碳储量估算指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "纽约" in p or "热岛" in p or "income" in lc or "pearson" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 40.71, "lon": -74.00, "height": 180000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="spatial_pearson_correlation", args={"var1": "LST", "var2": "Income", "roi": "NYC"}),
+                CopilotEvent(type="tool_result", tool="spatial_pearson_correlation", result={"status": "stub", "r": 0.0}),
+                CopilotEvent(type="tool_call", tool="show_chart", args={"kind": "scatter", "title": "Income vs LST (stub)", "data": {"r": 0.0, "points": []}}),
+                CopilotEvent(type="tool_result", tool="show_chart", result="ok"),
+                CopilotEvent(type="tool_call", tool="render_bivariate_map", args={"title": "Bivariate Grid (stub)", "data": {"grid": []}}),
+                CopilotEvent(type="tool_result", tool="render_bivariate_map", result="ok"),
+                CopilotEvent(type="final", text="已生成 LST×收入相关性计算指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "马六甲" in p or "油污" in p or "ais" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 2.50, "lon": 101.00, "height": 420000, "duration_s": 4.8}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="detect_sar_oil_spill", args={"roi": "malacca"}),
+                CopilotEvent(type="tool_result", tool="detect_sar_oil_spill", result={"status": "stub", "polygon": None}),
+                CopilotEvent(type="tool_call", tool="intersect_ais_tracks", args={"time_window": "-24h"}),
+                CopilotEvent(type="tool_result", tool="intersect_ais_tracks", result={"status": "stub", "czml": None}),
+                CopilotEvent(type="final", text="已生成 SAR 油污检测 + AIS 溯源指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "皮尔巴拉" in p or "高光谱" in p or "unmix" in lc or "spectral" in lc:
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -22.30, "lon": 118.70, "height": 520000, "duration_s": 5.0}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="hyperspectral_unmixing", args={"roi": "pilbara", "endmembers": ["Fe", "Li"]}),
+                CopilotEvent(type="tool_result", tool="hyperspectral_unmixing", result={"status": "stub", "voxels": None}),
+                CopilotEvent(type="final", text="已生成高光谱解混指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "风场" in p or "gfs" in lc or "glsl" in lc or "wind" in lc:
+        code = """// Cesium CustomShader (stub)\n// Goal: render wind particles from a UV texture.\n\n// TODO: bind GFS UV texture + integrate a particle system in a post-process stage.\n""".strip()
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 0.0, "lon": 0.0, "height": 12000000, "duration_s": 4.2}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="get_gfs_uv_wind_data", args={}),
+                CopilotEvent(type="tool_result", tool="get_gfs_uv_wind_data", result={"status": "stub", "url": ""}),
+                CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
+                CopilotEvent(type="tool_result", tool="write_to_editor", result="ok"),
+                CopilotEvent(type="tool_call", tool="execute_editor_code", args={}),
+                CopilotEvent(type="tool_result", tool="execute_editor_code", result={"status": "stub"}),
+                CopilotEvent(type="final", text="已生成风场渲染代码骨架（stub），可在 CODE & SCRIPT 里继续完善。"),
             ]
         )
         return events
