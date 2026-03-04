@@ -77,9 +77,29 @@ const apiTarget = `http://${apiHost}:${apiPort}`
 
 const frontendPort = process.env.FRONTEND_PORT ? Number(process.env.FRONTEND_PORT) : 8404
 
+function oneearthDebugHeaders() {
+  return {
+    name: 'oneearth-debug-headers',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        try {
+          // Helps determine whether a response came from Vite
+          // (vs an outer reverse proxy / CDN returning a 502).
+          res.setHeader('X-OneEarth-Upstream', 'vite-dev')
+        } catch (_) {
+          // ignore
+        }
+        next()
+      })
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     vue(),
+    oneearthDebugHeaders(),
     cesium({
       // Avoid common reverse-proxy path conflicts on `/cesium/*`.
       // The plugin will serve this path in dev and copy assets into `dist/__cesium/*` on build.
