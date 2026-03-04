@@ -1,142 +1,129 @@
 <template>
-  <div class="wb" data-testid="workbench">
-    <div class="ide" aria-label="Zero2x Spatial IDE">
-      <header class="ide-top" aria-label="Workbench Top Bar">
-        <div class="ide-title">ZERO2X 021 WORKBENCH</div>
-        <div class="ide-top-center" aria-label="Explicit Mode Toggle">
-          <div class="mode-toggle" role="group" aria-label="Mode Toggle">
-            <button
-              class="mode-btn"
-              type="button"
-              :aria-pressed="mode === 'theater'"
-              :class="{ active: mode === 'theater' }"
-              @click="setMode('theater')"
-            >
-              🎬 沉浸汇报视图 (Theater / F11)
-            </button>
-            <button
-              class="mode-btn"
-              type="button"
-              :aria-pressed="mode === 'lab'"
-              :class="{ active: mode === 'lab' }"
-              @click="setMode('lab')"
-            >
-              🛠️ 硬核分析视图 (Lab)
-            </button>
-            <div class="mode-knob" :class="{ right: mode === 'lab' }" aria-hidden="true"></div>
-          </div>
+  <div class="workbench-root" data-testid="workbench" aria-label="Zero2x Workbench v7.x">
+    <!-- Bottom: engine layer (Z=0) -->
+    <EngineScaleRouter
+      v-show="activeTab?.kind === 'twin'"
+      ref="engineRouter"
+      class="engine-layer"
+      :scenario="scenario"
+      :layers="layers"
+      @viewer-ready="onViewerReady"
+    />
+
+    <!-- Top: HUD overlay (Z=10). Default pointer-events off; panels opt-in. -->
+    <div class="hud-layer pointer-events-none" aria-label="HUD Layer">
+      <header class="top-nav glass-panel pointer-events-auto" aria-label="Top Navigation">
+        <div class="top-left">
+          <div class="brand">ZERO2X 021 WORKBENCH</div>
+          <button class="link" type="button" :aria-pressed="mode === 'theater'" @click="setMode('theater')">
+            Theater (F11)
+          </button>
+          <button class="link" type="button" :aria-pressed="mode === 'lab'" @click="setMode('lab')">Lab</button>
         </div>
-        <div class="ide-top-center" aria-label="Scale Toggle">
-          <div class="mode-toggle" role="group" aria-label="Scale Toggle">
+
+        <div class="top-center" aria-label="Tabs" v-show="!isImmersive">
+          <TabBar
+            :tabs="openTabs"
+            :active-id="activeTabId"
+            @select="setActiveTab"
+            @close="closeTab"
+            @new-tab="openNewTab"
+          />
+        </div>
+
+        <div class="top-right" aria-label="Top Actions">
+          <div class="scale-toggle" role="group" aria-label="Scale Toggle">
             <button
-              class="mode-btn"
+              class="scale-btn"
               type="button"
               :aria-pressed="researchStore.currentScale === 'earth'"
               :class="{ active: researchStore.currentScale === 'earth' }"
               @click="setScale('earth')"
             >
-              🌍 Earth
+              Earth
             </button>
             <button
-              class="mode-btn"
+              class="scale-btn"
               type="button"
               :aria-pressed="researchStore.currentScale === 'macro'"
               :class="{ active: researchStore.currentScale === 'macro' }"
               @click="setScale('macro')"
             >
-              🌌 Macro
+              Macro
             </button>
             <button
-              class="mode-btn"
+              class="scale-btn"
               type="button"
               :aria-pressed="researchStore.currentScale === 'micro'"
               :class="{ active: researchStore.currentScale === 'micro' }"
               @click="setScale('micro')"
             >
-              🧬 Micro
+              Micro
             </button>
-            <div
-              class="mode-knob"
-              :class="{ right: researchStore.currentScale !== 'earth' }"
-              aria-hidden="true"
-            ></div>
           </div>
-        </div>
-        <div class="ide-top-actions" aria-label="Top Actions">
-          <button class="top-link" type="button" @click="openOmni">Omni (Cmd/Ctrl+K)</button>
+
+          <button class="link" type="button" @click="openOmni">Omni (Cmd/Ctrl+K)</button>
         </div>
       </header>
 
-      <div class="ide-body">
-        <aside
-          class="ide-aside left"
-          :class="{ collapsed: isImmersive }"
-          aria-label="Agent Sidebar"
-        >
+      <div class="middle-workspace" aria-label="Main Workspace">
+        <aside class="left-armor glass-panel pointer-events-auto" aria-label="Agent Flow" v-show="!isImmersive">
           <AgentPanel :text="agentText" @execute="runExecute" @reset="reset" />
         </aside>
 
-        <main class="ide-main" aria-label="Main Canvas">
-          <div v-show="!isImmersive" class="ide-tabs" aria-label="Tabs">
-            <TabBar
-              :tabs="openTabs"
-              :active-id="activeTabId"
-              @select="setActiveTab"
-              @close="closeTab"
-              @new-tab="openNewTab"
-            />
+        <div class="center-stage" aria-label="Center Stage">
+          <div v-if="activeTab?.kind === 'table'" class="center-panel glass-panel pointer-events-auto" aria-label="Data Table">
+            <DataTableTab :rows="tableRows" />
+          </div>
+          <div v-else-if="activeTab?.kind === 'charts'" class="center-panel glass-panel pointer-events-auto" aria-label="Charts">
+            <ChartsTab :series="chartSeries" />
           </div>
 
-          <div class="ide-canvas" aria-label="Canvas">
-            <EngineScaleRouter
-              v-show="activeTab?.kind === 'twin'"
-              ref="engineRouter"
-              :scenario="scenario"
-              :layers="layers"
-              @viewer-ready="onViewerReady"
-            />
-            <div v-if="activeTab?.kind === 'twin' && !viewerReady" class="engine-status">正在唤醒 Cesium…</div>
+          <div v-if="activeTab?.kind === 'twin' && !viewerReady" class="engine-status glass-panel pointer-events-auto">
+            正在唤醒 Cesium…
+          </div>
+        </div>
 
-            <DataTableTab v-if="activeTab?.kind === 'table'" :rows="tableRows" />
-            <ChartsTab v-if="activeTab?.kind === 'charts'" :series="chartSeries" />
-
+        <aside class="right-armor pointer-events-auto" aria-label="Right Armor" v-show="!isImmersive">
+          <div class="glass-panel right-pane right-pane-layers" aria-label="Layer Tree">
             <LayerTree v-model:layers="layers" :current-scale="researchStore.currentScale" />
-
-            <TheaterHUD
-              v-if="isImmersive"
-              :context-id="scenario?.id || ''"
-              :target-name="scenario?.targetName || ''"
-              :summary="theaterSummary"
-              @open-omni="openOmni"
-              @switch-lab="setMode('lab')"
-            />
-
-            <TimelineHUD class="timeline-hud" @execute="runExecute" />
           </div>
-        </main>
 
-        <aside
-          class="ide-aside right"
-          :class="{ collapsed: isImmersive }"
-          aria-label="Editor Sidebar"
-        >
-          <EditorPanel>
-            <MonacoLazyEditor v-model="code" language="python" />
-          </EditorPanel>
+          <div class="glass-panel right-pane right-pane-editor" aria-label="Notebook / Code">
+            <EditorPanel>
+              <MonacoLazyEditor v-model="code" language="python" />
+            </EditorPanel>
+          </div>
         </aside>
       </div>
 
-      <div v-if="isOmniOpen" class="omnibox-layer" aria-label="OmniCommand Layer" @pointerdown.self="closeOmni">
-        <OmniCommand
-          :open="isOmniOpen"
-          v-model="omniText"
-          :context-label="scenario?.id || ''"
-          :presets="demoPresets"
-          @submit="submitOmni"
-          @select-preset="applyPreset"
-          @close="closeOmni"
-        />
+      <div class="bottom-console" aria-label="Bottom Console">
+        <div class="glass-panel pointer-events-auto bottom-panel">
+          <TimelineHUD @execute="runExecute" />
+        </div>
       </div>
+
+      <TheaterHUD
+        v-if="isImmersive"
+        class="pointer-events-auto"
+        :context-id="scenario?.id || ''"
+        :target-name="scenario?.targetName || ''"
+        :summary="theaterSummary"
+        @open-omni="openOmni"
+        @switch-lab="setMode('lab')"
+      />
+    </div>
+
+    <div v-if="isOmniOpen" class="omnibox-layer" aria-label="OmniCommand Layer" @pointerdown.self="closeOmni">
+      <OmniCommand
+        :open="isOmniOpen"
+        v-model="omniText"
+        :context-label="scenario?.id || ''"
+        :presets="demoPresets"
+        @submit="submitOmni"
+        @select-preset="applyPreset"
+        @close="closeOmni"
+      />
     </div>
   </div>
 </template>
@@ -923,231 +910,193 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.wb {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
-  background: #000;
-  color: #eef2ff;
-  overflow: hidden;
-}
 
-.ide {
+.workbench-root {
   position: fixed;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: radial-gradient(1200px 800px at 50% 20%, rgba(120, 160, 255, 0.10), rgba(0, 0, 0, 0.25)),
-    linear-gradient(180deg, #05070f, #000);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  color: rgba(235, 245, 255, 0.92);
 }
 
-.ide-top {
-  height: 42px;
+.engine-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.hud-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 900px at 50% 0%, rgba(0, 240, 255, 0.08), rgba(0, 0, 0, 0)),
+    radial-gradient(900px 600px at 50% 35%, rgba(120, 160, 255, 0.10), rgba(0, 0, 0, 0.25));
+}
+
+.glass-panel {
+  background: rgba(10, 15, 26, 0.45);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.30);
+}
+
+.top-nav {
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: relative;
-  padding: 0 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(5, 8, 16, 0.86);
+  gap: 16px;
+  padding: 10px 14px;
 }
 
-.ide-title {
+.top-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 320px;
+}
+
+.brand {
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   letter-spacing: 0.18em;
   color: rgba(0, 240, 255, 0.95);
   font-weight: 900;
-}
-
-.ide-top-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.ide-top-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-}
-
-.mode-toggle {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: 0;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(0, 0, 0, 0.35)),
-    radial-gradient(700px 60px at 50% 0%, rgba(0, 240, 255, 0.18), rgba(0, 0, 0, 0));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    0 10px 30px rgba(0, 0, 0, 0.55);
-  min-width: min(560px, calc(100vw - 220px));
-  max-width: 720px;
-}
-
-.mode-btn {
-  position: relative;
-  z-index: 2;
-  border: none;
-  background: transparent;
-  padding: 7px 14px;
-  border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.72);
-  cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.mode-btn.active {
-  color: rgba(0, 0, 0, 0.90);
-  font-weight: 900;
-}
-
-.mode-knob {
-  position: absolute;
-  inset: 3px;
-  width: calc(50% - 3px);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(0, 240, 255, 0.62)),
-    radial-gradient(60px 22px at 20% 20%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.65),
-    0 8px 22px rgba(0, 0, 0, 0.45);
-  transform: translateX(0);
-  transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.mode-knob.right {
-  transform: translateX(calc(100% + 3px));
-}
-
-.top-link {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.top-link:hover {
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.ide-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-
-.ide-aside {
-  width: 360px;
-  flex-shrink: 0;
-  padding: 12px;
-  background: rgba(10, 15, 26, 0.92);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-  transition:
-    width 420ms cubic-bezier(0.4, 0, 0.2, 1),
-    padding 420ms cubic-bezier(0.4, 0, 0.2, 1),
-    transform 420ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 420ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ide-aside.right {
-  width: 420px;
-  border-right: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.ide-aside.collapsed {
-  width: 0 !important;
-  padding: 0;
-  opacity: 0;
-  border-color: transparent;
-}
-
-.ide-aside.left.collapsed {
-  transform: translateX(-24px);
-}
-
-.ide-aside.right.collapsed {
-  transform: translateX(24px);
-}
-
-.ide-main {
+.top-center {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  background: #000;
+  justify-content: center;
 }
 
-.ide-tabs {
-  height: 32px;
+.top-right {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(5, 8, 16, 0.86);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 12px;
+  justify-content: flex-end;
+  min-width: 320px;
 }
 
-.tab {
-  padding: 6px 12px;
+.link {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
-  border-top: 2px solid transparent;
-  opacity: 0.72;
+  cursor: pointer;
+  padding: 4px 6px;
 }
 
-.tab.active {
-  opacity: 0.95;
-  border-top-color: rgba(0, 240, 255, 0.95);
-  background: rgba(0, 0, 0, 0.55);
+.link:hover {
+  color: rgba(255, 255, 255, 0.96);
 }
 
-.tab.ghost {
-  opacity: 0.45;
+.scale-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.ide-canvas {
-  position: relative;
+.scale-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.scale-btn.active {
+  background: rgba(0, 240, 255, 0.16);
+  border-color: rgba(0, 240, 255, 0.28);
+  color: rgba(0, 240, 255, 0.95);
+  text-shadow: 0 0 18px rgba(0, 240, 255, 0.25);
+}
+
+.middle-workspace {
   flex: 1;
   min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 18px 0;
+}
+
+.left-armor {
+  width: 360px;
+  flex-shrink: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.center-stage {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.center-panel {
+  height: 100%;
+  padding: 12px;
+  overflow: auto;
 }
 
 .engine-status {
   position: absolute;
-  left: 18px;
-  bottom: 18px;
-  z-index: 5;
+  left: 0;
+  bottom: 0;
   padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.10);
   font-size: 12px;
-  backdrop-filter: blur(12px);
 }
 
-.timeline-hud {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 18px;
-  z-index: 6;
-  pointer-events: auto;
+.right-armor {
+  width: 420px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.right-pane {
+  padding: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.right-pane-layers {
+  max-height: 42vh;
+  overflow: hidden;
+}
+
+.right-pane-editor {
+  flex: 1;
+  overflow: hidden;
+}
+
+.bottom-console {
+  height: 72px;
+}
+
+.bottom-panel {
+  height: 100%;
+  padding: 10px 12px;
+  overflow: hidden;
 }
 
 .omnibox-layer {
@@ -1161,23 +1110,35 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(6px);
 }
 
+:global(::-webkit-scrollbar) {
+  width: 4px;
+  height: 4px;
+}
+
+:global(::-webkit-scrollbar-thumb) {
+  background: rgba(0, 240, 255, 0.2);
+  border-radius: 4px;
+}
+
 @media (max-width: 980px) {
-  .ide-aside {
+  .left-armor {
     width: 320px;
   }
-  .ide-aside.right {
+  .right-armor {
     width: 360px;
   }
 }
 
 @media (max-width: 860px) {
-  .ide-body {
+  .middle-workspace {
     flex-direction: column;
   }
-  .ide-aside,
-  .ide-aside.right {
+  .left-armor,
+  .right-armor {
     width: 100%;
-    height: 260px;
+  }
+  .right-pane-layers {
+    max-height: 260px;
   }
 }
 </style>

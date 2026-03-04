@@ -2,7 +2,7 @@
   <div class="tree" aria-label="Layer Tree">
     <div class="k">LAYER TREE</div>
 
-    <div class="g" :class="{ inactive: currentScale !== 'earth' }" aria-label="Earth Layers">
+    <div class="g" v-if="currentScale === 'earth'" aria-label="Earth Layers">
       <div class="gh">EARTH</div>
       <div class="item" v-for="(l, i) in earthLayers" :key="l.id">
         <div class="row">
@@ -60,9 +60,111 @@
       </div>
     </div>
 
-    <div class="g" :class="{ inactive: currentScale === 'earth' }" aria-label="Three Layers">
-      <div class="gh">THREE</div>
-      <div class="item" v-for="(l, i) in threeLayers" :key="l.id">
+    <div class="g" v-if="currentScale === 'macro'" aria-label="Macro Layers">
+      <div class="gh">MACRO</div>
+      <div class="item" v-for="(l, i) in macroLayers" :key="l.id">
+        <div class="row">
+          <label class="left">
+            <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
+            <span class="name">{{ l.name }}</span>
+          </label>
+          <div class="ops" aria-label="Reorder">
+            <button class="op" type="button" disabled title="Move Up">↑</button>
+            <button class="op" type="button" disabled title="Move Down">↓</button>
+          </div>
+        </div>
+
+        <div class="params" v-if="l && l.params" aria-label="Layer Params">
+          <div class="param" v-if="String(l.id) === 'bloom'">
+            <span class="pk">Strength</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              :value="Number(l.params.strength ?? 1.1)"
+              @input="setParam(l.id, 'strength', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.strength) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'bloom'">
+            <span class="pk">Threshold</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.threshold ?? 0.65)"
+              @input="setParam(l.id, 'threshold', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.threshold) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'bloom'">
+            <span class="pk">Radius</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.radius ?? 0.15)"
+              @input="setParam(l.id, 'radius', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.radius) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'micro-atoms'">
+            <span class="pk">Opacity</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              :value="Number(l.params.opacity ?? 0.85)"
+              @input="setParam(l.id, 'opacity', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtPct(l.params.opacity) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'micro-atoms'">
+            <span class="pk">Transmission</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="Number(l.params.transmission ?? 0.85)"
+              @input="setParam(l.id, 'transmission', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.transmission) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === 'micro-atoms'">
+            <span class="pk">IOR</span>
+            <input
+              class="rng"
+              type="range"
+              min="1"
+              max="2"
+              step="0.01"
+              :value="Number(l.params.ior ?? 1.4)"
+              @input="setParam(l.id, 'ior', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.ior) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="g" v-if="currentScale === 'micro'" aria-label="Micro Layers">
+      <div class="gh">MICRO</div>
+      <div class="item" v-for="(l, i) in microLayers" :key="l.id">
         <div class="row">
           <label class="left">
             <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
@@ -189,6 +291,16 @@ const threeLayers = computed(() => {
   return (props.layers || []).filter((l) => ids.has(String(l?.id || '')))
 })
 
+const macroLayers = computed(() => {
+  const ids = new Set(['bloom', 'macro-spiral'])
+  return threeLayers.value.filter((l) => ids.has(String(l?.id || '')))
+})
+
+const microLayers = computed(() => {
+  const ids = new Set(['bloom', 'micro-atoms'])
+  return threeLayers.value.filter((l) => ids.has(String(l?.id || '')))
+})
+
 function moveWithin(group, id, dir) {
   // Only Earth layers participate in meaningful ordering today.
   const g = String(group || '')
@@ -244,18 +356,15 @@ function fmtNum(v) {
 
 <style scoped>
 .tree {
-  position: absolute;
-  right: 18px;
-  top: 18px;
-  z-index: 8;
-  width: 220px;
+  position: relative;
+  width: 100%;
+  height: 100%;
   border-radius: 14px;
   padding: 10px 10px;
-  background: rgba(10, 15, 26, 0.40);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(10, 15, 26, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.55);
 }
 
 .k {

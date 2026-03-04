@@ -55,6 +55,17 @@ Zero2x 021 v7.0: 全尺度空间交互系统与双模态引擎开发蓝图
     - `highlightMacroCluster()` / `spinMacroCamera()` / `rebuildMicroLattice()`
   - OmniCommand 新增演示剧本：D/E（Macro/Micro EXECUTE）
 
+- ✅ v7.x UI 重构（update_patch_0303 as-built）已完成：
+  - HUD overlay 采用严格 flex 骨架：`workbench-root` + `hud-layer(pointer-events-none)`
+    - 实现：`frontend/src/WorkbenchApp.vue`
+  - RightArmor 右侧装甲上下分割：LayerTree（上）+ Monaco/Editor（下）
+    - 实现：`frontend/src/WorkbenchApp.vue`
+  - LayerTree 按尺度条件渲染（降低噪音）：
+    - `v-if="currentScale === 'earth'" | 'macro' | 'micro'`
+    - 实现：`frontend/src/views/workbench/components/LayerTree.vue`
+  - 玻璃拟态面板与滚动条样式统一：`glass-panel` + slim scrollbar
+  - TDD 骨架验收（字符串 wiring 断言）：`frontend/tests/workbenchLayoutV7x.test.js`
+
   快速验收（建议按此顺序）
 
   1) 前端单测：`cd frontend && npm test`
