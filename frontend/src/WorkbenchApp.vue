@@ -26,6 +26,42 @@
             <div class="mode-knob" :class="{ right: mode === 'lab' }" aria-hidden="true"></div>
           </div>
         </div>
+        <div class="ide-top-center" aria-label="Scale Toggle">
+          <div class="mode-toggle" role="group" aria-label="Scale Toggle">
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="researchStore.currentScale === 'earth'"
+              :class="{ active: researchStore.currentScale === 'earth' }"
+              @click="setScale('earth')"
+            >
+              🌍 Earth
+            </button>
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="researchStore.currentScale === 'macro'"
+              :class="{ active: researchStore.currentScale === 'macro' }"
+              @click="setScale('macro')"
+            >
+              🌌 Macro
+            </button>
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="researchStore.currentScale === 'micro'"
+              :class="{ active: researchStore.currentScale === 'micro' }"
+              @click="setScale('micro')"
+            >
+              🧬 Micro
+            </button>
+            <div
+              class="mode-knob"
+              :class="{ right: researchStore.currentScale !== 'earth' }"
+              aria-hidden="true"
+            ></div>
+          </div>
+        </div>
         <div class="ide-top-actions" aria-label="Top Actions">
           <button class="top-link" type="button" @click="openOmni">Omni (Cmd/Ctrl+K)</button>
         </div>
@@ -52,7 +88,7 @@
           </div>
 
           <div class="ide-canvas" aria-label="Canvas">
-            <EngineRouter
+            <EngineScaleRouter
               v-show="activeTab?.kind === 'twin'"
               ref="engineRouter"
               :scenario="scenario"
@@ -110,7 +146,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MonacoLazyEditor from './components/MonacoLazyEditor.vue'
 import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
 import { apiService } from './services/api.js'
-import EngineRouter from './views/workbench/EngineRouter.vue'
+import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
+import { useResearchStore } from './stores/researchStore.js'
 import AgentPanel from './views/workbench/components/AgentPanel.vue'
 import EditorPanel from './views/workbench/components/EditorPanel.vue'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
@@ -123,6 +160,8 @@ import ChartsTab from './views/workbench/components/ChartsTab.vue'
 
 const engineRouter = ref(null)
 const viewerReady = ref(false)
+
+const researchStore = useResearchStore()
 
 const mode = ref('lab')
 const isImmersive = computed(() => mode.value === 'theater')
@@ -138,6 +177,7 @@ const demoPresets = Object.freeze([
     id: 'demo:poyang:theater',
     label: '[展演] 鄱阳湖近十年水网演变',
     contextId: 'poyang',
+    scale: 'earth',
     mode: 'theater',
     activeTabKind: 'twin',
     hint: '自动进入沉浸态',
@@ -151,6 +191,7 @@ const demoPresets = Object.freeze([
     id: 'demo:yuhang:lab',
     label: '[下钻] 调出余杭城建异动审计算法',
     contextId: 'yuhang',
+    scale: 'earth',
     mode: 'lab',
     activeTabKind: 'twin',
     hint: '自动展开代码视图',
@@ -164,6 +205,7 @@ const demoPresets = Object.freeze([
     id: 'demo:macro:theater',
     label: '[看宏观] 进入沉浸演示态 (Twin)',
     contextId: 'poyang',
+    scale: 'macro',
     mode: 'theater',
     activeTabKind: 'twin',
     hint: '看宏观 => 自动进入沉浸态',
@@ -174,9 +216,24 @@ const demoPresets = Object.freeze([
     ],
   },
   {
+    id: 'demo:micro:lab',
+    label: '[看微观] 进入微观演示态 (Twin)',
+    contextId: 'poyang',
+    scale: 'micro',
+    mode: 'lab',
+    activeTabKind: 'twin',
+    hint: '看微观 => 切换到 Three.js 微观底座',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.78 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+    ],
+  },
+  {
     id: 'demo:code:lab',
     label: '[看代码] 进入硬核作业态 (Editor)',
     contextId: 'yuhang',
+    scale: 'earth',
     mode: 'lab',
     activeTabKind: 'twin',
     hint: '看代码 => 自动进入作业态',
@@ -190,6 +247,7 @@ const demoPresets = Object.freeze([
     id: 'demo:data:lab',
     label: '[看数据] 打开 Data Table',
     contextId: 'poyang',
+    scale: 'earth',
     mode: 'lab',
     activeTabKind: 'table',
     hint: '自动切到表格 Tab',
@@ -203,6 +261,7 @@ const demoPresets = Object.freeze([
     id: 'demo:charts:lab',
     label: '[看图表] 打开 2D Charts',
     contextId: 'poyang',
+    scale: 'earth',
     mode: 'lab',
     activeTabKind: 'charts',
     hint: '自动切到图表 Tab',
@@ -582,6 +641,15 @@ function setMode(next) {
   if (mode.value === 'theater') ensureTabKind('twin')
 }
 
+function setScale(scale) {
+  try {
+    researchStore.setScale(scale)
+    window.sessionStorage?.setItem?.('z2x:lastScale', String(scale || ''))
+  } catch (_) {
+    // ignore
+  }
+}
+
 function openOmni() {
   isOmniOpen.value = true
 }
@@ -605,6 +673,8 @@ function applyPreset(preset) {
   const nextContext = String(p.contextId || '').trim().toLowerCase()
   if (nextContext) contextId.value = nextContext
   setMode(p.mode)
+
+  if (p.scale) setScale(p.scale)
 
   if (p.activeTabKind) ensureTabKind(p.activeTabKind)
 
@@ -691,6 +761,15 @@ onMounted(() => {
     const ctxFromUrl = parseWorkbenchContextFromSearch(window.location.search)
     const ctxFromStorage = window.sessionStorage?.getItem?.('z2x:lastContext') || ''
     contextId.value = String(ctxFromUrl || ctxFromStorage || 'poyang').trim().toLowerCase() || 'poyang'
+
+    const scaleFromStorage = window.sessionStorage?.getItem?.('z2x:lastScale') || ''
+    if (String(scaleFromStorage).trim()) {
+      try {
+        researchStore.setScale(scaleFromStorage)
+      } catch (_) {
+        // ignore
+      }
+    }
 
     const m = window.sessionStorage?.getItem?.('z2x:lastMode') || ''
     mode.value = String(m).trim().toLowerCase() === 'theater' ? 'theater' : 'lab'
