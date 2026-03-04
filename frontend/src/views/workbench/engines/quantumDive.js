@@ -59,7 +59,6 @@ export function executeQuantumDive({
 
       g.to(camera, {
         fov: settleFov,
-        z: settleZ,
         duration: exhaleDuration,
         ease: 'power2.out',
         onUpdate: () => {
@@ -70,6 +69,18 @@ export function executeQuantumDive({
           }
         },
       })
+
+      try {
+        if (camera?.position) {
+          g.to(camera.position, {
+            z: settleZ,
+            duration: exhaleDuration,
+            ease: 'power2.out',
+          })
+        }
+      } catch (_) {
+        // ignore
+      }
     },
   })
 }

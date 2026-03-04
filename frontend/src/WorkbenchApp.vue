@@ -36,8 +36,8 @@
             <button
               class="scale-btn"
               type="button"
-              :aria-pressed="researchStore.currentScale === 'earth'"
-              :class="{ active: researchStore.currentScale === 'earth' }"
+              :aria-pressed="currentScale === 'earth'"
+              :class="{ active: currentScale === 'earth' }"
               @click="setScale('earth')"
             >
               Earth
@@ -45,8 +45,8 @@
             <button
               class="scale-btn"
               type="button"
-              :aria-pressed="researchStore.currentScale === 'macro'"
-              :class="{ active: researchStore.currentScale === 'macro' }"
+              :aria-pressed="currentScale === 'macro'"
+              :class="{ active: currentScale === 'macro' }"
               @click="setScale('macro')"
             >
               Macro
@@ -54,8 +54,8 @@
             <button
               class="scale-btn"
               type="button"
-              :aria-pressed="researchStore.currentScale === 'micro'"
-              :class="{ active: researchStore.currentScale === 'micro' }"
+              :aria-pressed="currentScale === 'micro'"
+              :class="{ active: currentScale === 'micro' }"
               @click="setScale('micro')"
             >
               Micro
@@ -86,7 +86,7 @@
 
         <aside class="right-armor pointer-events-auto" aria-label="Right Armor" v-show="!isImmersive">
           <div class="glass-panel right-pane right-pane-layers" aria-label="Layer Tree">
-            <LayerTree v-model:layers="layers" :current-scale="researchStore.currentScale" />
+            <LayerTree v-model:layers="layers" :current-scale="currentScale" />
           </div>
 
           <div class="glass-panel right-pane right-pane-editor" aria-label="Notebook / Code">
@@ -150,6 +150,7 @@ const engineRouter = ref(null)
 const viewerReady = ref(false)
 
 const researchStore = useResearchStore()
+const currentScale = researchStore.currentScale
 const executeQueue = new TaskQueue()
 
 const mode = ref('lab')
@@ -160,6 +161,47 @@ const omniText = ref('')
 
 const contextId = ref('poyang')
 const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
+
+const _initialSearch = (() => {
+  try {
+    return String(window?.location?.search || '')
+  } catch (_) {
+    return ''
+  }
+})()
+
+const _contextFromUrl = (() => {
+  try {
+    return String(parseWorkbenchContextFromSearch(_initialSearch) || '').trim().toLowerCase()
+  } catch (_) {
+    return ''
+  }
+})()
+
+const _scaleFromUrl = (() => {
+  try {
+    const u = new URL(String(window?.location?.href || ''))
+    return String(u.searchParams.get('scale') || '').trim().toLowerCase()
+  } catch (_) {
+    return ''
+  }
+})()
+
+// Initialize context/scale early to avoid mount-then-unmount races (Cesium init) on first paint.
+try {
+  const ctxFromStorage = String(window?.sessionStorage?.getItem?.('z2x:lastContext') || '').trim().toLowerCase()
+  contextId.value = _contextFromUrl || ctxFromStorage || 'poyang'
+} catch (_) {
+  contextId.value = _contextFromUrl || 'poyang'
+}
+
+try {
+  const scaleFromStorage = String(window?.sessionStorage?.getItem?.('z2x:lastScale') || '').trim().toLowerCase()
+  const initialScale = _scaleFromUrl || (_contextFromUrl ? 'earth' : scaleFromStorage)
+  if (initialScale) researchStore.setScale(initialScale)
+} catch (_) {
+  // ignore
+}
 
 const demoPresets = Object.freeze([
   {
@@ -852,18 +894,8 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
 
   try {
-    const ctxFromUrl = parseWorkbenchContextFromSearch(window.location.search)
-    const ctxFromStorage = window.sessionStorage?.getItem?.('z2x:lastContext') || ''
-    contextId.value = String(ctxFromUrl || ctxFromStorage || 'poyang').trim().toLowerCase() || 'poyang'
-
-    const scaleFromStorage = window.sessionStorage?.getItem?.('z2x:lastScale') || ''
-    if (String(scaleFromStorage).trim()) {
-      try {
-        researchStore.setScale(scaleFromStorage)
-      } catch (_) {
-        // ignore
-      }
-    }
+    // contextId/currentScale are initialized synchronously during setup to avoid
+    // mount-then-unmount races. Here we only restore secondary UI state.
 
     const m = window.sessionStorage?.getItem?.('z2x:lastMode') || ''
     mode.value = String(m).trim().toLowerCase() === 'theater' ? 'theater' : 'lab'

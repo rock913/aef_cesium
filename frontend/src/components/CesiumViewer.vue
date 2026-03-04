@@ -32,6 +32,8 @@ export default {
     const creditContainer = ref(null)
     const loading = ref(true)
     const loadingText = ref('初始化地球引擎...')
+
+    let disposed = false
     
     let viewer = null
     let currentAILayer = null
@@ -65,6 +67,7 @@ export default {
     })
     
     onBeforeUnmount(() => {
+      disposed = true
       if (viewer) {
         if (tileLoadUnsub) tileLoadUnsub()
         if (currentAIProviderUnsub) currentAIProviderUnsub()
@@ -175,6 +178,7 @@ export default {
     }
     
     async function initViewer() {
+      if (disposed) return
       const rawIonToken = String(import.meta.env.VITE_CESIUM_TOKEN || '').trim()
       const ionToken = rawIonToken
         .replace(/^"(.*)"$/, '$1')
@@ -202,6 +206,9 @@ export default {
       }
 
       if (!cesiumContainer.value) {
+        // Can happen if the component unmounts quickly (e.g., scale switch) while
+        // initViewer is scheduled in a microtask.
+        if (disposed) return
         throw new Error('Cesium container element not found')
       }
 

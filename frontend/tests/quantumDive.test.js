@@ -5,7 +5,7 @@ describe('executeQuantumDive (wormhole transition)', () => {
   it('animates camera fov, switches scene at peak, then settles', () => {
     const camera = {
       fov: 60,
-      position: { set: vi.fn() },
+      position: { set: vi.fn(), z: 5 },
       updateProjectionMatrix: vi.fn(),
     }
 
@@ -40,7 +40,10 @@ describe('executeQuantumDive (wormhole transition)', () => {
     expect(onSwitchScene).toHaveBeenCalledTimes(1)
     expect(camera.position.set).toHaveBeenCalledWith(0, 0, 5)
 
-    expect(calls[1].vars.fov).toBe(60)
-    expect(calls[1].vars.z).toBe(40)
+    const fovCall = calls.find((c) => c && c.target === camera && c.vars && c.vars.fov === 60)
+    expect(fovCall).toBeTruthy()
+
+    const zCall = calls.find((c) => c && c.target === camera.position && c.vars && c.vars.z === 40)
+    expect(zCall).toBeTruthy()
   })
 })
