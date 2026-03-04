@@ -15,11 +15,12 @@ describe('Workbench v7.x layout (glass + flex skeleton)', () => {
     expect(s).toContain('pointer-events-none')
   })
 
-  it('places LayerTree inside the right armor with the editor', () => {
+  it('uses a 3-column IDE layout (left artifacts, center twin, right copilot)', () => {
     const s = read('../src/WorkbenchApp.vue')
-    expect(s).toContain('class="right-armor')
-    expect(s).toContain('<LayerTree')
-    expect(s).toContain('<MonacoLazyEditor')
+    expect(s).toContain('class="left-rail')
+    expect(s).toContain('UnifiedArtifactsPanel')
+    expect(s).toContain('class="right-rail')
+    expect(s).toContain('CopilotChatPanel')
   })
 
   it('LayerTree renders scale-conditional sections (earth/macro/micro)', () => {

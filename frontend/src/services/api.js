@@ -149,5 +149,22 @@ export const apiService = {
   async healthCheck() {
     const { data } = await api.get('/health')
     return data
+  },
+
+  // --- v7 Copilot (tool calling) ---
+  async listCopilotPrompts() {
+    const { data } = await api.get('/api/v7/prompts')
+    return data
+  },
+
+  async executeCopilot(prompt, options = {}) {
+    const opts = options && typeof options === 'object' ? options : {}
+    const payload = {
+      prompt: String(prompt || '')
+    }
+    if (opts.context_id) payload.context_id = String(opts.context_id)
+    if (opts.scale) payload.scale = String(opts.scale)
+    const { data } = await api.post('/api/v7/copilot/execute', payload)
+    return data
   }
 }

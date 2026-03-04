@@ -67,8 +67,13 @@
       </header>
 
       <div class="middle-workspace" aria-label="Main Workspace">
-        <aside class="left-armor glass-panel pointer-events-auto" aria-label="Agent Flow" v-show="!isImmersive">
-          <AgentPanel :text="agentText" @execute="runExecute" @reset="reset" />
+        <aside class="left-rail glass-panel pointer-events-auto" aria-label="Unified Artifacts" v-show="!isImmersive">
+          <UnifiedArtifactsPanel
+            v-model:layers="layers"
+            v-model:code="code"
+            :current-scale="currentScale"
+            :report-text="theaterReport"
+          />
         </aside>
 
         <div class="center-stage" aria-label="Center Stage">
@@ -84,16 +89,15 @@
           </div>
         </div>
 
-        <aside class="right-armor pointer-events-auto" aria-label="Right Armor" v-show="!isImmersive">
-          <div class="glass-panel right-pane right-pane-layers" aria-label="Layer Tree">
-            <LayerTree v-model:layers="layers" :current-scale="currentScale" />
-          </div>
-
-          <div class="glass-panel right-pane right-pane-editor" aria-label="Notebook / Code">
-            <EditorPanel>
-              <MonacoLazyEditor v-model="code" language="python" />
-            </EditorPanel>
-          </div>
+        <aside class="right-rail glass-panel pointer-events-auto" aria-label="021 Copilot Chat" v-show="!isImmersive">
+          <CopilotChatPanel
+            :busy="executeBusy"
+            :presets="copilotPresets"
+            :agent-text="agentText"
+            :report-text="theaterReport"
+            :events="copilotEvents"
+            @submit="onCopilotSubmit"
+          />
         </aside>
       </div>
 
@@ -130,21 +134,19 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import MonacoLazyEditor from './components/MonacoLazyEditor.vue'
 import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
 import { apiService } from './services/api.js'
 import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
 import { TaskQueue } from './utils/taskQueue.js'
-import AgentPanel from './views/workbench/components/AgentPanel.vue'
-import EditorPanel from './views/workbench/components/EditorPanel.vue'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
 import OmniCommand from './views/workbench/components/OmniCommand.vue'
 import TabBar from './views/workbench/components/TabBar.vue'
 import TheaterHUD from './views/workbench/components/TheaterHUD.vue'
-import LayerTree from './views/workbench/components/LayerTree.vue'
 import DataTableTab from './views/workbench/components/DataTableTab.vue'
 import ChartsTab from './views/workbench/components/ChartsTab.vue'
+import UnifiedArtifactsPanel from './views/workbench/components/UnifiedArtifactsPanel.vue'
+import CopilotChatPanel from './views/workbench/components/CopilotChatPanel.vue'
 
 const engineRouter = ref(null)
 const viewerReady = ref(false)
@@ -329,6 +331,31 @@ const demoPresets = Object.freeze([
     ],
   },
 ])
+
+const copilotPresets = ref([
+  {
+    id: 'demo:yuhang_audit',
+    label: '[演示] 余杭城建审计',
+    prompt: '对比余杭近7年的城建扩张，使用欧氏距离算子，生成城建审计图层。'
+  },
+  {
+    id: 'demo:amazon_cluster',
+    label: '[演示] 亚马逊零样本聚类',
+    prompt: '扫描当前视窗，不使用先验标签，根据 AlphaEarth 64维特征进行零样本聚类(k=6)，找出毁林区。'
+  },
+  {
+    id: 'demo:maowusu_cos',
+    label: '[演示] 毛乌素生态穿透',
+    prompt: '评估毛乌素沙地近5年真实治理成效，改用余弦相似度以排除秋冬植被枯黄干扰。'
+  },
+  {
+    id: 'demo:wormhole_micro',
+    label: '[演示] 宏微虫洞跃迁',
+    prompt: '触发虫洞动画并切换到 micro，生成 SiO2 分子晶格。'
+  },
+])
+
+const copilotEvents = ref([])
 
 const openTabs = ref([
   { id: 'twin', title: 'Twin View', kind: 'twin', closable: false },
@@ -793,6 +820,73 @@ function submitOmni() {
   runStub()
 }
 
+function onCopilotSubmit(text) {
+  ;(async () => {
+    try {
+      lastIntent.value = String(text || '').trim()
+      window.sessionStorage?.setItem?.('z2x:lastIntent', lastIntent.value)
+    } catch (_) {
+      // ignore
+    }
+
+    // Ask backend to produce a deterministic tool-calling plan (v7 stub).
+    try {
+      const resp = await apiService.executeCopilot(lastIntent.value, {
+        context_id: contextId.value,
+        scale: researchStore.currentScale.value,
+      })
+      const events = Array.isArray(resp?.events) ? resp.events : []
+      copilotEvents.value = events
+      applyCopilotEvents(events)
+    } catch (_) {
+      copilotEvents.value = []
+    }
+
+    runExecute()
+  })()
+}
+
+function applyCopilotEvents(events) {
+  const arr = Array.isArray(events) ? events : []
+  for (const e of arr) {
+    if (e?.type !== 'tool_call') continue
+    const tool = String(e?.tool || '').trim()
+    const args = (e && typeof e === 'object') ? e.args : null
+
+    if (tool === 'switch_scale') {
+      const target = String(args?.target || '').trim().toLowerCase()
+      if (target) setScale(target)
+      continue
+    }
+
+    if (tool === 'camera_fly_to') {
+      const lat = Number(args?.lat)
+      const lon = Number(args?.lon)
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        // Map known demo coords to an existing scenario context.
+        if (lat < 0) contextId.value = 'amazon'
+        else if (lat > 25 && lon > 110) contextId.value = 'yuhang'
+        else if (lat > 35 && lon > 100 && lon < 120) contextId.value = 'maowusu'
+      }
+      continue
+    }
+
+    if (tool === 'aef_compute_diff') {
+      // Ensure anomaly visualization is enabled.
+      try {
+        layers.value = (layers.value || []).map((l) => {
+          if (l.id === 'anomaly-mask') return { ...l, enabled: true }
+          if (l.id === 'gee-heatmap') return { ...l, enabled: true }
+          return l
+        })
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+  }
+}
+
 function applyPreset(preset) {
   const p = preset || {}
   const nextContext = String(p.contextId || '').trim().toLowerCase()
@@ -892,6 +986,17 @@ onMounted(() => {
   }
 
   window.addEventListener('keydown', onKeydown)
+
+  ;(async () => {
+    try {
+      const prompts = await apiService.listCopilotPrompts()
+      if (Array.isArray(prompts) && prompts.length) {
+        copilotPresets.value = prompts
+      }
+    } catch (_) {
+      // ignore (keep local defaults)
+    }
+  })()
 
   try {
     // contextId/currentScale are initialized synchronously during setup to avoid
@@ -1070,7 +1175,7 @@ onBeforeUnmount(() => {
   margin: 18px 0;
 }
 
-.left-armor {
+.left-rail {
   width: 360px;
   flex-shrink: 0;
   padding: 12px;
@@ -1097,27 +1202,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.right-armor {
-  width: 420px;
+.right-rail {
+  width: 400px;
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.right-pane {
   padding: 12px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.right-pane-layers {
-  max-height: 42vh;
-  overflow: hidden;
-}
-
-.right-pane-editor {
-  flex: 1;
   overflow: hidden;
 }
 
@@ -1153,10 +1241,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 980px) {
-  .left-armor {
+  .left-rail {
     width: 320px;
   }
-  .right-armor {
+  .right-rail {
     width: 360px;
   }
 }
@@ -1165,12 +1253,9 @@ onBeforeUnmount(() => {
   .middle-workspace {
     flex-direction: column;
   }
-  .left-armor,
-  .right-armor {
+  .left-rail,
+  .right-rail {
     width: 100%;
-  }
-  .right-pane-layers {
-    max-height: 260px;
   }
 }
 </style>

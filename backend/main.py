@@ -37,6 +37,7 @@ from llm_service import (
     generate_monitoring_brief_openai_compatible,
     generate_agent_analysis_openai_compatible,
 )
+from v7_copilot import router as v7_router
 from gee_service import (
     smart_load,
     get_tile_url,
@@ -53,6 +54,9 @@ app = FastAPI(
     description="后端 API 用于 Cesium 3D 地球可视化",
     version="1.0.0"
 )
+
+# v7 Copilot (UI-driven tool calling stub)
+app.include_router(v7_router)
 
 
 # --- Debug / observability ---
