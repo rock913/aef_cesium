@@ -12,4 +12,4 @@ EXPOSE 8404
 # IMPORTANT: docker-compose.dev.yml mounts /app/node_modules as a named volume.
 # That volume can exist while missing packages (e.g., after package.json changes),
 # so checking only for the directory is insufficient.
-CMD ["sh", "-lc", "node -e \"require.resolve('vite'); require.resolve('three')\" >/dev/null 2>&1 || npm ci; npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT:-8404}"]
+CMD ["sh", "-lc", "node -e \"require.resolve('vite'); require.resolve('three'); require.resolve('gsap')\" >/dev/null 2>&1 || npm ci; npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT:-8404}"]
