@@ -97,6 +97,35 @@ export default {
     function _updatePhotorealisticTilesetVisibility() {
       if (!viewer || !photorealisticTileset) return
 
+      // Workbench note:
+      // In the Workbench, AI imagery layers are mounted by `EngineRouter` directly
+      // onto `viewer.imageryLayers`, not via this component's `loadAILayer()`.
+      // Detect such externally-managed overlays so the photorealistic tileset
+      // doesn't occlude the imagery stack at close zoom.
+      const _hasExternalOverlay = () => {
+        try {
+          const layers = viewer?.imageryLayers
+          if (!layers) return false
+          const n = typeof layers.length === 'number' ? layers.length : 0
+          for (let i = 0; i < n; i++) {
+            const layer = layers.get(i)
+            if (!layer) continue
+            if (layer === currentBasemapLayer) continue
+            if (layer === currentAILayer) continue
+            // Only treat marked overlays as AI overlays.
+            if (!layer.__oneearthOverlay) continue
+            const show = layer.show !== false
+            const alpha = (layer.alpha === undefined || layer.alpha === null) ? 1.0 : Number(layer.alpha)
+            if (show && (!Number.isFinite(alpha) || alpha > 0.02)) {
+              return true
+            }
+          }
+        } catch (_) {
+          // ignore
+        }
+        return false
+      }
+
       const occlusionMode = String(import.meta.env.VITE_PHOTOREALISTIC_AI_OCCLUSION || 'hide')
         .trim()
         .toLowerCase()
@@ -111,8 +140,10 @@ export default {
       let desiredShow = true
       let desiredStyle = photorealisticTilesetBaseStyle
 
+      const aiOverlayActive = !!(isAILayerActive || _hasExternalOverlay())
+
       // Rule 1 (highest priority): AI overlay active -> occlude tileset.
-      if (isAILayerActive && occlusionMode !== 'none' && occlusionMode !== 'off') {
+      if (aiOverlayActive && occlusionMode !== 'none' && occlusionMode !== 'off') {
         if (occlusionMode === 'dim') {
           if (!photorealisticTilesetDimStyle) {
             photorealisticTilesetDimStyle = new Cesium.Cesium3DTileStyle({
@@ -356,6 +387,11 @@ export default {
           sceneModePicker: false,
           navigationHelpButton: false,
           fullscreenButton: false,
+
+          // Workbench UX: avoid Cesium's default InfoBox overlaying our LayerTree.
+          // (Picking/selecting GeoJSON entities can otherwise spawn an InfoBox in the top-right.)
+          infoBox: false,
+          selectionIndicator: false,
           
           // 性能优化
           requestRenderMode: false,

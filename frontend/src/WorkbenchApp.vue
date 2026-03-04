@@ -37,7 +37,7 @@
           :class="{ collapsed: isImmersive }"
           aria-label="Agent Sidebar"
         >
-          <AgentPanel :text="agentText" @execute="runStub" @reset="reset" />
+          <AgentPanel :text="agentText" @execute="runExecute" @reset="reset" />
         </aside>
 
         <main class="ide-main" aria-label="Main Canvas">
@@ -75,7 +75,7 @@
               @switch-lab="setMode('lab')"
             />
 
-            <TimelineHUD class="timeline-hud" @execute="runStub" />
+            <TimelineHUD class="timeline-hud" @execute="runExecute" />
           </div>
         </main>
 
@@ -109,6 +109,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MonacoLazyEditor from './components/MonacoLazyEditor.vue'
 import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
+import { apiService } from './services/api.js'
 import EngineRouter from './views/workbench/EngineRouter.vue'
 import AgentPanel from './views/workbench/components/AgentPanel.vue'
 import EditorPanel from './views/workbench/components/EditorPanel.vue'
@@ -140,6 +141,11 @@ const demoPresets = Object.freeze([
     mode: 'theater',
     activeTabKind: 'twin',
     hint: '自动进入沉浸态',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.78 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+    ],
   },
   {
     id: 'demo:yuhang:lab',
@@ -148,6 +154,11 @@ const demoPresets = Object.freeze([
     mode: 'lab',
     activeTabKind: 'twin',
     hint: '自动展开代码视图',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.75 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: true, params: { opacity: 0.50, threshold: 0.12, palette: 'FF4D6D' } },
+    ],
   },
   {
     id: 'demo:macro:theater',
@@ -156,6 +167,11 @@ const demoPresets = Object.freeze([
     mode: 'theater',
     activeTabKind: 'twin',
     hint: '看宏观 => 自动进入沉浸态',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.78 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+    ],
   },
   {
     id: 'demo:code:lab',
@@ -164,6 +180,11 @@ const demoPresets = Object.freeze([
     mode: 'lab',
     activeTabKind: 'twin',
     hint: '看代码 => 自动进入作业态',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.75 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: true, params: { opacity: 0.50, threshold: 0.12, palette: 'FF4D6D' } },
+    ],
   },
   {
     id: 'demo:data:lab',
@@ -172,6 +193,11 @@ const demoPresets = Object.freeze([
     mode: 'lab',
     activeTabKind: 'table',
     hint: '自动切到表格 Tab',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.78 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+    ],
   },
   {
     id: 'demo:charts:lab',
@@ -180,6 +206,11 @@ const demoPresets = Object.freeze([
     mode: 'lab',
     activeTabKind: 'charts',
     hint: '自动切到图表 Tab',
+    layers: [
+      { id: 'gee-heatmap', enabled: true, params: { opacity: 0.78 } },
+      { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
+      { id: 'anomaly-mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
+    ],
   },
 ])
 
@@ -254,9 +285,9 @@ function ensureTabKind(kind) {
 }
 
 const layers = ref([
-  { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true },
-  { id: 'boundaries', name: 'Vector Boundaries', enabled: true },
-  { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false },
+  { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } },
+  { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } },
+  { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
 ])
 
 function _safeJsonParse(s, fallback) {
@@ -291,9 +322,9 @@ function _normalizeLayers(arr) {
   const a = Array.isArray(arr) ? arr : []
   const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask'])
   const defaults = new Map([
-    ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true }],
-    ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: true }],
-    ['anomaly-mask', { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false }],
+    ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } }],
+    ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } }],
+    ['anomaly-mask', { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } }],
   ])
 
   const out = []
@@ -302,10 +333,27 @@ function _normalizeLayers(arr) {
     const id = String(l?.id || '').trim()
     if (!allowed.has(id) || seen.has(id)) continue
     const base = defaults.get(id)
+    const p = (l && typeof l === 'object') ? l.params : null
+    const baseParams = (base && typeof base === 'object') ? base.params : null
+    const opacityRaw = p?.opacity ?? baseParams?.opacity
+    const opacity = Number(opacityRaw)
+    const nextParams = {
+      ...(baseParams || {}),
+      ...(p && typeof p === 'object' ? p : {}),
+    }
+    if (Number.isFinite(opacity)) {
+      nextParams.opacity = Math.max(0, Math.min(1, opacity))
+    }
+    if (id === 'anomaly-mask') {
+      const thr = Number(nextParams.threshold)
+      if (Number.isFinite(thr)) nextParams.threshold = Math.max(0, Math.min(1, thr))
+      if (nextParams.palette !== undefined) nextParams.palette = String(nextParams.palette || '').trim()
+    }
     out.push({
       id,
       name: String(l?.name || base?.name || id),
       enabled: l?.enabled === undefined ? !!base?.enabled : !!l.enabled,
+      params: nextParams,
     })
     seen.add(id)
   }
@@ -332,13 +380,24 @@ const chartSeries = computed(() => {
   return [10, 14, 9, 22, 18, 27, 24]
 })
 
+const theaterReport = ref('')
+const executeBusy = ref(false)
+
 const theaterSummary = computed(() => {
   const sc = scenario.value
   const q = String(lastIntent.value || '').trim()
   const head = `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`
   const intent = q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`
   const rec = '- Recommendation: 切换 Lab 查看代码与证据链'
-  return ['Agent Summary (demo):', head, intent, rec].join('\n')
+  const extra = String(theaterReport.value || '').trim()
+  return [
+    'Agent (demo):',
+    head,
+    intent,
+    rec,
+    extra ? '' : null,
+    extra || null,
+  ].filter(Boolean).join('\n')
 })
 
 function buildCodeStub(s) {
@@ -401,6 +460,102 @@ function runStub() {
   _type(plan)
 }
 
+async function runExecute() {
+  if (executeBusy.value) return
+  executeBusy.value = true
+  theaterReport.value = ''
+
+  try {
+    // Always maximize impact: Twin first.
+    ensureTabKind('twin')
+
+    const sc = scenario.value
+    const backend = sc?.backend || {}
+    const modeId = String(backend.mode || '').trim()
+    const locationId = String(backend.location || '').trim()
+    const missionId = String(backend.mission_id || '').trim()
+
+    const q = String(lastIntent.value || '').trim()
+    const intro = [
+      'Agent (demo):',
+      `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
+      q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`,
+      `- Backend: mode=${modeId || '—'}, location=${locationId || '—'}`,
+      '- Step 1: 准备图层 (tiles/geojson)',
+      '- Step 2: 计算统计 (stats)',
+      '- Step 3: 生成研判 (analysis/report)',
+    ].join('\n')
+    _type(intro)
+
+    // Ensure required layers are enabled for a meaningful render.
+    try {
+      layers.value = (layers.value || []).map((l) => {
+        if (l.id === 'gee-heatmap') return { ...l, enabled: true }
+        return l
+      })
+    } catch (_) {
+      // ignore
+    }
+
+    // If backend isn't ready, keep the UI responsive and stay deterministic.
+    try {
+      const health = await apiService.healthCheck()
+      if (!health?.gee_initialized) {
+        theaterReport.value = [
+          'Backend note:',
+          '- GEE 未初始化，已保留 UI→引擎联动链路。',
+          '- 如需真实 tiles，请配置后端 Earth Engine 环境。'
+        ].join('\n')
+        return
+      }
+    } catch (_) {
+      // ignore health failures; proceed best-effort
+    }
+
+    // Stats + analysis/report are optional but upgrade Theater HUD to “business-grade”.
+    if (modeId && locationId) {
+      const statsResp = await apiService.getStats(modeId, locationId)
+      const stats = statsResp?.stats
+
+      let analysisText = ''
+      if (missionId) {
+        try {
+          const analysisResp = await apiService.getAnalysis(missionId, stats)
+          analysisText = String(analysisResp?.analysis || '').trim()
+        } catch (_) {
+          analysisText = ''
+        }
+      }
+
+      let reportText = ''
+      if (missionId) {
+        try {
+          const reportResp = await apiService.getReport(missionId, stats)
+          reportText = String(reportResp?.report || '').trim()
+        } catch (_) {
+          reportText = ''
+        }
+      }
+
+      const lines = []
+      if (analysisText) {
+        lines.push('Analysis:', analysisText)
+      }
+      if (reportText) {
+        if (lines.length) lines.push('')
+        lines.push('Brief:', reportText)
+      }
+      if (lines.length) theaterReport.value = lines.join('\n')
+    }
+  } catch (e) {
+    theaterReport.value = `Backend error: ${e?.message || String(e)}`
+  } finally {
+    // In Theater mode we want the HUD narrative to be front-and-center.
+    setMode('theater')
+    executeBusy.value = false
+  }
+}
+
 function reset() {
   agentText.value = 'System ready. Press Run to simulate an agent flow…'
 }
@@ -452,6 +607,14 @@ function applyPreset(preset) {
   setMode(p.mode)
 
   if (p.activeTabKind) ensureTabKind(p.activeTabKind)
+
+  if (Array.isArray(p.layers) && p.layers.length) {
+    try {
+      layers.value = _normalizeLayers(p.layers)
+    } catch (_) {
+      // ignore
+    }
+  }
 
   try {
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)

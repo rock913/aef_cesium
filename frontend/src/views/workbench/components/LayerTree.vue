@@ -1,14 +1,58 @@
 <template>
   <div class="tree" aria-label="Layer Tree">
     <div class="k">LAYER TREE</div>
-    <div class="row" v-for="(l, i) in layers" :key="l.id">
-      <label class="left">
-        <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
-        <span class="name">{{ l.name }}</span>
-      </label>
-      <div class="ops" aria-label="Reorder">
-        <button class="op" type="button" :disabled="i === 0" title="Move Up" @click="move(l.id, -1)">↑</button>
-        <button class="op" type="button" :disabled="i === layers.length - 1" title="Move Down" @click="move(l.id, 1)">↓</button>
+    <div class="item" v-for="(l, i) in layers" :key="l.id">
+      <div class="row">
+        <label class="left">
+          <input class="chk" type="checkbox" :checked="!!l.enabled" @change="toggle(l.id)" />
+          <span class="name">{{ l.name }}</span>
+        </label>
+        <div class="ops" aria-label="Reorder">
+          <button class="op" type="button" :disabled="i === 0" title="Move Up" @click="move(l.id, -1)">↑</button>
+          <button class="op" type="button" :disabled="i === layers.length - 1" title="Move Down" @click="move(l.id, 1)">↓</button>
+        </div>
+      </div>
+
+      <div class="params" v-if="l && l.params" aria-label="Layer Params">
+        <div class="param">
+          <span class="pk">Opacity</span>
+          <input
+            class="rng"
+            type="range"
+            min="0"
+            max="1"
+            step="0.02"
+            :value="Number(l.params.opacity ?? 0.8)"
+            @input="setParam(l.id, 'opacity', $event?.target?.value)"
+          />
+          <span class="pv">{{ fmtPct(l.params.opacity) }}</span>
+        </div>
+
+        <div class="param" v-if="String(l.id) === 'anomaly-mask'">
+          <span class="pk">Threshold</span>
+          <input
+            class="rng"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            :value="Number(l.params.threshold ?? 0.1)"
+            @input="setParam(l.id, 'threshold', $event?.target?.value)"
+          />
+          <span class="pv">{{ fmtNum(l.params.threshold) }}</span>
+        </div>
+
+        <div class="param" v-if="String(l.id) === 'anomaly-mask'">
+          <span class="pk">Palette</span>
+          <input
+            class="txt"
+            type="text"
+            spellcheck="false"
+            :value="String(l.params.palette || '')"
+            placeholder="FF4D6D"
+            @change="setParam(l.id, 'palette', $event?.target?.value)"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -36,6 +80,37 @@ function move(id, dir) {
   arr[idx] = arr[j]
   arr[j] = tmp
   emit('update:layers', arr)
+}
+
+function setParam(id, key, raw) {
+  const k = String(key || '').trim()
+  const next = (props.layers || []).map((l) => {
+    if (l.id !== id) return l
+    const params = { ...(l.params || {}) }
+    if (k === 'opacity' || k === 'threshold') {
+      const n = Number(raw)
+      if (Number.isFinite(n)) params[k] = n
+      return { ...l, params }
+    }
+    if (k === 'palette') {
+      params.palette = String(raw || '').trim()
+      return { ...l, params }
+    }
+    return l
+  })
+  emit('update:layers', next)
+}
+
+function fmtPct(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`
+}
+
+function fmtNum(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return n.toFixed(2)
 }
 </script>
 
@@ -72,6 +147,58 @@ function move(id, dir) {
   font-size: 12px;
   padding: 6px 6px;
   border-radius: 10px;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+}
+
+.params {
+  margin: 0 6px 6px;
+  padding: 8px 8px 8px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.param {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.param:first-child {
+  margin-top: 0;
+}
+
+.pk {
+  width: 74px;
+  opacity: 0.75;
+  font-weight: 700;
+}
+
+.pv {
+  width: 42px;
+  text-align: right;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.rng {
+  flex: 1;
+}
+
+.txt {
+  flex: 1;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.90);
 }
 
 .left {

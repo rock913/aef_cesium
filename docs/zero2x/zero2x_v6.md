@@ -304,7 +304,7 @@ function triggerExecution() {
 事件穿透：除了 Agent 面板和 Code 面板，屏幕其他区域的鼠标事件（Drag, Wheel）必须能够直接穿透到背后的 Cesium canvas 上，保障地图交互的流畅性。
 
 
-6. 工程落地现状与下一步计划（截至 2026-03-03）
+6. 工程落地现状与下一步计划（截至 2026-03-04）
 
 本节用于把“蓝图伪代码”与当前仓库真实实现对齐，便于后续继续按 TDD 门禁推进。
 
@@ -317,7 +317,18 @@ function triggerExecution() {
 - Tab System（真实行为）：Twin/Table/Charts 支持新建/关闭，并通过 `sessionStorage` 持久化与恢复：
   - `z2x:lastTab`（上次激活 Tab）
   - `z2x:openTabs`（打开的 Tab 列表）
-- LayerTree（真实行为 + 引擎联动）：LayerTree 支持 toggle + reorder，并通过 `sessionStorage` 持久化与恢复 `z2x:layers`；同时已打通到 Cesium：LayerTree 的 enabled 会驱动引擎内 overlays 显示/隐藏（当前为 stub entities，避免依赖外部服务）。
+- LayerTree（真实行为 + 引擎联动 + 可调参数）：LayerTree 支持 toggle + reorder + opacity/threshold/palette 参数控制，并通过 `sessionStorage` 持久化与恢复 `z2x:layers`；同时已打通到 Cesium：
+  - `gee-heatmap` / `anomaly-mask` 使用真实 `UrlTemplateImageryProvider`（同源 `/api/tiles/...`）渲染，并支持 opacity 叠加。
+  - `boundaries` 使用同源 GeoJSON（`/api/geojson/boundaries`）以 `GeoJsonDataSource` 渲染，并带 outline/label（默认关闭，可在 LayerTree 手动开启）。
+  - LayerTree reorder 会映射到 Cesium imageryLayers 的图层叠放顺序（可真实“调层”）。
+
+近期稳定性补丁（2026-03-04，已回归）：
+
+- 修复“近景看不到底图切片 / AI 图层”的遮挡问题：Workbench 外挂的 imagery overlay 会被识别为业务叠加层，Photorealistic 3D Tiles 会按配置自动 hide/dim，避免遮住底图与 AI 图层。
+- 修复“双击/点选边界弹出说明面板与 LayerTree 重叠”：禁用 Cesium 默认 InfoBox/SelectionIndicator（Workbench 使用自有 HUD）。
+- 修复 `Entity geometry outlines are unsupported on terrain` warning：GeoJSON load 阶段禁用 stroke，避免 terrain clamp 的 polygon outline 触发一次性警告。
+- 强化 `/api/layers?variant=anomaly-mask`：阈值 mask 逻辑与 palette 解析更健壮，避免多 band 影像导致 500。
+- Vector Boundaries 默认关闭：首次进入/重置/预置剧本不再自动打开边界层，减少视觉干扰与 UI 重叠概率。
 
 实现位置（与蓝图伪代码的工程映射）：
 
@@ -325,37 +336,32 @@ function triggerExecution() {
 - 引擎路由/容器（Cesium MVP，Three.js Phase 2）：`frontend/src/views/workbench/EngineRouter.vue`
 - Cesium Viewer 封装与 viewer-ready：`frontend/src/components/CesiumViewer.vue`
 - 组件：`frontend/src/views/workbench/components/TabBar.vue`、`LayerTree.vue`、`OmniCommand.vue`、`TheaterHUD.vue`
+- 后端（tiles + 边界 GeoJSON）：`backend/main.py`（`/api/layers`、`/api/tiles/{tile_id}/{z}/{x}/{y}`、`/api/geojson/boundaries`）
 
 回归状态：
 
 - 前端：`npm test` 全绿（vitest 门禁覆盖 Mode Toggle / Presets / Tabs / LayerTree / sessionStorage keys 等）。
 - 后端：`pytest` 全绿（集成类用例按默认策略 skip）。
-- 最新交付：已推送到分支 `021/zero2x-upgrade`（commit: `0ba049c`）。
+- 最新交付：已通过 Docker Prod 更新并通过 `make docker-prod-check`（同源 nginx 静态资源 + /api 反代 + /health）。
 
 6.2 当前仍是“演示级”的部分（下一步要升级为“真实业务级”）
 
-- Cesium overlays 目前使用 entities rectangle 作为轻量 stub（用于验证 UI→引擎链路与演示稳定性），尚未接入真实 GEE tiles / GeoJSON / imageryLayers。
-- Layer reorder 目前只做“状态顺序保存”，尚未映射到 Cesium 的图层叠放顺序（imageryLayers index / primitives order）。
-- Agent Flow 目前以 demo stub 为主，尚未形成“模型指令 → 任务编排 → 引擎可视化反馈”的闭环（例如执行后自动开启某图层、切换 Tab、生成报告卡片等）。
+- Agent Flow 的“全自动任务编排”仍偏演示：当前 `EXECUTE ON TWIN` 已打通后端 stats/analyze/report 并回填 TheaterHUD，但尚未做到更复杂的多步编排（例如：多图层组合、跨期对比、任务队列/中断/重试、产物下载等）。
+- 图层参数目前为 MVP（opacity/threshold/palette），尚未扩展到更完整的业务控制（palette picker、阈值自动建议、图例/色标、时间窗/时相选择、CH4 聚类类别过滤等）。
+- 图层类型仍以 imagery + GeoJSON 为主，尚未引入更高级的 primitives/3D Tiles/矢量切片等（留作后续扩展）。
 
 6.3 下一步计划（按优先级）
 
-P0（把“stub 联动”升级为“真实渲染”）：
+P0–P2（已完成落地，作为“可复现演示闭环”的基线）：
 
-- 将 `LayerTree` 中的 `gee-heatmap / boundaries / anomaly-mask` 对接到 Cesium 的真实图层实现：
-  - `gee-heatmap`：通过后端 tile endpoint（UrlTemplateImageryProvider）加入 `viewer.imageryLayers`。
-  - `boundaries`：以 GeoJSON/矢量边界（DataSource 或自定义 primitives）渲染，支持 outline/label。
-  - `anomaly-mask`：以半透明 mask（imagery 或 polygon）叠加，支持透明度调节。
+- P0：`gee-heatmap / boundaries / anomaly-mask` 已接入真实 Cesium 图层（imagery + GeoJSON），不再依赖 entities stub。
+- P1：LayerTree reorder 已映射到 Cesium imageryLayers 栈顺序；opacity/threshold/palette 已可控并持久化到 `sessionStorage`。
+- P2：Presets 已可绑定 layers；`EXECUTE ON TWIN` 已触发后端 stats/analyze/report 并回填 TheaterHUD（会保证 Twin Tab 与 `gee-heatmap` enabled；`boundaries` 默认不再强制开启）。
 
-P1（可控的图层栈与可解释反馈）：
+下一阶段建议（从“演示闭环”升级到“真实科研作业闭环”）：
 
-- 将 LayerTree 的 reorder 映射到 Cesium 图层栈顺序（imageryLayers 的 index），并在 UI 中反馈“顶层/底层”。
-- 为每个图层加入可调参数（opacity / threshold / palette），并把参数写入 `sessionStorage`（或后续 store）。
-
-P2（把“演示剧本”变成“可复现任务流”）：
-
-- 让 Presets 支持绑定：默认开启的 layers + 相机位置 + 解释性报告（Theater HUD）模板。
-- 让 EXECUTE 按钮触发：后端作业（analysis/report/tiles）→ 前端状态更新（Tab 自动切换、Layer 自动开启、报告卡片更新）。
+- P3：把 Layer 参数升级为“可解释 UI”（图例/色标、分位数阈值建议、时间窗与多时相对比），并将参数从 `sessionStorage` 迁移到更可扩展的 store。
+- P4：引入任务队列/中断/重试/缓存策略，让 EXECUTE 支持真正的多步编排（tiles 预热、报告导出、证据链落盘）。
 
 Phase 2（双模态底座）：
 

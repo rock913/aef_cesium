@@ -67,10 +67,22 @@ export const apiService = {
   /**
    * 获取图层 Tile URL
    */
-  async getLayer(mode, location) {
-    const { data } = await api.get('/api/layers', {
-      params: { mode, location }
-    })
+  async getLayer(mode, location, options = {}) {
+    const opts = options && typeof options === 'object' ? options : {}
+    const params = {
+      mode,
+      location
+    }
+
+    // Optional: request a specific visualization / derived variant.
+    // Back-compat: backend will ignore unknown params.
+    if (opts.variant) params.variant = opts.variant
+    if (opts.threshold !== undefined) params.threshold = opts.threshold
+    if (opts.palette) params.palette = opts.palette
+    if (opts.min !== undefined) params.min = opts.min
+    if (opts.max !== undefined) params.max = opts.max
+
+    const { data } = await api.get('/api/layers', { params })
     return data
   },
 

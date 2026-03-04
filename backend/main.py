@@ -30,6 +30,7 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 from collections import defaultdict
 from collections import OrderedDict
 import httpx
+import re
 
 from config import settings
 from llm_service import (
@@ -1540,6 +1541,74 @@ async def get_locations():
     return locations_with_bounds
 
 
+@app.get("/api/geojson/boundaries")
+async def get_boundaries_geojson(
+    location: str = Query(..., description="地点代码 (如 yuhang/poyang/amazon)"),
+    mode: Optional[str] = Query(default=None, description="可选：AI 模式，用于决定边界缓冲区大小"),
+    buffer_km: Optional[float] = Query(default=None, description="可选：直接指定边界缓冲距离 (km)，优先级最高"),
+):
+    """Return a simple same-origin GeoJSON boundary for a location.
+
+    This endpoint is intentionally lightweight and does NOT require GEE.
+    It's used by the /workbench LayerTree 'boundaries' overlay.
+    """
+
+    if location not in settings.locations:
+        raise HTTPException(status_code=400, detail=f"Invalid location: {location}")
+
+    loc = settings.locations[location]
+    lat, lon, _zoom = loc["coords"]
+
+    # Resolve buffer size.
+    km = None
+    if buffer_km is not None:
+        try:
+            km = float(buffer_km)
+        except Exception:
+            km = None
+    if km is None:
+        try:
+            m = settings.get_viewport_buffer_m_for_mode(mode) if mode else int(settings.viewport_buffer_m)
+        except Exception:
+            m = int(getattr(settings, "viewport_buffer_m", 150000))
+        km = max(1.0, float(m) / 1000.0)
+
+    lat_delta = km / 111.0
+    lon_den = 111.0 * max(abs(float(lat)), 0.01)
+    lon_delta = km / lon_den
+
+    west = float(lon) - lon_delta
+    south = float(lat) - lat_delta
+    east = float(lon) + lon_delta
+    north = float(lat) + lat_delta
+
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "id": str(location),
+            "name": loc.get("name", str(location)),
+            "mode": mode,
+            "buffer_km": km,
+        },
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+                [west, south],
+                [east, south],
+                [east, north],
+                [west, north],
+                [west, south],
+            ]],
+        },
+    }
+
+    return {
+        "type": "FeatureCollection",
+        "features": [feature],
+        "bbox": [west, south, east, north],
+    }
+
+
 @app.get("/api/locations/{location_code}")
 async def get_location(location_code: str):
     """获取特定地点信息"""
@@ -1867,7 +1936,12 @@ async def analyze_mission(req: AnalyzeRequest):
 async def get_layer(
     request: Request,
     mode: str = Query(..., description="AI 场景模式"),
-    location: str = Query(..., description="地点代码")
+    location: str = Query(..., description="地点代码"),
+    variant: Optional[str] = Query(default=None, description="可选：图层变体 (heatmap|anomaly-mask)"),
+    threshold: Optional[float] = Query(default=None, description="可选：阈值（用于 anomaly-mask 等）"),
+    palette: Optional[str] = Query(default=None, description="可选：调色板，逗号分隔颜色 (如 FF0000,00FF00)"),
+    vmin: Optional[float] = Query(default=None, alias="min", description="可选：可视化 min"),
+    vmax: Optional[float] = Query(default=None, alias="max", description="可选：可视化 max"),
 ):
     """
     获取指定模式和地点的图层 Tile URL
@@ -1919,14 +1993,112 @@ async def get_layer(
             location,
             settings.gee_user_path,
         )
+
+        # Optional: apply Workbench-side visualization overrides / variants.
+        # This must be lightweight and deterministic; do not introduce new heavy compute.
+        img_for_tiles = layer_img
+        vis_for_tiles = dict(vis_params or {})
+
+        def _parse_palette(s: Optional[str]):
+            if not s:
+                return None
+            raw = str(s).strip()
+            if not raw:
+                return None
+            # Accept common separators: comma / colon / semicolon / whitespace.
+            parts = [p.strip().lstrip("#") for p in re.split(r"[,;:\\s]+", raw) if p and p.strip()]
+            parts = [p for p in parts if p]
+            return parts or None
+
+        pal = _parse_palette(palette)
+        if pal is not None:
+            vis_for_tiles["palette"] = pal
+        if vmin is not None:
+            try:
+                vis_for_tiles["min"] = float(vmin)
+            except Exception:
+                pass
+        if vmax is not None:
+            try:
+                vis_for_tiles["max"] = float(vmax)
+            except Exception:
+                pass
+
+        var = str(variant or "").strip().lower()
+        effective_threshold: Optional[float] = threshold
+        if var in {"anomaly", "anomaly-mask", "mask"}:
+            # Build a binary mask layer from the base image.
+            # Default threshold is mode-specific-ish; keep conservative.
+            thr = 0.1
+            try:
+                if threshold is not None:
+                    thr = float(threshold)
+            except Exception:
+                thr = 0.1
+
+            effective_threshold = thr
+
+            try:
+                base = img_for_tiles
+                # Many layers may be multi-band (e.g. RGB visualization products).
+                # A mask must be single-band; select the first band deterministically.
+                try:
+                    base = base.select(0)
+                except Exception:
+                    pass
+
+                # For signed-difference layers, abs highlights magnitude.
+                try:
+                    base = base.abs()
+                except Exception:
+                    pass
+
+                mask = base.gte(thr)
+                # selfMask() keeps only truthy pixels, avoiding the need for an explicit updateMask.
+                try:
+                    img_for_tiles = mask.selfMask()
+                except Exception:
+                    img_for_tiles = mask.updateMask(mask)
+            except Exception:
+                # Fallback: if masking fails, just keep the original.
+                img_for_tiles = layer_img
+
+            color = (pal[-1] if pal else "FF4D6D")
+            vis_for_tiles = {
+                "min": 0,
+                "max": 1,
+                # Use at least 2 colors to keep GEE visualize stable.
+                "palette": ["000000", str(color).lstrip("#")],
+                "format": "png",
+            }
         
         # 获取上游 Tile URL (ee.getMapId) 并注册到本地代理。
         # 为避免前端 prefetch/多客户端导致的重复 getMapId 调用，这里使用 TTL cache。
-        template_cache_key = _layer_template_cache_key(str(asset_id), vis_params)
+        # Cache key must include effective visualization + variant, otherwise a prior
+        # request could poison the tile URL template for different thresholds/palettes.
+        cache_vis_sig = dict(vis_for_tiles or {})
+        if var:
+            cache_vis_sig["_variant"] = var
+        if effective_threshold is not None:
+            cache_vis_sig["_threshold"] = float(effective_threshold)
+        template_cache_key = _layer_template_cache_key(str(asset_id), cache_vis_sig)
         upstream_tile_url = _layer_template_cache_get(template_cache_key)
         if not upstream_tile_url:
             # ee.Image.getMapId() 会发起网络请求，属于阻塞调用
-            upstream_tile_url = await run_in_threadpool(get_tile_url, layer_img, vis_params)
+            try:
+                upstream_tile_url = await run_in_threadpool(get_tile_url, img_for_tiles, vis_for_tiles)
+            except Exception as e:
+                # Typical causes: invalid vis params (palette/min/max) or invalid image graph.
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "get_tile_url_failed",
+                        "message": f"{type(e).__name__}: {e}",
+                        "variant": var or "heatmap",
+                        "effective_threshold": effective_threshold,
+                        "vis_params": vis_for_tiles,
+                    },
+                )
             _layer_template_cache_set(template_cache_key, upstream_tile_url)
         tile_id = _register_tile_template(upstream_tile_url)
         # Always return a same-origin URL template.
@@ -1941,7 +2113,8 @@ async def get_layer(
         buffer_km = max(1, int(buffer_m / 1000))
         # 简单的边界框计算 (度数转换)
         lat_delta = buffer_km / 111.0  # ~111 km per degree latitude
-        lon_delta = buffer_km / (111.0 * abs(lat))  # longitude depends on latitude
+        # longitude degrees per km depends on latitude; avoid division by zero near equator.
+        lon_delta = buffer_km / (111.0 * max(0.01, abs(float(lat))))
         bounds = [
             lon - lon_delta,  # west
             lat - lat_delta,  # south
@@ -1955,7 +2128,9 @@ async def get_layer(
             "is_cached": is_cached,
             "status": status_html,
             "asset_id": asset_id,
-            "vis_params": vis_params,
+            "vis_params": vis_for_tiles,
+            "variant": var or "heatmap",
+            "threshold": effective_threshold,
             # Rendering hints are optional/additive; frontend may ignore them.
             # Motivation: some palettes (bright/yellow/light) can look like a "white film"
             # when stacked at high alpha. Per-mode opacity stabilizes perception.
@@ -1979,7 +2154,7 @@ async def get_layer(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail={"error": str(e)})
+        raise HTTPException(status_code=500, detail={"error": f"{type(e).__name__}: {e}"})
 
 
 @app.post("/api/cache/export")

@@ -16,6 +16,7 @@ export const scenarios021 = [
     backend: {
       location: 'poyang',
       mode: 'ch6_water_pulse',
+      mission_id: 'ch6_poyang',
     },
     camera: { lat: 29.20, lon: 116.20, height: 95000, duration_s: 4.0, pitch_deg: -42.0 },
   },
@@ -29,6 +30,7 @@ export const scenarios021 = [
     backend: {
       location: 'yuhang',
       mode: 'ch1_yuhang_faceid',
+      mission_id: 'ch1_yuhang',
     },
     camera: { lat: 30.26879, lon: 119.92284, height: 16000, duration_s: 3.8, pitch_deg: -45.0 },
   },
@@ -42,6 +44,7 @@ export const scenarios021 = [
     backend: {
       location: 'amazon',
       mode: 'ch4_amazon_zeroshot',
+      mission_id: 'ch4_amazon',
     },
     camera: { lat: -10.04485, lon: -55.42936, height: 90000, duration_s: 4.0, pitch_deg: -42.0 },
   },
