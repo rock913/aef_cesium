@@ -113,6 +113,17 @@ def test_v7_demo3_maowusu_emits_imagery_and_report() -> None:
     assert "generate_report" in tools
 
 
+def test_v7_poyang_emits_imagery_and_report() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "鄱阳湖 水网 脉动 2024 vs 2022"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "add_cesium_imagery" in tools
+    assert "generate_report" in tools
+
+
 def test_v7_nyc_emits_charts_tools() -> None:
     client = _client()
     r = client.post("/api/v7/copilot/execute", json={"prompt": "纽约 热岛 Pearson correlation income"})

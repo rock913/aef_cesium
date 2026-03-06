@@ -370,6 +370,45 @@ async def _execute_stub(
         CopilotEvent(type="thought", text="解析意图并选择工具…"),
     ]
 
+    if "鄱阳" in p or "poyang" in lc or ("水网" in p and ("脉动" in p or "变化" in p)):
+        layer_data, layer_err = await _fetch_layer(
+            request,
+            mode="ch6_water_pulse",
+            location="poyang",
+        )
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 29.20, "lon": 116.20, "height": 95000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "poyang", "years": [2022, 2024], "metric": "delta", "dim": "A02"}),
+                CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_imagery",
+                    args={
+                        "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
+                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch6_water_pulse", 0.88),
+                        "palette": "",
+                        "threshold": None,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# 鄱阳湖水网脉动\n\n"
+                        + "- A02 维度跨年差分：2024 vs 2022。\n"
+                        + ("- ✅ 已从后端 /api/layers 获取同源瓦片模板并挂载。\n" if layer_data else "- ⚠️ GEE 图层不可用，已降级为 OSM 示例 overlay（不影响工具链验收）。\n")
+                        + (f"\n## 降级原因\n```json\n{layer_err}\n```\n" if layer_err else ""),
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
+                CopilotEvent(type="final", text="已生成鄱阳湖水网脉动指令（Earth scale），并挂载了图层以验证端到端链路。"),
+            ]
+        )
+        return events
+
     # Deterministic routing based on keywords.
     if "亚马逊" in p or "amazon" in lc or "聚类" in p or "k=6" in lc:
         layer_data, layer_err = await _fetch_layer(
