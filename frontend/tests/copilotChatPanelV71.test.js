@@ -48,4 +48,9 @@ describe('CopilotChatPanel v7.1 UI skeleton', () => {
     expect(s).toContain('<details')
     expect(s).toContain('<summary')
   })
+
+  it('clears input after submit to avoid filtering presets', () => {
+    const s = read('../src/views/workbench/components/CopilotChatPanel.vue')
+    expect(s).toMatch(/function submit\(\)[\s\S]*text\.value\s*=\s*''/)
+  })
 })

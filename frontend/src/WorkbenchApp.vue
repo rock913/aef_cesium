@@ -890,6 +890,11 @@ function applyCopilotEvents(events) {
       const lat = Number(args?.lat)
       const lon = Number(args?.lon)
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        const heightArg = Number(args?.height)
+        const durationArg = Number(args?.duration_s)
+        const height = Number.isFinite(heightArg) ? heightArg : 1800000
+        const duration = Number.isFinite(durationArg) ? durationArg : 3.6
+
         // Leaving standby: stop the global orbit and dive to target.
         try {
           engineRouter.value?.stopGlobalStandby?.()
@@ -898,9 +903,11 @@ function applyCopilotEvents(events) {
         }
 
         // Map known demo coords to an existing scenario context.
-        if (lat < 0) contextId.value = 'amazon'
-        else if (lat > 25 && lon > 110) contextId.value = 'yuhang'
-        else if (lat > 35 && lon > 100 && lon < 120) contextId.value = 'maowusu'
+        if (!String(contextId.value || '').trim()) {
+          if (lat < 0) contextId.value = 'amazon'
+          else if (lat > 25 && lon > 110) contextId.value = 'yuhang'
+          else if (lat > 35 && lon > 100 && lon < 120) contextId.value = 'maowusu'
+        }
 
         // Persist context so UI/URL doesn't appear to "jump back".
         try {
@@ -917,8 +924,8 @@ function applyCopilotEvents(events) {
         // Cinematic-ish default: high-altitude oblique view.
         try {
           engineRouter.value?.flyToLocation?.(
-            { lat, lon, height: 1800000, heading_deg: 0, pitch_deg: -55, easing: 'cubicinout' },
-            3.6
+            { lat, lon, height, heading_deg: 0, pitch_deg: -55, easing: 'cubicinout' },
+            duration
           )
         } catch (_) {
           // ignore

@@ -472,7 +472,10 @@ defineExpose({
 .prompt-chips {
   display: flex;
   gap: 8px;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 112px;
   padding-bottom: 2px;
 }
 
