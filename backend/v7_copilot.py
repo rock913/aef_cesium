@@ -179,6 +179,90 @@ _TOOLS: List[ToolDef] = [
         description="Switch the twin scale: earth/macro/micro.",
         args_schema={"target": {"type": "string", "enum": ["earth", "macro", "micro"]}},
     ),
+    # Phase 3 (Sky scale advanced rendering / cinematic toggles)
+    ToolDef(
+        name="enable_3d_terrain",
+        description="Enable 3D terrain on the Cesium globe (best-effort).",
+        args_schema={
+            "terrain": {"type": "string"},
+        },
+    ),
+    ToolDef(
+        name="add_cesium_3d_tiles",
+        description="Add a Cesium 3D Tileset (by url or ion asset id).",
+        args_schema={
+            "url": {"type": "string"},
+            "ion_asset_id": {"type": "integer"},
+            "name": {"type": "string"},
+            "opacity": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="add_cesium_extruded_polygons",
+        description="Add extruded polygons onto Cesium (GeoJSON, best-effort).",
+        args_schema={
+            "geojson": {"type": "object"},
+            "height": {"type": "number"},
+            "color": {"type": "string"},
+            "opacity": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="apply_custom_shader",
+        description="Apply a custom visualization shader/pipeline (stub-friendly).",
+        args_schema={
+            "kind": {"type": "string"},
+            "params": {"type": "object"},
+        },
+    ),
+    ToolDef(
+        name="generate_cesium_custom_shader",
+        description="Generate a Cesium CustomShader snippet (typically written via write_to_editor).",
+        args_schema={
+            "vertex_displacement": {"type": "string"},
+            "fragment_heat": {"type": "string"},
+            "code": {"type": "string"},
+        },
+    ),
+    ToolDef(
+        name="set_scene_mode",
+        description="Set Cesium scene visual mode, e.g. night/day.",
+        args_schema={
+            "mode": {"type": "string", "enum": ["day", "night"]},
+        },
+    ),
+    ToolDef(
+        name="play_czml_animation",
+        description="Load and play a CZML animation (url or inline czml list).",
+        args_schema={
+            "czml_url": {"type": "string"},
+            "czml": {"type": "array", "items": {"type": "object"}},
+            "speed": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="set_globe_transparency",
+        description="Set Cesium globe translucency alpha (0..1).",
+        args_schema={
+            "alpha": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="add_subsurface_model",
+        description="Add a subsurface model (stub; may be a 3D tileset url).",
+        args_schema={
+            "url": {"type": "string"},
+            "name": {"type": "string"},
+            "opacity": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="trigger_gsap_wormhole",
+        description="Trigger a wormhole transition animation (frontend-driven).",
+        args_schema={
+            "target": {"type": "string", "enum": ["macro", "micro"]},
+        },
+    ),
     ToolDef(
         name="aef_compute_diff",
         description="Compute cross-year change (diff) layer for a ROI.",
@@ -657,6 +741,8 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="enable_3d_terrain", args={"terrain": "cesium_world_terrain"}),
                 CopilotEvent(type="tool_result", tool="enable_3d_terrain", result="ok"),
+                CopilotEvent(type="tool_call", tool="add_cesium_3d_tiles", args={"name": "Everest (stub tiles)", "url": "", "ion_asset_id": None, "opacity": 1.0}),
+                CopilotEvent(type="tool_result", tool="add_cesium_3d_tiles", result={"status": "stub"}),
                 CopilotEvent(type="tool_call", tool="calculate_3d_volume", args={"roi": "everest_lake", "use_dem": True}),
                 CopilotEvent(type="tool_result", tool="calculate_3d_volume", result={"status": "stub", "volume": 0.0}),
                 CopilotEvent(type="tool_call", tool="simulate_glof_fluid", args={"origin": "everest_lake", "volume": 0.0}),
@@ -675,6 +761,8 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="fetch_insar_displacement", result={"status": "stub"}),
                 CopilotEvent(type="tool_call", tool="fetch_lst_anomaly", args={"roi": "mauna_loa"}),
                 CopilotEvent(type="tool_result", tool="fetch_lst_anomaly", result={"status": "stub"}),
+                CopilotEvent(type="tool_call", tool="apply_custom_shader", args={"kind": "insar_lst", "params": {"roi": "mauna_loa"}}),
+                CopilotEvent(type="tool_result", tool="apply_custom_shader", result={"status": "stub"}),
                 CopilotEvent(type="tool_call", tool="generate_cesium_custom_shader", args={"vertex_displacement": "insar", "fragment_heat": "lst"}),
                 CopilotEvent(type="tool_result", tool="generate_cesium_custom_shader", result={"status": "stub", "code": ""}),
                 CopilotEvent(type="final", text="已生成火山形变×热异常可视化指令（stub）。"),
@@ -689,6 +777,8 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="estimate_carbon_stock", args={"source": "GEDI+AEF", "roi": "congo"}),
                 CopilotEvent(type="tool_result", tool="estimate_carbon_stock", result={"status": "stub", "geojson": None}),
+                CopilotEvent(type="tool_call", tool="add_cesium_extruded_polygons", args={"geojson": None, "height": 0.0, "color": "#00F0FF", "opacity": 0.55}),
+                CopilotEvent(type="tool_result", tool="add_cesium_extruded_polygons", result={"status": "stub"}),
                 CopilotEvent(type="final", text="已生成碳储量估算指令（stub）。"),
             ]
         )
@@ -715,10 +805,14 @@ async def _execute_stub(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 2.50, "lon": 101.00, "height": 420000, "duration_s": 4.8}),
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="set_scene_mode", args={"mode": "night"}),
+                CopilotEvent(type="tool_result", tool="set_scene_mode", result="ok"),
                 CopilotEvent(type="tool_call", tool="detect_sar_oil_spill", args={"roi": "malacca"}),
                 CopilotEvent(type="tool_result", tool="detect_sar_oil_spill", result={"status": "stub", "polygon": None}),
                 CopilotEvent(type="tool_call", tool="intersect_ais_tracks", args={"time_window": "-24h"}),
                 CopilotEvent(type="tool_result", tool="intersect_ais_tracks", result={"status": "stub", "czml": None}),
+                CopilotEvent(type="tool_call", tool="play_czml_animation", args={"czml": [], "speed": 1.0}),
+                CopilotEvent(type="tool_result", tool="play_czml_animation", result={"status": "stub"}),
                 CopilotEvent(type="final", text="已生成 SAR 油污检测 + AIS 溯源指令（stub）。"),
             ]
         )
@@ -756,6 +850,8 @@ async def _execute_stub(
     if "虫洞" in p or "micro" in lc or "sio2" in lc:
         events.extend(
             [
+                CopilotEvent(type="tool_call", tool="trigger_gsap_wormhole", args={"target": "micro"}),
+                CopilotEvent(type="tool_result", tool="trigger_gsap_wormhole", result="ok"),
                 CopilotEvent(type="tool_call", tool="switch_scale", args={"target": "micro"}),
                 CopilotEvent(type="tool_result", tool="switch_scale", result="ok"),
                 CopilotEvent(type="tool_call", tool="generate_molecular_lattice", args={"type": "SiO2", "count": 8000}),

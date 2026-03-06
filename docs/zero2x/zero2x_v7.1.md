@@ -58,6 +58,13 @@ As-built（截止 2026-03-06）：Demo 1/3/4/5/周口等已接入上述“真实
 
 Phase 3：补齐剩余 Demo 的“可视化最低可用实现（MVR）”。包括 terrain, custom shader, night mode, 3D tiles 等渲染能力，以及 Demo 14 的宏微观双模态虫洞跃迁。
 
+As-built（补充，截止 2026-03-06）：
+
+- 后端 `/api/v7/tools` 已注册 Phase 3 工具：`enable_3d_terrain`, `add_cesium_3d_tiles`, `apply_custom_shader`, `generate_cesium_custom_shader`, `add_cesium_extruded_polygons`, `set_scene_mode`, `play_czml_animation`, `set_globe_transparency`, `add_subsurface_model`, `trigger_gsap_wormhole`。
+- 后端 v7 确定性路由已在 Demo 7/11/14 的事件序列中显式发射上述关键工具（MVR 级别，允许 stub result）。
+- 前端 Workbench 已能接收并“可见化”这些工具调用（Artifacts 层确定性写入 + Cesium 侧 best-effort 应用：terrain/tileset/night/CZML/透明度/挤出体；虫洞以 macro→micro 量子俯冲动画实现）。
+- TDD 门禁已扩展：后端 Pytest 覆盖 Phase 3 tools list + Demo 7/11/14 发射序列；前端 Vitest 覆盖 Phase 3 artifacts 归约逻辑。
+
 一、 架构演进：全尺度万能底座 (Omni-Scale Foundation)
 
 为了全面兼容四大核心学科，工作台底层视窗不再绑定单一引擎，升级为受 021 模型自动调度的**“万能渲染容器”**。

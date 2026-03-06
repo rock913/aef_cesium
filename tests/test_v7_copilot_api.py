@@ -55,6 +55,18 @@ def test_v7_tools_list() -> None:
     assert "show_chart" in names
     assert "render_bivariate_map" in names
 
+    # Phase 3 visualization tools (MVR)
+    assert "enable_3d_terrain" in names
+    assert "add_cesium_3d_tiles" in names
+    assert "apply_custom_shader" in names
+    assert "generate_cesium_custom_shader" in names
+    assert "add_cesium_extruded_polygons" in names
+    assert "set_scene_mode" in names
+    assert "play_czml_animation" in names
+    assert "set_globe_transparency" in names
+    assert "add_subsurface_model" in names
+    assert "trigger_gsap_wormhole" in names
+
 
 def test_v7_execute_returns_events() -> None:
     client = _client()
@@ -134,3 +146,37 @@ def test_v7_nyc_emits_charts_tools() -> None:
     tools = _event_tools(events)
     assert "show_chart" in tools
     assert "render_bivariate_map" in tools
+
+
+def test_v7_demo7_everest_emits_terrain_and_3dtiles() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "珠峰 冰川湖 GLOF"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "enable_3d_terrain" in tools
+    assert "add_cesium_3d_tiles" in tools
+
+
+def test_v7_demo11_malacca_emits_night_and_czml() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "马六甲 油污 AIS"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "set_scene_mode" in tools
+    assert "play_czml_animation" in tools
+
+
+def test_v7_demo14_wormhole_emits_transition_and_micro() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "虫洞 micro SiO2"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "trigger_gsap_wormhole" in tools
+    assert "switch_scale" in tools
+    assert "generate_molecular_lattice" in tools

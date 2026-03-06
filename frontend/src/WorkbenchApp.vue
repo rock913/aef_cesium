@@ -928,6 +928,95 @@ function applyCopilotEvents(events) {
       }
       continue
     }
+
+    if (tool === 'enable_3d_terrain') {
+      try {
+        void engineRouter.value?.enable3DTerrain?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'add_cesium_3d_tiles') {
+      try {
+        void engineRouter.value?.addCesium3DTiles?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'set_scene_mode') {
+      try {
+        engineRouter.value?.setSceneMode?.(args?.mode)
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'play_czml_animation') {
+      try {
+        void engineRouter.value?.playCzmlAnimation?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'set_globe_transparency') {
+      try {
+        engineRouter.value?.setGlobeTransparency?.(args?.alpha)
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'add_cesium_extruded_polygons') {
+      try {
+        void engineRouter.value?.addExtrudedPolygons?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'trigger_gsap_wormhole') {
+      // MVR: use the existing macro→micro quantum dive animation.
+      // When coming from earth, hop to macro (mount ThreeTwin) then micro.
+      const target = String(args?.target || 'micro').trim().toLowerCase() || 'micro'
+      if (target === 'micro') {
+        try {
+          const cur = String(researchStore.currentScale.value || '').trim().toLowerCase()
+          if (cur === 'earth') {
+            setScale('macro')
+            setTimeout(() => {
+              try {
+                setScale('micro')
+              } catch (_) {
+                // ignore
+              }
+            }, 0)
+          } else {
+            setScale('micro')
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+      continue
+    }
+
+    if (tool === 'generate_molecular_lattice') {
+      try {
+        void engineRouter.value?.rebuildMicroLattice?.()
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
   }
 }
 

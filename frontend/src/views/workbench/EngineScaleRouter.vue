@@ -83,6 +83,54 @@ function flyToLocation(location, duration) {
   }
 }
 
+async function enable3DTerrain(opts) {
+  try {
+    return await earthTwin.value?.enable3DTerrain?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function addCesium3DTiles(opts) {
+  try {
+    return await earthTwin.value?.addCesium3DTiles?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function setSceneMode(mode) {
+  try {
+    return earthTwin.value?.setSceneMode?.(mode)
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function playCzmlAnimation(opts) {
+  try {
+    return await earthTwin.value?.playCzmlAnimation?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function setGlobeTransparency(alpha) {
+  try {
+    return earthTwin.value?.setGlobeTransparency?.(alpha)
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function addExtrudedPolygons(opts) {
+  try {
+    return await earthTwin.value?.addExtrudedPolygons?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
 async function highlightMacroCluster() {
   try {
     return await threeTwin.value?.highlightMacroCluster?.()
@@ -112,6 +160,12 @@ defineExpose({
   startGlobalStandby,
   stopGlobalStandby,
   flyToLocation,
+  enable3DTerrain,
+  addCesium3DTiles,
+  setSceneMode,
+  playCzmlAnimation,
+  setGlobeTransparency,
+  addExtrudedPolygons,
   highlightMacroCluster,
   spinMacroCamera,
   rebuildMicroLattice,

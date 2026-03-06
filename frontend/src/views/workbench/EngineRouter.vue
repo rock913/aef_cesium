@@ -27,6 +27,12 @@ const cesiumViewerInstance = ref(null)
 const overlayHandles = ref(new Map())
 const applyToken = ref(0)
 
+const _RUNTIME_KEYS = Object.freeze({
+  tileset: 'phase3-tileset',
+  czml: 'phase3-czml',
+  extruded: 'phase3-extruded',
+})
+
 // Global Standby default: start from a deep-space view.
 // Local context dives are triggered by explicit tool calls (e.g., camera_fly_to / fly_to).
 const initialLocation = computed(() => ({ lon: 105.0, lat: 35.0, height: 20000000.0 }))
@@ -128,7 +134,203 @@ function _removeOverlayEntry(id) {
   } catch (_) {
     // ignore
   }
+  try {
+    if (entry.kind === 'tileset' && entry.tileset && viewer) {
+      viewer.scene?.primitives?.remove?.(entry.tileset)
+    }
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (entry.kind === 'czml' && entry.dataSource && viewer) {
+      viewer.dataSources.remove(entry.dataSource, true)
+    }
+  } catch (_) {
+    // ignore
+  }
   map.delete(id)
+}
+
+async function enable3DTerrain(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const terrainKey = String(options?.terrain || 'cesium_world_terrain').trim().toLowerCase()
+  if (!terrainKey) return false
+
+  try {
+    if (terrainKey === 'cesium_world_terrain') {
+      if (typeof Cesium.createWorldTerrainAsync === 'function') {
+        viewer.terrainProvider = await Cesium.createWorldTerrainAsync()
+      } else if (typeof Cesium.createWorldTerrain === 'function') {
+        viewer.terrainProvider = Cesium.createWorldTerrain()
+      }
+      try {
+        if (viewer.scene?.globe) viewer.scene.globe.depthTestAgainstTerrain = true
+      } catch (_) {
+        // ignore
+      }
+      return true
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  return false
+}
+
+async function addCesium3DTiles(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const url = String(options?.url || '').trim()
+  const ionAssetIdRaw = options?.ion_asset_id
+  const ionAssetId = Number(ionAssetIdRaw)
+
+  _removeOverlayEntry(_RUNTIME_KEYS.tileset)
+
+  let resourceUrl = url
+  try {
+    if (!resourceUrl && Number.isFinite(ionAssetId) && ionAssetId > 0 && Cesium?.IonResource?.fromAssetId) {
+      resourceUrl = await Cesium.IonResource.fromAssetId(ionAssetId)
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  if (!resourceUrl) return false
+
+  try {
+    const tileset = await Cesium.Cesium3DTileset.fromUrl(resourceUrl)
+    viewer.scene.primitives.add(tileset)
+    _setOverlayEntry(_RUNTIME_KEYS.tileset, { kind: 'tileset', tileset })
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+function setSceneMode(mode = 'day') {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const m = String(mode || '').trim().toLowerCase()
+  const isNight = m === 'night'
+
+  try {
+    if (viewer.scene?.globe) viewer.scene.globe.enableLighting = isNight
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    if (isNight) {
+      const d = new Date('2026-03-03T16:00:00Z')
+      viewer.clock.currentTime = Cesium.JulianDate.fromDate(d)
+      viewer.clock.shouldAnimate = false
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  return true
+}
+
+async function playCzmlAnimation(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const czmlUrl = String(options?.czml_url || '').trim()
+  const czml = Array.isArray(options?.czml) ? options.czml : null
+  const speed = Number(options?.speed)
+
+  _removeOverlayEntry(_RUNTIME_KEYS.czml)
+
+  try {
+    const ds = czmlUrl
+      ? await Cesium.CzmlDataSource.load(czmlUrl)
+      : await Cesium.CzmlDataSource.load(czml || [])
+
+    viewer.dataSources.add(ds)
+    _setOverlayEntry(_RUNTIME_KEYS.czml, { kind: 'czml', dataSource: ds })
+
+    try {
+      viewer.clock.multiplier = Number.isFinite(speed) && speed > 0 ? speed : 1.0
+      viewer.clock.shouldAnimate = true
+    } catch (_) {
+      // ignore
+    }
+
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+function setGlobeTransparency(alpha = 1.0) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const a = Number(alpha)
+  if (!Number.isFinite(a)) return false
+  const clamped = Math.max(0, Math.min(1, a))
+
+  try {
+    const globe = viewer.scene?.globe
+    if (!globe) return false
+    globe.translucency.enabled = clamped < 0.999
+    globe.translucency.frontFaceAlpha = clamped
+    globe.translucency.backFaceAlpha = clamped
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+async function addExtrudedPolygons(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const geojson = options?.geojson
+  if (!geojson) return false
+
+  const height = Number(options?.height)
+  const opacity = Number(options?.opacity)
+  const css = String(options?.color || '#00F0FF').trim() || '#00F0FF'
+  const a = Number.isFinite(opacity) ? Math.max(0.05, Math.min(1, opacity)) : 0.55
+  const fill = Cesium.Color.fromCssColorString(css).withAlpha(a)
+
+  _removeOverlayEntry(_RUNTIME_KEYS.extruded)
+
+  try {
+    const ds = await Cesium.GeoJsonDataSource.load(geojson, {
+      clampToGround: true,
+      stroke: fill.withAlpha(Math.min(0.9, a + 0.25)),
+      strokeWidth: 2,
+      fill: fill.withAlpha(Math.max(0.12, a * 0.25)),
+    })
+
+    for (const ent of ds.entities.values) {
+      const poly = ent?.polygon
+      if (!poly) continue
+      try {
+        if (Number.isFinite(height)) poly.extrudedHeight = height
+      } catch (_) {
+        // ignore
+      }
+      try {
+        poly.material = fill
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    viewer.dataSources.add(ds)
+    _setOverlayEntry(_RUNTIME_KEYS.extruded, { kind: 'geojson', dataSource: ds, sig: `extruded:${Date.now()}` })
+    return true
+  } catch (_) {
+    return false
+  }
 }
 
 async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
@@ -634,6 +836,12 @@ defineExpose({
   startGlobalStandby,
   stopGlobalStandby,
   applyLayers: applyLayersAsync,
+  enable3DTerrain,
+  addCesium3DTiles,
+  setSceneMode,
+  playCzmlAnimation,
+  setGlobeTransparency,
+  addExtrudedPolygons,
   cesiumViewer,
   cesiumViewerInstance,
 })
