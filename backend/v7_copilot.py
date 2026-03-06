@@ -398,6 +398,30 @@ def list_tools() -> List[ToolDef]:
     return list(_TOOLS)
 
 
+def _resolve_ai_opacity(layer_data: Optional[dict], mode: str, default: float) -> float:
+    """Resolve opacity from /api/layers response.
+
+    Historical responses used a dict mapping of {mode -> opacity}. Newer/other
+    deployments may return a single numeric opacity.
+    """
+
+    try:
+        render_hints = (layer_data or {}).get("render_hints") or {}
+        ai_opacity = render_hints.get("ai_opacity")
+
+        if isinstance(ai_opacity, (int, float)):
+            return float(ai_opacity)
+
+        if isinstance(ai_opacity, dict):
+            v = ai_opacity.get(mode, default)
+            if isinstance(v, (int, float)):
+                return float(v)
+
+        return float(default)
+    except Exception:
+        return float(default)
+
+
 async def _fetch_layer(
     request: Request,
     *,
@@ -481,7 +505,7 @@ async def _execute_stub(
                     tool="add_cesium_imagery",
                     args={
                         "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
-                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch6_water_pulse", 0.88),
+                        "opacity": _resolve_ai_opacity(layer_data, "ch6_water_pulse", 0.88),
                         "palette": "",
                         "threshold": None,
                     },
@@ -542,7 +566,7 @@ async def _execute_stub(
                     tool="add_cesium_imagery",
                     args={
                         "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
-                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch4_amazon_zeroshot", 0.88),
+                        "opacity": _resolve_ai_opacity(layer_data, "ch4_amazon_zeroshot", 0.88),
                         "palette": "",
                         "threshold": None,
                     },
@@ -583,7 +607,7 @@ async def _execute_stub(
                     tool="add_cesium_imagery",
                     args={
                         "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
-                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch1_yuhang_faceid", 0.88),
+                        "opacity": _resolve_ai_opacity(layer_data, "ch1_yuhang_faceid", 0.88),
                         "palette": "",
                         "threshold": None,
                     },
@@ -622,7 +646,7 @@ async def _execute_stub(
                     tool="add_cesium_imagery",
                     args={
                         "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
-                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch2_maowusu_shield", 0.88),
+                        "opacity": _resolve_ai_opacity(layer_data, "ch2_maowusu_shield", 0.88),
                         "palette": "",
                         "threshold": None,
                     },
@@ -661,7 +685,7 @@ async def _execute_stub(
                     tool="add_cesium_imagery",
                     args={
                         "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
-                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch5_coastline_audit", 0.65),
+                        "opacity": _resolve_ai_opacity(layer_data, "ch5_coastline_audit", 0.65),
                         "palette": "",
                         "threshold": None,
                     },
@@ -700,7 +724,7 @@ async def _execute_stub(
                     tool="add_cesium_imagery",
                     args={
                         "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
-                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch3_zhoukou_pulse", 0.88),
+                        "opacity": _resolve_ai_opacity(layer_data, "ch3_zhoukou_pulse", 0.88),
                         "palette": "",
                         "threshold": None,
                     },

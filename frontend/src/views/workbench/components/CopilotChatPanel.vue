@@ -209,6 +209,13 @@ function submit() {
   cotOpen.value = true
   emit('submit', v)
 
+  // Keep the palette usable: don't keep last prompt as filter text.
+  try {
+    text.value = ''
+  } catch (_) {
+    // ignore
+  }
+
   // UX: after submit, fold back to capsule and hide palette.
   try {
     paletteOpen.value = false

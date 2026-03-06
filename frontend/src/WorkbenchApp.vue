@@ -178,6 +178,18 @@ const _scaleFromUrl = (() => {
   }
 })()
 
+const _autoplayFromUrl = (() => {
+  try {
+    const qs = typeof _initialSearch === 'string' ? _initialSearch : ''
+    const sp = new URLSearchParams(qs.startsWith('?') ? qs : `?${qs}`)
+    const autoplay = String(sp.get('autoplay') || '').trim().toLowerCase()
+    const from = String(sp.get('from') || '').trim().toLowerCase()
+    return autoplay === '1' || autoplay === 'true' || from === 'act2'
+  } catch (_) {
+    return false
+  }
+})()
+
 // Initialize context/scale early to avoid mount-then-unmount races (Cesium init) on first paint.
 try {
   const ctxFromStorage = String(window?.sessionStorage?.getItem?.('z2x:lastContext') || '').trim().toLowerCase()
@@ -1205,7 +1217,10 @@ onMounted(() => {
   }
 
   // Golden path: auto-play a short demo when arriving from Act2.
-  setTimeout(() => runStub(), 220)
+  // Keep workbench quiet by default; only auto-run when explicitly requested.
+  if (_autoplayFromUrl || _contextFromUrl) {
+    setTimeout(() => runStub(), 220)
+  }
 })
 
 onBeforeUnmount(() => {
