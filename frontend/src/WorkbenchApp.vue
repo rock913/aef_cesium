@@ -12,13 +12,36 @@
 
     <!-- Top: HUD overlay (Z=10). Default pointer-events off; panels opt-in. -->
     <div class="hud-layer pointer-events-none" aria-label="HUD Layer">
-      <header class="top-nav glass-panel pointer-events-auto" aria-label="Top Navigation">
+      <header class="top-nav glass-panel pointer-events-auto" aria-label="Top Navigation" data-testid="cyber-topbar">
         <div class="top-left">
-          <div class="brand">ZERO2X 021 WORKBENCH</div>
-          <button class="link" type="button" :aria-pressed="mode === 'theater'" @click="setMode('theater')">
-            Theater (F11)
-          </button>
-          <button class="link" type="button" :aria-pressed="mode === 'lab'" @click="setMode('lab')">Lab</button>
+          <div class="brand-block" aria-label="Brand">
+            <div class="status-dot" aria-hidden="true"></div>
+            <div class="brand-title" aria-label="Zero2x Brand Title">
+              <span class="brand-main">ZERO2X</span>
+              <span class="brand-sub">021 WORKBENCH</span>
+            </div>
+          </div>
+
+          <div class="mode-toggle" role="group" aria-label="Mode Toggle">
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="mode === 'lab'"
+              :class="{ active: mode === 'lab' }"
+              @click="setMode('lab')"
+            >
+              🛠️ 硬核作业视图
+            </button>
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="mode === 'theater'"
+              :class="{ active: mode === 'theater' }"
+              @click="setMode('theater')"
+            >
+              🎬 沉浸推演视图 (F11)
+            </button>
+          </div>
         </div>
 
         <div class="top-center" aria-label="Tabs" v-show="!isImmersive">
@@ -1305,7 +1328,7 @@ onBeforeUnmount(() => {
 }
 
 .top-nav {
-  height: 48px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1361,13 +1384,84 @@ onBeforeUnmount(() => {
   min-width: 320px;
 }
 
-.brand {
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  letter-spacing: 0.18em;
-  color: rgba(0, 240, 255, 0.95);
-  font-weight: 900;
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(0, 240, 255, 0.95);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.85), 0 0 18px rgba(0, 240, 255, 0.25);
+  animation: hud-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes hud-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+.brand-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   white-space: nowrap;
+}
+
+.brand-main {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.95), rgba(157, 78, 221, 0.90));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 18px rgba(0, 240, 255, 0.15);
+}
+
+.brand-sub {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  opacity: 0.85;
+  color: rgba(235, 245, 255, 0.92);
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.mode-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mode-btn.active {
+  background: rgba(0, 240, 255, 0.14);
+  border-color: rgba(0, 240, 255, 0.22);
+  color: rgba(0, 240, 255, 0.95);
 }
 
 .top-center {
