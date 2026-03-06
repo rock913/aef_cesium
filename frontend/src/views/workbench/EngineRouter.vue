@@ -27,7 +27,9 @@ const cesiumViewerInstance = ref(null)
 const overlayHandles = ref(new Map())
 const applyToken = ref(0)
 
-const initialLocation = computed(() => props.scenario?.camera || undefined)
+// Global Standby default: start from a deep-space view.
+// Local context dives are triggered by explicit tool calls (e.g., camera_fly_to / fly_to).
+const initialLocation = computed(() => ({ lon: 105.0, lat: 35.0, height: 20000000.0 }))
 
 function flyToScenario() {
   const cam = props.scenario?.camera
@@ -46,6 +48,30 @@ function onViewerReady(viewer) {
   emit('viewer-ready', viewer)
   try {
     void applyLayersAsync(props.layers)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function startGlobalStandby() {
+  try {
+    cesiumViewer.value?.startGlobalRotation?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+function stopGlobalStandby() {
+  try {
+    cesiumViewer.value?.stopGlobalRotation?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+function flyToLocation(location, duration = 3.8) {
+  try {
+    cesiumViewer.value?.flyTo?.(location, duration)
   } catch (_) {
     // ignore
   }
@@ -582,7 +608,6 @@ async function applyLayersAsync(layers) {
 watch(
   () => props.scenario?.id,
   () => {
-    flyToScenario()
     try {
       void applyLayersAsync(props.layers)
     } catch (_) {
@@ -605,6 +630,9 @@ watch(
 
 defineExpose({
   flyToScenario,
+  flyToLocation,
+  startGlobalStandby,
+  stopGlobalStandby,
   applyLayers: applyLayersAsync,
   cesiumViewer,
   cesiumViewerInstance,

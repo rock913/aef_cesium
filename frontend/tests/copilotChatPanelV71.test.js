@@ -14,6 +14,8 @@ describe('CopilotChatPanel v7.1 UI skeleton', () => {
     expect(s).toContain('class="header"')
     expect(s).toContain('class="chat-history"')
     expect(s).toContain('class="input-zone"')
+    // v7.1+ input upgrade: capsule + command palette
+    expect(s).toMatch(/capsule|command-palette|palette/i)
   })
 
   it('pins prompt chips directly above the textarea composer', () => {

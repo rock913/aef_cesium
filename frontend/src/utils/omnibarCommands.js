@@ -13,7 +13,7 @@ function _stripLeadingSlash(s) {
 export function getOmniHelpText() {
   return [
     'Commands:',
-    '- act2 | earth | macro  → open Act 2 (poyang)',
+    '- act2 | earth | sky (macro)  → open Act 2 (poyang)',
     '- workbench | wb        → open /workbench',
     '- demo                  → open /demo',
     '- help                  → show this help',

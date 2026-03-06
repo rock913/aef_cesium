@@ -21,7 +21,7 @@ describe('Workbench demo copy (no placeholders)', () => {
     expect(s).toContain('F11')
     expect(s).toMatch(/<aside[\s>]/)
     expect(s).toMatch(/EngineRouter|engine-router/i)
-    expect(s).toMatch(/Cmd\+K|Ctrl\+K|⌘K|OmniCommand/i)
+    expect(s).toMatch(/Cmd\+K|Ctrl\+K|⌘K|Command Palette|Command/i)
 
     // Explicit mode toggle (top-center, leader-visible)
     expect(s).toMatch(/Mode Toggle|显性|拨片|切换/i)

@@ -43,6 +43,7 @@ def test_v7_tools_list() -> None:
     assert isinstance(data, list)
     names = {t.get("name") for t in data}
     assert "camera_fly_to" in names
+    assert "fly_to" in names
     assert "switch_scale" in names
     # v7.1 UI-oriented tools
     assert "write_to_editor" in names

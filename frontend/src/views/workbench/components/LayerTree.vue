@@ -60,8 +60,8 @@
       </div>
     </div>
 
-    <div class="g" v-if="currentScale === 'macro'" aria-label="Macro Layers">
-      <div class="gh">MACRO</div>
+    <div class="g" v-if="currentScale === 'macro'" aria-label="Sky Layers">
+      <div class="gh">SKY</div>
       <div class="item" v-for="(l, i) in macroLayers" :key="l.id">
         <div class="row">
           <label class="left">

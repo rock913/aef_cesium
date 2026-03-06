@@ -59,6 +59,30 @@ function flyToScenario() {
   }
 }
 
+function startGlobalStandby() {
+  try {
+    earthTwin.value?.startGlobalStandby?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+function stopGlobalStandby() {
+  try {
+    earthTwin.value?.stopGlobalStandby?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+function flyToLocation(location, duration) {
+  try {
+    earthTwin.value?.flyToLocation?.(location, duration)
+  } catch (_) {
+    // ignore
+  }
+}
+
 async function highlightMacroCluster() {
   try {
     return await threeTwin.value?.highlightMacroCluster?.()
@@ -85,6 +109,9 @@ async function rebuildMicroLattice() {
 
 defineExpose({
   flyToScenario,
+  startGlobalStandby,
+  stopGlobalStandby,
+  flyToLocation,
   highlightMacroCluster,
   spinMacroCamera,
   rebuildMicroLattice,

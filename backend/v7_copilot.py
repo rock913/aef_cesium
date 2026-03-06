@@ -129,6 +129,16 @@ _TOOLS: List[ToolDef] = [
         },
     ),
     ToolDef(
+        name="fly_to",
+        description="Alias of camera_fly_to (blueprint-friendly name).",
+        args_schema={
+            "lat": {"type": "number"},
+            "lon": {"type": "number"},
+            "height": {"type": "number"},
+            "duration_s": {"type": "number"},
+        },
+    ),
+    ToolDef(
         name="add_cesium_imagery",
         description="Mount a raster imagery overlay onto Cesium (tile template URL).",
         args_schema={

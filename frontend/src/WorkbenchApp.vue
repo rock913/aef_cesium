@@ -49,7 +49,7 @@
               :class="{ active: currentScale === 'macro' }"
               @click="setScale('macro')"
             >
-              Macro
+              Sky
             </button>
             <button
               class="scale-btn"
@@ -62,7 +62,7 @@
             </button>
           </div>
 
-          <button class="link" type="button" @click="openOmni">Omni (Cmd/Ctrl+K)</button>
+          <button class="link" type="button" @click="openCommandPalette">Command (Cmd/Ctrl+K)</button>
         </div>
       </header>
 
@@ -92,6 +92,7 @@
 
         <aside class="right-rail glass-panel pointer-events-auto" aria-label="021 Copilot Chat" v-show="!isImmersive">
           <CopilotChatPanel
+            ref="copilotPanel"
             :busy="executeBusy"
             :presets="copilotPresets"
             :agent-text="agentText"
@@ -115,20 +116,8 @@
         :context-id="scenario?.id || ''"
         :target-name="scenario?.targetName || ''"
         :summary="theaterSummary"
-        @open-omni="openOmni"
+        @open-omni="openCommandPalette"
         @switch-lab="setMode('lab')"
-      />
-    </div>
-
-    <div v-if="isOmniOpen" class="omnibox-layer" aria-label="OmniCommand Layer" @pointerdown.self="closeOmni">
-      <OmniCommand
-        :open="isOmniOpen"
-        v-model="omniText"
-        :context-label="scenario?.id || ''"
-        :presets="demoPresets"
-        @submit="submitOmni"
-        @select-preset="applyPreset"
-        @close="closeOmni"
       />
     </div>
   </div>
@@ -143,7 +132,6 @@ import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
 import { TaskQueue } from './utils/taskQueue.js'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
-import OmniCommand from './views/workbench/components/OmniCommand.vue'
 import TabBar from './views/workbench/components/TabBar.vue'
 import TheaterHUD from './views/workbench/components/TheaterHUD.vue'
 import DataTableTab from './views/workbench/components/DataTableTab.vue'
@@ -152,6 +140,7 @@ import UnifiedArtifactsPanel from './views/workbench/components/UnifiedArtifacts
 import CopilotChatPanel from './views/workbench/components/CopilotChatPanel.vue'
 
 const engineRouter = ref(null)
+const copilotPanel = ref(null)
 const viewerReady = ref(false)
 
 const researchStore = useResearchStore()
@@ -160,9 +149,6 @@ const executeQueue = new TaskQueue()
 
 const mode = ref('lab')
 const isImmersive = computed(() => mode.value === 'theater')
-
-const isOmniOpen = ref(false)
-const omniText = ref('')
 
 const contextId = ref('poyang')
 const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
@@ -239,12 +225,12 @@ const demoPresets = Object.freeze([
   },
   {
     id: 'demo:gaia_cluster:macro',
-    label: '[v7] Gaia Cluster (Macro EXECUTE)',
+    label: '[v7] Gaia Cluster (Sky EXECUTE)',
     contextId: 'poyang',
     scale: 'macro',
     mode: 'theater',
     activeTabKind: 'twin',
-    hint: '宏观：Bloom + Spiral + 高亮/环绕',
+    hint: 'Sky：Bloom + Spiral + 高亮/环绕',
     layers: [
       { id: 'bloom', enabled: true, params: { strength: 1.35, threshold: 0.62, radius: 0.18 } },
       { id: 'macro-spiral', enabled: true, params: {} },
@@ -265,12 +251,12 @@ const demoPresets = Object.freeze([
   },
   {
     id: 'demo:macro:theater',
-    label: '[看宏观] 进入沉浸演示态 (Twin)',
+    label: '[看 Sky] 进入沉浸演示态 (Twin)',
     contextId: 'poyang',
     scale: 'macro',
     mode: 'theater',
     activeTabKind: 'twin',
-    hint: '看宏观 => 自动进入沉浸态',
+    hint: 'Sky => 自动进入沉浸态',
     layers: [
       { id: 'gee-heatmap', enabled: true, params: { opacity: 0.78 } },
       { id: 'boundaries', enabled: false, params: { opacity: 0.90 } },
@@ -656,7 +642,7 @@ async function runExecute() {
       if (scale === 'macro') {
         const intro = [
           'Agent (v7):',
-          `- Scale: macro`,
+          `- Scale: sky`,
           `- Context: ${sc?.id || '—'} (${sc?.targetName || '—'})`,
           q ? `- Intent: ${q}` : `- Intent: ${sc?.label || '—'}`,
           '- Step 1: 调参 LayerTree -> Bloom/Spiral',
@@ -667,7 +653,7 @@ async function runExecute() {
         await engineRouter.value?.highlightMacroCluster?.()
         await engineRouter.value?.spinMacroCamera?.({ duration: 3.0, revolutions: 1.0 })
         theaterReport.value = [
-          'Macro brief:',
+          'Sky brief:',
           '- 已在 ThreeTwin 中执行高亮与环绕。',
           '- 可用 LayerTree 调整 Bloom Strength/Threshold/Radius。',
         ].join('\n')
@@ -776,8 +762,6 @@ async function runExecute() {
   } catch (e) {
     theaterReport.value = `Backend error: ${e?.message || String(e)}`
   } finally {
-    // In Theater mode we want the HUD narrative to be front-and-center.
-    setMode('theater')
     executeBusy.value = false
   }
 }
@@ -794,7 +778,11 @@ function _flyToScenario() {
 
 function onViewerReady() {
   viewerReady.value = true
-  _flyToScenario()
+  try {
+    engineRouter.value?.startGlobalStandby?.()
+  } catch (_) {
+    // ignore
+  }
 }
 
 function setMode(next) {
@@ -817,22 +805,12 @@ function setScale(scale) {
   }
 }
 
-function openOmni() {
-  isOmniOpen.value = true
-}
-
-function closeOmni() {
-  isOmniOpen.value = false
-}
-
-function submitOmni() {
-  // MVP: treat OmniCommand input as the lastIntent and replay the demo plan.
+function openCommandPalette() {
   try {
-    lastIntent.value = String(omniText.value || '').trim()
-    window.sessionStorage?.setItem?.('z2x:lastIntent', lastIntent.value)
-  } catch (_) { }
-  closeOmni()
-  runStub()
+    copilotPanel.value?.openPalette?.()
+  } catch (_) {
+    // ignore
+  }
 }
 
 function onCopilotSubmit(text) {
@@ -896,10 +874,17 @@ function applyCopilotEvents(events) {
       continue
     }
 
-    if (tool === 'camera_fly_to') {
+    if (tool === 'camera_fly_to' || tool === 'fly_to') {
       const lat = Number(args?.lat)
       const lon = Number(args?.lon)
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        // Leaving standby: stop the global orbit and dive to target.
+        try {
+          engineRouter.value?.stopGlobalStandby?.()
+        } catch (_) {
+          // ignore
+        }
+
         // Map known demo coords to an existing scenario context.
         if (lat < 0) contextId.value = 'amazon'
         else if (lat > 25 && lon > 110) contextId.value = 'yuhang'
@@ -913,6 +898,16 @@ function applyCopilotEvents(events) {
           const u = new URL(window.location.href)
           u.searchParams.set('context', contextId.value)
           window.history.replaceState({}, '', u.toString())
+        } catch (_) {
+          // ignore
+        }
+
+        // Cinematic-ish default: high-altitude oblique view.
+        try {
+          engineRouter.value?.flyToLocation?.(
+            { lat, lon, height: 1800000, heading_deg: 0, pitch_deg: -55, easing: 'cubicinout' },
+            3.6
+          )
         } catch (_) {
           // ignore
         }
@@ -982,7 +977,8 @@ function applyPreset(preset) {
   const p = preset || {}
   const nextContext = String(p.contextId || '').trim().toLowerCase()
   if (nextContext) contextId.value = nextContext
-  setMode(p.mode)
+
+  // Preserve user-selected Lab/Theater mode (do not force mode from preset).
 
   if (p.scale) setScale(p.scale)
 
@@ -1008,7 +1004,6 @@ function applyPreset(preset) {
     // ignore
   }
 
-  closeOmni()
   runStub()
 }
 
@@ -1022,11 +1017,15 @@ function onKeydown(e) {
   }
   if ((e.metaKey || e.ctrlKey) && k === 'k') {
     e.preventDefault()
-    openOmni()
+    openCommandPalette()
     return
   }
-  if (k === 'escape' && isOmniOpen.value) {
-    closeOmni()
+  if (k === 'escape') {
+    try {
+      copilotPanel.value?.closePalette?.()
+    } catch (_) {
+      // ignore
+    }
   }
 }
 
@@ -1034,7 +1033,6 @@ watch(
   () => scenario.value?.id,
   () => {
     code.value = buildCodeStub(scenario.value)
-    if (viewerReady.value) _flyToScenario()
   }
 )
 
@@ -1192,6 +1190,47 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 10px 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.top-nav::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 12px;
+  padding: 1px;
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.55), rgba(120, 160, 255, 0.22), rgba(0, 240, 255, 0.45));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.top-nav::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -40%;
+  height: 100%;
+  width: 30%;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0), rgba(0, 240, 255, 0.12), rgba(0, 0, 0, 0));
+  transform: skewX(-18deg);
+  animation: hud-scan 7s linear infinite;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+@keyframes hud-scan {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(520%) skewX(-18deg);
+  }
 }
 
 .top-left {
