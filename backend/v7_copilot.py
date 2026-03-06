@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from fastapi import APIRouter
+import httpx
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 
@@ -303,7 +304,65 @@ def list_tools() -> List[ToolDef]:
     return list(_TOOLS)
 
 
-def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> List[CopilotEvent]:
+async def _fetch_layer(
+    request: Request,
+    *,
+    mode: str,
+    location: str,
+    variant: str | None = None,
+    threshold: float | None = None,
+    palette: str | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> Tuple[Optional[dict], Optional[dict]]:
+    """Best-effort fetch of same-origin tile_url from existing /api/layers.
+
+    Returns:
+        (data, error) where exactly one is not None.
+    """
+
+    params: dict[str, Any] = {
+        "mode": mode,
+        "location": location,
+    }
+    if variant:
+        params["variant"] = variant
+    if threshold is not None:
+        params["threshold"] = float(threshold)
+    if palette:
+        params["palette"] = str(palette)
+    if vmin is not None:
+        params["min"] = float(vmin)
+    if vmax is not None:
+        params["max"] = float(vmax)
+
+    transport = httpx.ASGITransport(app=request.app)
+    async with httpx.AsyncClient(transport=transport, base_url=str(request.base_url)) as client:
+        try:
+            r = await client.get("/api/layers", params=params, timeout=12.0)
+        except Exception as e:
+            return None, {"error": "layers_request_failed", "message": f"{type(e).__name__}: {e}"}
+
+    if r.status_code != 200:
+        try:
+            detail = r.json()
+        except Exception:
+            detail = r.text
+        return None, {"error": "layers_non_200", "status_code": r.status_code, "detail": detail}
+
+    try:
+        return r.json(), None
+    except Exception as e:
+        return None, {"error": "layers_bad_json", "message": f"{type(e).__name__}: {e}"}
+
+
+async def _execute_stub(
+    request: Request,
+    prompt: str,
+    *,
+    context_id: str | None,
+    scale: str | None,
+) -> List[CopilotEvent]:
     p = (prompt or "").strip()
     lc = p.lower()
 
@@ -313,6 +372,11 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
 
     # Deterministic routing based on keywords.
     if "亚马逊" in p or "amazon" in lc or "聚类" in p or "k=6" in lc:
+        layer_data, layer_err = await _fetch_layer(
+            request,
+            mode="ch4_amazon_zeroshot",
+            location="amazon",
+        )
         geojson = {
             "type": "FeatureCollection",
             "features": [
@@ -339,10 +403,30 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
                 CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -10.04485, "lon": -55.42936, "height": 90000, "duration_s": 4.0}),
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_kmeans_cluster", args={"k": 6, "use_dims": "all"}),
-                CopilotEvent(type="tool_result", tool="aef_kmeans_cluster", result={"status": "stub", "clusters": 6}),
+                CopilotEvent(type="tool_result", tool="aef_kmeans_cluster", result={"status": "delegated", "clusters": 6}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_imagery",
+                    args={
+                        "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
+                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch4_amazon_zeroshot", 0.88),
+                        "palette": "",
+                        "threshold": None,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
                 CopilotEvent(type="tool_call", tool="add_cesium_vector", args={"geojson": geojson, "opacity": 0.9, "color": "#00F0FF"}),
                 CopilotEvent(type="tool_result", tool="add_cesium_vector", result="ok"),
-                CopilotEvent(type="tool_call", tool="generate_report", args={"text": "# 亚马逊零样本聚类（stub）\n\n- k=6 已生成（示例矢量覆盖）\n- 下一步：将真实 geojson 输出接入 add_cesium_vector\n"}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# 亚马逊零样本聚类\n\n"
+                        + ("- ✅ 已从后端 /api/layers 获取同源瓦片模板并挂载为 imagery overlay。\n" if layer_data else "- ⚠️ GEE 图层不可用，已降级为 OSM 示例 overlay（不影响工具链验收）。\n")
+                        + "- k=6 聚类仍以示例矢量覆盖演示（待接入真实 GeoJSON 输出）。\n"
+                        + (f"\n## 降级原因\n```json\n{layer_err}\n```\n" if layer_err else ""),
+                    },
+                ),
                 CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
                 CopilotEvent(type="final", text="已生成聚类指令（stub），下一步可将结果渲染为 GeoJSON 图层。"),
             ]
@@ -350,15 +434,38 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
         return events
 
     if "余杭" in p or "城建" in p:
+        layer_data, layer_err = await _fetch_layer(
+            request,
+            mode="ch1_yuhang_faceid",
+            location="yuhang",
+        )
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 30.26879, "lon": 119.92284, "height": 16000, "duration_s": 3.8}),
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "yuhang", "years": [2017, 2024], "metric": "euclidean", "dim": "A00"}),
-                CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "stub", "tile_url": ""}),
-                CopilotEvent(type="tool_call", tool="add_cesium_imagery", args={"tile_url": "/api/basemap/osm/{z}/{x}/{y}.png", "opacity": 0.55, "palette": "Oranges", "threshold": 0.4}),
+                CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_imagery",
+                    args={
+                        "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
+                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch1_yuhang_faceid", 0.88),
+                        "palette": "",
+                        "threshold": None,
+                    },
+                ),
                 CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
-                CopilotEvent(type="tool_call", tool="generate_report", args={"text": "# 余杭城建审计（stub）\n\n- 已挂载示例 imagery overlay（用于验证工具链）\n- 下一步：compute_diff 返回真实 tile_url 后替换 overlay\n"}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# 余杭城建审计\n\n"
+                        + ("- ✅ 已从后端 /api/layers 获取同源瓦片模板并挂载。\n" if layer_data else "- ⚠️ GEE 图层不可用，已降级为 OSM 示例 overlay（不影响工具链验收）。\n")
+                        + "- 欧氏距离路径：2017 vs 2024。\n"
+                        + (f"\n## 降级原因\n```json\n{layer_err}\n```\n" if layer_err else ""),
+                    },
+                ),
                 CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
                 CopilotEvent(type="final", text="已生成城建审计指令（stub），下一步可挂载 tiles 并生成报告。"),
             ]
@@ -366,15 +473,38 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
         return events
 
     if "毛乌素" in p or "余弦" in p or "cos" in lc:
+        layer_data, layer_err = await _fetch_layer(
+            request,
+            mode="ch2_maowusu_shield",
+            location="maowusu",
+        )
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 38.60, "lon": 109.60, "height": 70000, "duration_s": 3.9}),
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "maowusu", "years": [2019, 2024], "metric": "cosine_similarity", "dim": "A01"}),
-                CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "stub", "tile_url": ""}),
-                CopilotEvent(type="tool_call", tool="add_cesium_imagery", args={"tile_url": "/api/basemap/osm/{z}/{x}/{y}.png", "opacity": 0.50, "palette": "Greens", "threshold": 0.3}),
+                CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_imagery",
+                    args={
+                        "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
+                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch2_maowusu_shield", 0.88),
+                        "palette": "",
+                        "threshold": None,
+                    },
+                ),
                 CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
-                CopilotEvent(type="tool_call", tool="generate_report", args={"text": "# 毛乌素生态穿透（stub）\n\n- 余弦相似度路径已选定\n- 已挂载示例 imagery overlay（用于验证 UI→引擎链路）\n"}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# 毛乌素生态穿透\n\n"
+                        + "- 余弦相似度用于降低季节枯黄干扰。\n"
+                        + ("- ✅ 已从后端 /api/layers 获取同源瓦片模板并挂载。\n" if layer_data else "- ⚠️ GEE 图层不可用，已降级为 OSM 示例 overlay（不影响工具链验收）。\n")
+                        + (f"\n## 降级原因\n```json\n{layer_err}\n```\n" if layer_err else ""),
+                    },
+                ),
                 CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
                 CopilotEvent(type="final", text="已生成生态穿透指令（stub），余弦相似度用于降低季节干扰。"),
             ]
@@ -382,25 +512,79 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
         return events
 
     if "盐城" in p or "海岸线" in p or "coast" in lc:
+        layer_data, layer_err = await _fetch_layer(
+            request,
+            mode="ch5_coastline_audit",
+            location="yancheng",
+        )
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0}),
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_supervised_boundary_extraction", args={"model": "random_forest", "target": "coastline"}),
-                CopilotEvent(type="tool_result", tool="aef_supervised_boundary_extraction", result={"status": "stub", "features": 2}),
-                CopilotEvent(type="final", text="已生成海岸线红线划界指令（stub）。"),
+                CopilotEvent(type="tool_result", tool="aef_supervised_boundary_extraction", result={"status": "delegated", "features": None}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_imagery",
+                    args={
+                        "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
+                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch5_coastline_audit", 0.65),
+                        "palette": "",
+                        "threshold": None,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# 盐城海岸线红线\n\n"
+                        + ("- ✅ 已从后端 /api/layers 获取同源瓦片模板并挂载。\n" if layer_data else "- ⚠️ GEE 图层不可用，已降级为 OSM 示例 overlay（不影响工具链验收）。\n")
+                        + "- 监督边界提取：RandomForest（后续可补齐矢量红线提取与导出）。\n"
+                        + (f"\n## 降级原因\n```json\n{layer_err}\n```\n" if layer_err else ""),
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
+                CopilotEvent(type="final", text="已生成海岸线红线划界指令（stub），并挂载了图层以验证端到端链路。"),
             ]
         )
         return events
 
     if "周口" in p or "内涝" in p or "胁迫" in p or "dielectric" in lc:
+        layer_data, layer_err = await _fetch_layer(
+            request,
+            mode="ch3_zhoukou_pulse",
+            location="zhoukou",
+        )
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 33.63, "lon": 114.65, "height": 70000, "duration_s": 4.0}),
                 CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_extract_feature", args={"roi": "zhoukou", "dim": "A02"}),
-                CopilotEvent(type="tool_result", tool="aef_extract_feature", result={"status": "stub", "tile_url": ""}),
-                CopilotEvent(type="final", text="已生成内涝胁迫提取指令（stub）。"),
+                CopilotEvent(type="tool_result", tool="aef_extract_feature", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_imagery",
+                    args={
+                        "tile_url": (layer_data or {}).get("tile_url") or "/api/basemap/osm/{z}/{x}/{y}.png",
+                        "opacity": (((layer_data or {}).get("render_hints") or {}).get("ai_opacity") or {}).get("ch3_zhoukou_pulse", 0.88),
+                        "palette": "",
+                        "threshold": None,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# 周口农田内涝胁迫\n\n"
+                        + ("- ✅ 已从后端 /api/layers 获取同源瓦片模板并挂载。\n" if layer_data else "- ⚠️ GEE 图层不可用，已降级为 OSM 示例 overlay（不影响工具链验收）。\n")
+                        + "- A02 维度用于‘水分/胁迫’语义的隐性反演（后续可补齐阈值分级与统计）。\n"
+                        + (f"\n## 降级原因\n```json\n{layer_err}\n```\n" if layer_err else ""),
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
+                CopilotEvent(type="final", text="已生成内涝胁迫提取指令（stub），并挂载了图层以验证端到端链路。"),
             ]
         )
         return events
@@ -538,7 +722,7 @@ def _execute_stub(prompt: str, *, context_id: str | None, scale: str | None) -> 
 
 
 @router.post("/copilot/execute", response_model=CopilotExecuteResponse)
-def copilot_execute(req: CopilotExecuteRequest) -> CopilotExecuteResponse:
+async def copilot_execute(request: Request, req: CopilotExecuteRequest) -> CopilotExecuteResponse:
     prompt = str(req.prompt or "")
-    events = _execute_stub(prompt, context_id=req.context_id, scale=req.scale)
+    events = await _execute_stub(request, prompt, context_id=req.context_id, scale=req.scale)
     return CopilotExecuteResponse(events=events)
