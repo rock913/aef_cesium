@@ -462,6 +462,19 @@ const layers = ref([
   { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
 ])
 
+function _forceDisableAiVectorOverlay() {
+  try {
+    layers.value = (layers.value || []).map((l) => {
+      if (String(l?.id || '') !== 'ai-vector') return l
+      const nextParams = { ...(l?.params && typeof l.params === 'object' ? l.params : {}) }
+      nextParams.geojson = null
+      return { ...l, enabled: false, params: nextParams }
+    })
+  } catch (_) {
+    // ignore
+  }
+}
+
 const charts = ref([])
 
 function _safeJsonParse(s, fallback) {
@@ -1133,6 +1146,9 @@ function applyPreset(preset) {
     }
   }
 
+  // AI overlays are ephemeral by design: do not carry vector overlays across presets/scenes.
+  _forceDisableAiVectorOverlay()
+
   try {
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
   } catch (_) { }
@@ -1249,6 +1265,9 @@ onMounted(() => {
     if (layersParsed && layersParsed.length) {
       layers.value = layersParsed
     }
+
+    // Even if the previous session had vector overlays enabled, start clean.
+    _forceDisableAiVectorOverlay()
 
     lastIntent.value = window.sessionStorage?.getItem?.('z2x:lastIntent') || ''
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)

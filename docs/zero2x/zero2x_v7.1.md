@@ -15,6 +15,8 @@ UI / 交互（前端）
 
 确保 HUD overlay 默认 pointer-events: none，面板选择性 pointer-events: auto，保证 Twin 可拖拽交互。
 
+AI Vector Overlay 默认关闭（避免遮挡与残留），仅在工具调用需要时临时启用；切换场景/预置时会自动清空并关闭。
+
 Demo 全覆盖（12+3 = 15）
 
 前端场景注册已覆盖 15 个 demo context（含新增 Demo 15 terminator_shield 纯视觉炫技场景）。
