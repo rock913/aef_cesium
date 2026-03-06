@@ -39,7 +39,12 @@ TDD 门禁（已启用）
 
 UI 工具定义与执行：add_cesium_imagery/vector, show_chart, generate_report, execute_editor_code 均已在纯函数映射层打通。并能稳定写入左侧的统一资产面板 (Unified Artifacts)。
 
-工具命名兼容：文档中使用的 `fly_to` 与工程内的 `camera_fly_to` 语义一致；后端 tools 列表与前端 handler 将支持两者兼容（以 `camera_fly_to` 为规范名）。
+工具命名兼容：文档中使用的 `fly_to` 与工程内的 `camera_fly_to` 语义一致；后端 tools 列表与前端 handler 均支持两者兼容（推荐蓝图名 `fly_to`；保留 `camera_fly_to` 作为历史/兼容名）。
+
+As-built（补充，截止 2026-03-06）：
+
+- `fly_to` 已作为 `camera_fly_to` 的别名正式进入后端 tools 列表，并在前端 Workbench 事件应用层按同等语义处理。
+- 合同门禁已覆盖：后端 tools 列表包含 `fly_to`；前端 Vitest 全绿。
 
 下一步计划 (Phase 2 & 3)
 
@@ -173,13 +178,13 @@ UI Action: trigger_gsap_wormhole() -> 销毁 Cesium -> 挂载 Three.js (Micro-Sp
 
 四、 核心架构重构伪代码 (Vue 3 组合式 API)
 
-4.1 主工作台布局 (Workbench/index.vue)
+4.1 主工作台布局（示意伪代码；实际实现以 frontend/src/WorkbenchApp.vue 为准）
 
 集成了显性双态拨片与左中右动态面板布局。
 
 <script setup>
 import { ref } from 'vue';
-import EngineRouter from './engines/EngineRouter.vue';
+import EngineRouter from './engines/EngineRouter.vue'; // 实际工程中由 EngineScaleRouter/EngineRouter 组合封装
 import ArtifactsPanel from './components/ArtifactsPanel.vue';
 import CopilotChatPanel from './components/CopilotChatPanel.vue';
 
@@ -237,7 +242,7 @@ function setMode(mode) {
 </template>
 
 
-4.2 空间智能副驾面板 (CopilotChatPanel.vue)
+4.2 空间智能副驾面板（示意伪代码；实际实现以 frontend/src/views/workbench/components/CopilotChatPanel.vue 为准）
 
 集成了气泡历史流、可折叠 CoT，以及带有动态横向预置 Chips 和多行自适应的输入区。
 

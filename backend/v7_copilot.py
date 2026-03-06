@@ -388,8 +388,8 @@ async def _execute_stub(
         )
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 29.20, "lon": 116.20, "height": 95000, "duration_s": 4.0}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 29.20, "lon": 116.20, "height": 95000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "poyang", "years": [2022, 2024], "metric": "delta", "dim": "A02"}),
                 CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
                 CopilotEvent(
@@ -449,8 +449,8 @@ async def _execute_stub(
         }
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -10.04485, "lon": -55.42936, "height": 90000, "duration_s": 4.0}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": -10.04485, "lon": -55.42936, "height": 90000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_kmeans_cluster", args={"k": 6, "use_dims": "all"}),
                 CopilotEvent(type="tool_result", tool="aef_kmeans_cluster", result={"status": "delegated", "clusters": 6}),
                 CopilotEvent(
@@ -490,8 +490,8 @@ async def _execute_stub(
         )
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 30.26879, "lon": 119.92284, "height": 16000, "duration_s": 3.8}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 30.26879, "lon": 119.92284, "height": 16000, "duration_s": 3.8}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "yuhang", "years": [2017, 2024], "metric": "euclidean", "dim": "A00"}),
                 CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
                 CopilotEvent(
@@ -529,8 +529,8 @@ async def _execute_stub(
         )
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 38.60, "lon": 109.60, "height": 70000, "duration_s": 3.9}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 38.60, "lon": 109.60, "height": 70000, "duration_s": 3.9}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_compute_diff", args={"roi": "maowusu", "years": [2019, 2024], "metric": "cosine_similarity", "dim": "A01"}),
                 CopilotEvent(type="tool_result", tool="aef_compute_diff", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
                 CopilotEvent(
@@ -568,8 +568,8 @@ async def _execute_stub(
         )
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 33.38, "lon": 120.50, "height": 95000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_supervised_boundary_extraction", args={"model": "random_forest", "target": "coastline"}),
                 CopilotEvent(type="tool_result", tool="aef_supervised_boundary_extraction", result={"status": "delegated", "features": None}),
                 CopilotEvent(
@@ -607,8 +607,8 @@ async def _execute_stub(
         )
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 33.63, "lon": 114.65, "height": 70000, "duration_s": 4.0}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 33.63, "lon": 114.65, "height": 70000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_extract_feature", args={"roi": "zhoukou", "dim": "A02"}),
                 CopilotEvent(type="tool_result", tool="aef_extract_feature", result={"status": "delegated", "tile_url": (layer_data or {}).get("tile_url") or ""}),
                 CopilotEvent(
@@ -641,8 +641,8 @@ async def _execute_stub(
     if "塔拉滩" in p or "光伏" in p or "co-occurrence" in lc or "共现" in p:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 36.10, "lon": 101.70, "height": 180000, "duration_s": 4.2}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 36.10, "lon": 101.70, "height": 180000, "duration_s": 4.2}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_spatial_co_occurrence", args={"layer1": "A00_solar", "layer2": "A01_biomass"}),
                 CopilotEvent(type="tool_result", tool="aef_spatial_co_occurrence", result={"status": "stub", "matrix": ""}),
                 CopilotEvent(type="final", text="已生成光伏×生物量共现性计算指令（stub）。"),
@@ -653,8 +653,8 @@ async def _execute_stub(
     if "珠峰" in p or "冰川湖" in p or "glof" in lc:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 28.04, "lon": 86.93, "height": 220000, "duration_s": 4.4}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 28.04, "lon": 86.93, "height": 220000, "duration_s": 4.4}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="enable_3d_terrain", args={"terrain": "cesium_world_terrain"}),
                 CopilotEvent(type="tool_result", tool="enable_3d_terrain", result="ok"),
                 CopilotEvent(type="tool_call", tool="calculate_3d_volume", args={"roi": "everest_lake", "use_dem": True}),
@@ -669,8 +669,8 @@ async def _execute_stub(
     if "冒纳罗亚" in p or "火山" in p or "insar" in lc:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 19.48, "lon": -155.61, "height": 240000, "duration_s": 4.4}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 19.48, "lon": -155.61, "height": 240000, "duration_s": 4.4}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="fetch_insar_displacement", args={"roi": "mauna_loa"}),
                 CopilotEvent(type="tool_result", tool="fetch_insar_displacement", result={"status": "stub"}),
                 CopilotEvent(type="tool_call", tool="fetch_lst_anomaly", args={"roi": "mauna_loa"}),
@@ -685,8 +685,8 @@ async def _execute_stub(
     if "刚果" in p or "碳" in p or "gedi" in lc:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -1.20, "lon": 23.70, "height": 320000, "duration_s": 4.6}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": -1.20, "lon": 23.70, "height": 320000, "duration_s": 4.6}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="estimate_carbon_stock", args={"source": "GEDI+AEF", "roi": "congo"}),
                 CopilotEvent(type="tool_result", tool="estimate_carbon_stock", result={"status": "stub", "geojson": None}),
                 CopilotEvent(type="final", text="已生成碳储量估算指令（stub）。"),
@@ -697,8 +697,8 @@ async def _execute_stub(
     if "纽约" in p or "热岛" in p or "income" in lc or "pearson" in lc:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 40.71, "lon": -74.00, "height": 180000, "duration_s": 4.0}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 40.71, "lon": -74.00, "height": 180000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="spatial_pearson_correlation", args={"var1": "LST", "var2": "Income", "roi": "NYC"}),
                 CopilotEvent(type="tool_result", tool="spatial_pearson_correlation", result={"status": "stub", "r": 0.0}),
                 CopilotEvent(type="tool_call", tool="show_chart", args={"kind": "scatter", "title": "Income vs LST (stub)", "data": {"r": 0.0, "points": []}}),
@@ -713,8 +713,8 @@ async def _execute_stub(
     if "马六甲" in p or "油污" in p or "ais" in lc:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 2.50, "lon": 101.00, "height": 420000, "duration_s": 4.8}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 2.50, "lon": 101.00, "height": 420000, "duration_s": 4.8}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="detect_sar_oil_spill", args={"roi": "malacca"}),
                 CopilotEvent(type="tool_result", tool="detect_sar_oil_spill", result={"status": "stub", "polygon": None}),
                 CopilotEvent(type="tool_call", tool="intersect_ais_tracks", args={"time_window": "-24h"}),
@@ -727,8 +727,8 @@ async def _execute_stub(
     if "皮尔巴拉" in p or "高光谱" in p or "unmix" in lc or "spectral" in lc:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": -22.30, "lon": 118.70, "height": 520000, "duration_s": 5.0}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": -22.30, "lon": 118.70, "height": 520000, "duration_s": 5.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="hyperspectral_unmixing", args={"roi": "pilbara", "endmembers": ["Fe", "Li"]}),
                 CopilotEvent(type="tool_result", tool="hyperspectral_unmixing", result={"status": "stub", "voxels": None}),
                 CopilotEvent(type="final", text="已生成高光谱解混指令（stub）。"),
@@ -740,8 +740,8 @@ async def _execute_stub(
         code = """// Cesium CustomShader (stub)\n// Goal: render wind particles from a UV texture.\n\n// TODO: bind GFS UV texture + integrate a particle system in a post-process stage.\n""".strip()
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="camera_fly_to", args={"lat": 0.0, "lon": 0.0, "height": 12000000, "duration_s": 4.2}),
-                CopilotEvent(type="tool_result", tool="camera_fly_to", result="ok"),
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 0.0, "lon": 0.0, "height": 12000000, "duration_s": 4.2}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="get_gfs_uv_wind_data", args={}),
                 CopilotEvent(type="tool_result", tool="get_gfs_uv_wind_data", result={"status": "stub", "url": ""}),
                 CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
