@@ -1036,6 +1036,15 @@ function applyCopilotEvents(events) {
       }
       continue
     }
+
+    if (tool === 'spin_macro_camera') {
+      try {
+        void engineRouter.value?.spinMacroCamera?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
   }
 }
 
@@ -1067,6 +1076,7 @@ function onCopilotSelectPreset(preset) {
   else if (id.includes('mauna')) setContextScale('mauna_loa', 'earth')
   else if (id.includes('talatan')) setContextScale('talatan', 'earth')
   else if (id.includes('wind') || id.includes('gfs') || id.includes('glsl')) setContextScale('global', 'earth')
+  else if (id.includes('terminator') || id.includes('magnet') || id.includes('shield')) setContextScale('terminator_shield', 'macro')
   else if (id.includes('wormhole') || id.includes('micro')) setContextScale(contextId.value || 'poyang', 'micro')
 
   try {

@@ -18,10 +18,21 @@ describe('mapLayersToThreeParams (Milestone 3)', () => {
 
     expect(out.macroSpiralVisible).toBe(false)
     expect(out.microAtomsVisible).toBe(true)
+    expect(out.terminatorShieldVisible).toBe(false)
 
     expect(out.microMaterial.opacity).toBe(0.5)
     expect(out.microMaterial.transmission).toBe(0.9)
     expect(out.microMaterial.ior).toBe(1.6)
+  })
+
+  it('hides the macro spiral when terminator shield is enabled', () => {
+    const out = mapLayersToThreeParams([
+      { id: 'macro-spiral', enabled: true },
+      { id: 'terminator-shield', enabled: true },
+    ])
+
+    expect(out.terminatorShieldVisible).toBe(true)
+    expect(out.macroSpiralVisible).toBe(false)
   })
 
   it('falls back to defaults for missing/invalid params', () => {

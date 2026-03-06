@@ -195,6 +195,17 @@ export function applyCopilotArtifacts(prev, events) {
       continue
     }
 
+    if (tool === 'show_terminator_shield') {
+      const enabled = args?.enabled === undefined ? true : !!args.enabled
+      const intensity = Number(args?.intensity)
+      layers = upsertLayer(layers, 'terminator-shield', (cur) => {
+        const params = { ...(cur.params || {}) }
+        if (Number.isFinite(intensity)) params.intensity = intensity
+        return { ...cur, enabled, params, name: cur.name || 'Terminator Shield' }
+      })
+      continue
+    }
+
     if (tool === 'add_subsurface_model') {
       const name = _asString(args?.name || '') || 'Subsurface Model'
       const url = _asString(args?.url || '')

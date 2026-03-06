@@ -93,7 +93,14 @@ export default {
           }
           centerTick = null
         }
-        viewer.destroy()
+        try {
+          const destroyed = typeof viewer.isDestroyed === 'function' ? viewer.isDestroyed() : false
+          if (!destroyed) viewer.destroy()
+        } catch (_) {
+          // ignore
+        } finally {
+          viewer = null
+        }
       }
     })
 
@@ -373,6 +380,8 @@ export default {
           }
         }
 
+        if (disposed) return
+
         viewer = new Cesium.Viewer(cesiumContainer.value, {
           creditContainer: creditContainer.value,
           terrainProvider,
@@ -404,6 +413,20 @@ export default {
           requestRenderMode: false,
           maximumRenderTimeChange: Infinity
         })
+
+        // If we got disposed mid-init, tear down immediately to avoid
+        // leaked WebGL contexts / later destroyed-object errors.
+        if (disposed) {
+          try {
+            const destroyed = typeof viewer.isDestroyed === 'function' ? viewer.isDestroyed() : false
+            if (!destroyed) viewer.destroy()
+          } catch (_) {
+            // ignore
+          } finally {
+            viewer = null
+          }
+          return
+        }
 
         // Cinematic: enable lighting for a better terminator line + atmosphere feel.
         try {

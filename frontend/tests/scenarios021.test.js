@@ -11,6 +11,7 @@ describe('021 scenario registry (workbench handoff)', () => {
     expect(ids.has('yancheng')).toBe(true)
     expect(ids.has('zhoukou')).toBe(true)
     expect(ids.has('global')).toBe(true)
+    expect(ids.has('terminator_shield')).toBe(true)
   })
 
   it('resolves maowusu without fallback', () => {

@@ -114,6 +114,11 @@ _PRESETS: List[CopilotPreset] = [
         label="[演示] 宏微虫洞跃迁",
         prompt="触发虫洞动画并切换到 micro，生成 SiO2 分子晶格。",
     ),
+    CopilotPreset(
+        id="demo:terminator_shield",
+        label="[演示] 终结者护盾（磁层）",
+        prompt="切换到 Sky/Macro，展示地球终结线 + 磁层护盾视觉（terminator shield / magnetosphere）。",
+    ),
 ]
 
 
@@ -178,6 +183,22 @@ _TOOLS: List[ToolDef] = [
         name="switch_scale",
         description="Switch the twin scale: earth/macro/micro.",
         args_schema={"target": {"type": "string", "enum": ["earth", "macro", "micro"]}},
+    ),
+    ToolDef(
+        name="show_terminator_shield",
+        description="Enable the Macro visual: Earth terminator + magnetosphere shield (frontend/ThreeTwin).",
+        args_schema={
+            "enabled": {"type": "boolean"},
+            "intensity": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="spin_macro_camera",
+        description="Spin the macro camera around the origin for a cinematic orbit.",
+        args_schema={
+            "duration": {"type": "number"},
+            "revolutions": {"type": "number"},
+        },
     ),
     # Phase 3 (Sky scale advanced rendering / cinematic toggles)
     ToolDef(
@@ -867,6 +888,39 @@ async def _execute_stub(
                 CopilotEvent(type="tool_call", tool="execute_editor_code", args={}),
                 CopilotEvent(type="tool_result", tool="execute_editor_code", result={"status": "stub"}),
                 CopilotEvent(type="final", text="已生成风场渲染代码骨架（stub），可在 CODE & SCRIPT 里继续完善。"),
+            ]
+        )
+        return events
+
+    if (
+        "terminator" in lc
+        or "magnetosphere" in lc
+        or "shield" in lc
+        or "磁层" in p
+        or "极光" in p
+        or "终结线" in p
+        or "护盾" in p
+    ):
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="switch_scale", args={"target": "macro"}),
+                CopilotEvent(type="tool_result", tool="switch_scale", result="ok"),
+                CopilotEvent(type="tool_call", tool="show_terminator_shield", args={"enabled": True, "intensity": 1.0}),
+                CopilotEvent(type="tool_result", tool="show_terminator_shield", result="ok"),
+                CopilotEvent(type="tool_call", tool="spin_macro_camera", args={"duration": 6.5, "revolutions": 0.85}),
+                CopilotEvent(type="tool_result", tool="spin_macro_camera", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="generate_report",
+                    args={
+                        "text": "# Terminator Shield / 磁层护盾\n\n"
+                        + "- 已切换到 Sky/Macro 视图。\n"
+                        + "- 启用终结线（昼夜分界）+ 磁层护盾视觉层。\n"
+                        + "- 镜头环绕用于展示体积感与辉光。\n",
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="generate_report", result="ok"),
+                CopilotEvent(type="final", text="已生成 Terminator Shield（磁层护盾）演示指令（Macro scale）。"),
             ]
         )
         return events

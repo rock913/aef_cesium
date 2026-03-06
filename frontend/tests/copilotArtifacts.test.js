@@ -74,4 +74,14 @@ describe('applyCopilotArtifacts (Phase 1 gate)', () => {
     expect(next.charts[0].title).toContain('Income')
     expect(next.charts[1].kind).toBe('bivariate')
   })
+
+  it('enables the terminator shield macro layer', () => {
+    const next = applyCopilotArtifacts(baseState(), [
+      { type: 'tool_call', tool: 'show_terminator_shield', args: { enabled: true, intensity: 1.4 } },
+    ])
+
+    const l = next.layers.find((x) => x.id === 'terminator-shield')
+    expect(l?.enabled).toBe(true)
+    expect(l?.params?.intensity).toBeCloseTo(1.4)
+  })
 })

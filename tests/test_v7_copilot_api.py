@@ -28,11 +28,12 @@ def test_v7_prompts_list() -> None:
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
-    assert len(data) >= 14
+    assert len(data) >= 15
     ids = {p.get("id") for p in data}
     assert "demo:amazon_cluster" in ids
     assert "demo:global_wind_glsl" in ids
     assert "demo:wormhole_micro" in ids
+    assert "demo:terminator_shield" in ids
 
 
 def test_v7_tools_list() -> None:
@@ -66,6 +67,8 @@ def test_v7_tools_list() -> None:
     assert "set_globe_transparency" in names
     assert "add_subsurface_model" in names
     assert "trigger_gsap_wormhole" in names
+    assert "show_terminator_shield" in names
+    assert "spin_macro_camera" in names
 
 
 def test_v7_execute_returns_events() -> None:
@@ -180,3 +183,15 @@ def test_v7_demo14_wormhole_emits_transition_and_micro() -> None:
     assert "trigger_gsap_wormhole" in tools
     assert "switch_scale" in tools
     assert "generate_molecular_lattice" in tools
+
+
+def test_v7_demo15_terminator_shield_emits_macro_tools() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "Demo 15 terminator shield magnetosphere"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "switch_scale" in tools
+    assert "show_terminator_shield" in tools
+    assert "spin_macro_camera" in tools

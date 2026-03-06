@@ -27,6 +27,17 @@ const cesiumViewerInstance = ref(null)
 const overlayHandles = ref(new Map())
 const applyToken = ref(0)
 
+function _viewerAlive() {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return null
+  try {
+    if (typeof viewer.isDestroyed === 'function' && viewer.isDestroyed()) return null
+  } catch (_) {
+    // ignore
+  }
+  return viewer
+}
+
 const _RUNTIME_KEYS = Object.freeze({
   tileset: 'phase3-tileset',
   czml: 'phase3-czml',
@@ -119,7 +130,7 @@ function _removeOverlayEntry(id) {
   const map = overlayHandles.value
   const entry = map.get(id)
   if (!entry) return
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   try {
     if (entry.kind === 'imagery' && entry.layer && viewer) {
       viewer.imageryLayers.remove(entry.layer, true)
@@ -152,7 +163,7 @@ function _removeOverlayEntry(id) {
 }
 
 async function enable3DTerrain(options = {}) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return false
 
   const terrainKey = String(options?.terrain || 'cesium_world_terrain').trim().toLowerCase()
@@ -180,7 +191,7 @@ async function enable3DTerrain(options = {}) {
 }
 
 async function addCesium3DTiles(options = {}) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return false
 
   const url = String(options?.url || '').trim()
@@ -211,7 +222,7 @@ async function addCesium3DTiles(options = {}) {
 }
 
 function setSceneMode(mode = 'day') {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return false
 
   const m = String(mode || '').trim().toLowerCase()
@@ -237,7 +248,7 @@ function setSceneMode(mode = 'day') {
 }
 
 async function playCzmlAnimation(options = {}) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return false
 
   const czmlUrl = String(options?.czml_url || '').trim()
@@ -268,7 +279,7 @@ async function playCzmlAnimation(options = {}) {
 }
 
 function setGlobeTransparency(alpha = 1.0) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return false
 
   const a = Number(alpha)
@@ -288,7 +299,7 @@ function setGlobeTransparency(alpha = 1.0) {
 }
 
 async function addExtrudedPolygons(options = {}) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return false
 
   const geojson = options?.geojson
@@ -334,7 +345,7 @@ async function addExtrudedPolygons(options = {}) {
 }
 
 async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return
 
   const id = 'ai-vector'
@@ -392,7 +403,7 @@ async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
 }
 
 async function _ensureGeoJsonBoundaries({ enabled, opacity, token }) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return
 
   const { mode, location } = _scenarioBackend()
@@ -603,7 +614,7 @@ async function _ensureGeoJsonBoundaries({ enabled, opacity, token }) {
 }
 
 async function _ensureImageryLayerForId({ id, enabled, opacity, options, token }) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return
   if (!id) return
 
@@ -718,7 +729,7 @@ async function _ensureImageryLayerForId({ id, enabled, opacity, options, token }
 }
 
 function _reorderImageryLayers(layers) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return
   const arr = Array.isArray(layers) ? layers : []
   const imageryIds = arr
@@ -743,7 +754,7 @@ function _reorderImageryLayers(layers) {
 }
 
 async function applyLayersAsync(layers) {
-  const viewer = cesiumViewerInstance.value
+  const viewer = _viewerAlive()
   if (!viewer) return
 
   const token = (applyToken.value += 1)

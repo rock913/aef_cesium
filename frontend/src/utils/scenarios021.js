@@ -102,6 +102,9 @@ export const scenarios021 = [
 
   // Demo 13 (v7.1): global view for code-generation / wind field rendering.
   { id: 'global', label: '全球风场流体：代码热生成', targetName: '全球视角', action: '生成 GLSL + 绑定风场纹理…', targetId: 'global_coord', layer: 'Wind', backend: null, camera: { lat: 0.0, lon: 0.0, height: 12000000, duration_s: 4.2, pitch_deg: -55.0 } },
+
+  // Demo 15 (v7.1+): macro visual showpiece (ThreeTwin): terminator + magnetosphere shield.
+  { id: 'terminator_shield', label: '终结者护盾：磁层 × 终结线', targetName: '近地空间 · 磁层护盾', action: '切换到 Sky/Macro 并加载护盾视觉…', targetId: 'terminator_shield_coord', layer: 'Terminator_Shield', backend: null, camera: { lat: 0.0, lon: 0.0, height: 20000000, duration_s: 4.2, pitch_deg: -55.0 } },
 ]
 
 export function getScenario021ById(id) {

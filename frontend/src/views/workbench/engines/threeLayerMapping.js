@@ -12,6 +12,7 @@ export const THREE_LAYER_DEFAULTS = Object.freeze({
   }),
   macroSpiralVisible: true,
   microAtomsVisible: true,
+  terminatorShieldVisible: false,
 })
 
 function _num(v) {
@@ -32,6 +33,7 @@ export function mapLayersToThreeParams(layers) {
   const bloomLayer = _findLayer(layers, 'bloom')
   const macroLayer = _findLayer(layers, 'macro-spiral')
   const microLayer = _findLayer(layers, 'micro-atoms')
+  const terminatorLayer = _findLayer(layers, 'terminator-shield')
 
   const bloomEnabled = bloomLayer ? !!bloomLayer.enabled : THREE_LAYER_DEFAULTS.bloom.enabled
   const bloomP = bloomLayer?.params || {}
@@ -42,6 +44,8 @@ export function mapLayersToThreeParams(layers) {
 
   const microEnabled = microLayer ? !!microLayer.enabled : THREE_LAYER_DEFAULTS.microAtomsVisible
   const microP = microLayer?.params || {}
+
+  const terminatorShieldVisible = terminatorLayer ? !!terminatorLayer.enabled : THREE_LAYER_DEFAULTS.terminatorShieldVisible
 
   const opacity = _num(microP.opacity)
   const transmission = _num(microP.transmission)
@@ -54,7 +58,8 @@ export function mapLayersToThreeParams(layers) {
       threshold: threshold === null ? THREE_LAYER_DEFAULTS.bloom.threshold : _clamp(threshold, 0, 1),
       radius: radius === null ? THREE_LAYER_DEFAULTS.bloom.radius : _clamp(radius, 0, 1),
     },
-    macroSpiralVisible: macroLayer ? !!macroLayer.enabled : THREE_LAYER_DEFAULTS.macroSpiralVisible,
+    terminatorShieldVisible,
+    macroSpiralVisible: (macroLayer ? !!macroLayer.enabled : THREE_LAYER_DEFAULTS.macroSpiralVisible) && !terminatorShieldVisible,
     microAtomsVisible: microEnabled,
     microMaterial: {
       opacity: opacity === null ? THREE_LAYER_DEFAULTS.microMaterial.opacity : _clamp(opacity, 0, 1),
