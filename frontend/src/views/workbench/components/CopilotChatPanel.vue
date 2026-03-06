@@ -57,18 +57,6 @@
 
     <!-- Bottom: Input zone -->
     <div v-if="!collapsed" class="input-zone" aria-label="Input Zone">
-      <div v-if="presets && presets.length" class="prompt-chips" aria-label="Prompt Gallery">
-        <button
-          v-for="p in presets"
-          :key="p.id"
-          class="chip"
-          type="button"
-          @click="applyPreset(p)"
-        >
-          {{ p.label }}
-        </button>
-      </div>
-
       <div class="composer" aria-label="Composer">
         <button
           v-if="!composerExpanded"

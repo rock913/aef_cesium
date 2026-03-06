@@ -21,21 +21,22 @@ describe('CopilotChatPanel v7.1 UI skeleton', () => {
   it('pins prompt chips directly above the textarea composer', () => {
     const s = read('../src/views/workbench/components/CopilotChatPanel.vue')
 
+    // v7.1+ UX: remove the always-visible blue chips strip;
+    // presets are accessed through the command palette list.
+    expect(s).not.toContain('class="prompt-chips"')
+
     const inputZone = s.indexOf('class="input-zone"')
-    const chips = s.indexOf('class="prompt-chips"')
     const composer = s.indexOf('class="composer"')
     const textarea = s.indexOf('class="textarea"')
     const send = s.indexOf('class="send"')
 
     expect(inputZone).toBeGreaterThan(-1)
-    expect(chips).toBeGreaterThan(-1)
     expect(composer).toBeGreaterThan(-1)
     expect(textarea).toBeGreaterThan(-1)
     expect(send).toBeGreaterThan(-1)
 
-    // Ensure order: input-zone -> chips -> composer (with textarea + send)
-    expect(inputZone).toBeLessThan(chips)
-    expect(chips).toBeLessThan(composer)
+    // Ensure order: input-zone -> composer (with textarea + send)
+    expect(inputZone).toBeLessThan(composer)
     expect(composer).toBeLessThan(textarea)
     expect(textarea).toBeLessThan(send)
   })

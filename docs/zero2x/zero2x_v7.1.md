@@ -18,8 +18,11 @@ UI / 交互（前端）
 - Global Standby：进入 /workbench 后默认深空轨道视角待机（慢速旋转），不再“进入即跳本地”。
 - Intent-Driven Dive：仅在 Copilot 工具事件触发 fly_to/camera_fly_to 后才停止待机并俯冲到目标区域。
 - Cmd/Ctrl+K Command Palette：输入区默认折叠胶囊；唤醒后多行自适应 + 毛玻璃指令列表；执行后自动折叠。
+- 赛博 HUD 顶栏：顶部导航采用 glass + scanline HUD 视觉（不影响 Twin 拖拽），提供 Lab/Theater 门控、Scale Toggle 与命令面板入口。
 - Lab Mode 状态保持：执行流程不再强制切换 Theater；Theater 仅由显式拨片/F11 触发。
 - 术语升级：UI 可见文案 Macro → Sky（内部 scale key 仍为 macro，避免破坏数据/逻辑）。
+
+交互细节（补充）：为减少视觉干扰，移除了输入区上方常驻的“演示 chips 条”，演示列表统一收敛到 Cmd/Ctrl+K 的 Command Palette 内。
 
 确保 HUD overlay 默认 pointer-events: none，面板选择性 pointer-events: auto，保证 Twin 可拖拽交互。
 

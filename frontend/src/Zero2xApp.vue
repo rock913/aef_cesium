@@ -271,8 +271,8 @@ const placeholder = computed(() => '请点击选择 V6.0 核心演示场景...')
 const isOmniOpen = ref(false)
 
 const workbenchHref = '/workbench'
-// Launchpad passes the selected scenario context parameter to the heavy workbench.
-const workbenchLaunchpadHref = computed(() => `/workbench?context=${selectedContextId.value}`)
+// Act 5 launch should enter a quiet workbench (no scenario context parameter).
+const workbenchLaunchpadHref = computed(() => '/workbench')
 
 const act2CinematicVideoOk = ref(true)
 const act3CinematicVideoOk = ref(true)
