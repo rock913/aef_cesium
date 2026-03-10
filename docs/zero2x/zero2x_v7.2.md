@@ -17,6 +17,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
   - Demo 12：补齐 `add_subsurface_model` 地下锚点；`fly_to` 支持 `pitch_deg`，并固定顺序 `enable_subsurface_mode` → 下潜 → 锚点。
 - ✅ Demo 7（珠峰冰川湖溃决）：已具备“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
 - ✅ Demo 8（火山形变×热异常）：已具备“无资源依赖”闭环：后端 stub 发出 `fetch_insar_displacement` + `fetch_lst_anomaly` + `apply_custom_shader` + `generate_cesium_custom_shader`；前端提供 `applyCustomShader()`（优先 Cesium CustomShader，失败则 entity fallback），并会把 shader code 写入编辑区。
+- ✅ Demo 9（全球碳汇三维估算）：已具备“无资源依赖”闭环：后端 stub 输出 inline GeoJSON（含 `carbon` 属性）→ 前端 `add_cesium_extruded_polygons(height_property='carbon')` 拉伸体素柱，同时下发 `show_chart` 做指标联动占位。
 - ✅ 0303 稳定性补强已落地：night 模式不启用物理光照（避免纯黑背光面）；场景切换会触发 resetSceneState（销毁 WebGPU/退出地下/移除 overlays/恢复默认时钟与碰撞），避免“卡顿/黑屏/状态串扰”。
 
 下一步（🟡）
@@ -24,7 +25,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 - 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts）。
   - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
   - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
-  - 🟡 Demo 9/10：按同样策略优先交付“无资源依赖”竖切片（artifacts + 可视化骨架），再替换真实资产与计算。
+  - 🟡 Demo 10（纽约热岛×脆弱性）：继续补齐“地图侧可视化骨架”（可选：把 bivariate grid 映射成 Cesium entity 网格/热力小方块），并确保与 `render_bivariate_map` artifacts 一致。
 
 分支与落地记录
 - 分支：`patch/0303-v72-phase4`

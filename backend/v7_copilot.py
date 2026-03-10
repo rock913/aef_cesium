@@ -1203,15 +1203,106 @@ async def _execute_stub(
         return events
 
     if "刚果" in p or "碳" in p or "gedi" in lc:
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Cell A", "carbon": 2.2},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [23.45, -1.35],
+                                [23.75, -1.35],
+                                [23.75, -1.05],
+                                [23.45, -1.05],
+                                [23.45, -1.35],
+                            ]
+                        ],
+                    },
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Cell B", "carbon": 3.6},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [23.78, -1.35],
+                                [24.08, -1.35],
+                                [24.08, -1.05],
+                                [23.78, -1.05],
+                                [23.78, -1.35],
+                            ]
+                        ],
+                    },
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Cell C", "carbon": 1.4},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [23.45, -1.02],
+                                [23.75, -1.02],
+                                [23.75, -0.72],
+                                [23.45, -0.72],
+                                [23.45, -1.02],
+                            ]
+                        ],
+                    },
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "Cell D", "carbon": 4.3},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [23.78, -1.02],
+                                [24.08, -1.02],
+                                [24.08, -0.72],
+                                [23.78, -0.72],
+                                [23.78, -1.02],
+                            ]
+                        ],
+                    },
+                },
+            ],
+        }
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": -1.20, "lon": 23.70, "height": 320000, "duration_s": 4.6}),
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="estimate_carbon_stock", args={"source": "GEDI+AEF", "roi": "congo"}),
-                CopilotEvent(type="tool_result", tool="estimate_carbon_stock", result={"status": "stub", "geojson": None}),
-                CopilotEvent(type="tool_call", tool="add_cesium_extruded_polygons", args={"geojson": None, "height": 0.0, "color": "#00F0FF", "opacity": 0.55}),
-                CopilotEvent(type="tool_result", tool="add_cesium_extruded_polygons", result={"status": "stub"}),
-                CopilotEvent(type="final", text="已生成碳储量估算指令（stub）。"),
+                CopilotEvent(type="tool_result", tool="estimate_carbon_stock", result={"status": "stub", "geojson": geojson}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_extruded_polygons",
+                    args={
+                        "geojson": geojson,
+                        "height_property": "carbon",
+                        "height_scale": 1200.0,
+                        "height_min": 400.0,
+                        "height_max": 6500.0,
+                        "color": "#00F0FF",
+                        "opacity": 0.55,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_extruded_polygons", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="show_chart",
+                    args={
+                        "kind": "bar",
+                        "title": "Carbon Stock (stub)",
+                        "data": {"series": [{"name": "carbon", "data": [2.2, 3.6, 1.4, 4.3]}], "labels": ["A", "B", "C", "D"]},
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="show_chart", result="ok"),
+                CopilotEvent(type="final", text="已生成碳储量估算可视化指令（resource-free stub）。"),
             ]
         )
         return events
