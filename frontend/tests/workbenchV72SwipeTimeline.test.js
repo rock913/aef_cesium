@@ -34,7 +34,7 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
 
     const sEngine = read('../src/views/workbench/EngineRouter.vue')
     expect(sEngine).toMatch(/splitPosition/)
-    expect(sEngine).toMatch(/ImagerySplitDirection/)
+    expect(sEngine).toMatch(/SplitDirection|ImagerySplitDirection/)
     expect(sEngine).toMatch(/setSwipeMode|set_swipe/i)
   })
 

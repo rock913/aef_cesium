@@ -1,6 +1,6 @@
 <template>
   <div v-if="active" class="swipe-root" aria-label="Swipe HUD">
-    <div class="line" :style="{ left: `${positionPct}%` }" aria-hidden="true">
+    <div class="line" :style="{ left: `${positionPct}%` }">
       <div
         class="handle"
         role="slider"

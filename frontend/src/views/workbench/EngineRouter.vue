@@ -989,11 +989,13 @@ function _reorderImageryLayers(layers) {
 
 function _resetSwipeDirections(viewer) {
   if (!viewer) return
+  const SD = Cesium.SplitDirection || Cesium.ImagerySplitDirection
+  if (!SD) return
   try {
     for (const [, entry] of overlayHandles.value.entries()) {
       if (entry?.kind !== 'imagery' || !entry?.layer) continue
       try {
-        entry.layer.splitDirection = Cesium.ImagerySplitDirection.NONE
+        entry.layer.splitDirection = SD.NONE
       } catch (_) {
         // ignore
       }
@@ -1029,8 +1031,9 @@ function _applySwipeState(viewer) {
   if (leftId) {
     const e = _overlayEntry(leftId)
     if (e?.kind === 'imagery' && e.layer) {
+      const SD = Cesium.SplitDirection || Cesium.ImagerySplitDirection
       try {
-        e.layer.splitDirection = Cesium.ImagerySplitDirection.LEFT
+        if (SD) e.layer.splitDirection = SD.LEFT
       } catch (_) {
         // ignore
       }
@@ -1039,8 +1042,9 @@ function _applySwipeState(viewer) {
   if (rightId) {
     const e = _overlayEntry(rightId)
     if (e?.kind === 'imagery' && e.layer) {
+      const SD = Cesium.SplitDirection || Cesium.ImagerySplitDirection
       try {
-        e.layer.splitDirection = Cesium.ImagerySplitDirection.RIGHT
+        if (SD) e.layer.splitDirection = SD.RIGHT
       } catch (_) {
         // ignore
       }
