@@ -1,5 +1,24 @@
 Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 
+更新时间：2026-03-10
+
+## 当前状态（基于仓库实际落地）
+
+已完成（✅）
+- ✅ M0：Demo 11 基础能力与 Copilot tool_call → 引擎执行链路保持稳定。
+- ✅ M1：Demo 12 最小闭环：`enable_subsurface_mode` 已打通（透明地球 + 关闭碰撞 + 可选下潜）。
+- ✅ M2：Demo 13 最小沙盒骨架：`execute_dynamic_wgsl` 已打通（WGSL 写入编辑区 + WebGPU overlay + `scene.postRender` 同步 + `device.limits` 降级）。
+- ✅ 回归测试已覆盖：后端 `/api/v7/tools` 工具清单包含 v7.2 新工具；前端契约测试锁定 WebGPU overlay 与 postRender 同步策略。
+
+下一步（🟡）
+- 🟡 补齐“可逆/清理”工具：`disable_subsurface_mode`、`destroy_webgpu_sandbox`（用于退出地下模式、销毁 overlay，确保长时间演示不堆积状态）。
+- 🟡 Demo 13 进阶：在“安全沙盒”基础上增加一个最小 compute+render 示例（不追求百万粒子，先保证可观测、可复现、可降级）。
+- 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts 业务样式与示例数据）。
+
+分支与落地记录
+- 分支：`patch/0303-v72-phase4`
+- 已落地基础闭环提交：`e41fdcb`（v7.2 subsurface + WebGPU tools，TDD）
+
 本文件作为 v7.2 主版本开发文档（source of truth）。以下规划会以当前仓库实现为基线：
 - Workbench 已具备 Copilot tool_call → 前端引擎执行链路（Cesium Twin + 部分 Three Twin）。
 - EngineRouter 已具备：夜景模式 `setSceneMode('night')`、CZML 播放 `playCzmlAnimation()`、透明地球 `setGlobeTransparency()`、3DTiles / ExtrudedPolygons 等。

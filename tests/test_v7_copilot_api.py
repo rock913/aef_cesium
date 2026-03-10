@@ -75,7 +75,9 @@ def test_v7_tools_list() -> None:
 
     # v7.2 WebGPU / subsurface demo tools
     assert "enable_subsurface_mode" in names
+    assert "disable_subsurface_mode" in names
     assert "execute_dynamic_wgsl" in names
+    assert "destroy_webgpu_sandbox" in names
 
 
 def test_v7_execute_returns_events() -> None:

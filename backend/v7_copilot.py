@@ -125,7 +125,9 @@ _HYBRID_TOOL_ALLOWLIST = {
     "add_subsurface_model",
     # v7.2 WebGPU + subsurface mode
     "enable_subsurface_mode",
+    "disable_subsurface_mode",
     "execute_dynamic_wgsl",
+    "destroy_webgpu_sandbox",
     "trigger_gsap_wormhole",
     "show_terminator_shield",
     "spin_macro_camera",
@@ -525,12 +527,22 @@ _TOOLS: List[ToolDef] = [
         },
     ),
     ToolDef(
+        name="disable_subsurface_mode",
+        description="Disable subsurface exploration mode and restore default collision/translucency settings.",
+        args_schema={},
+    ),
+    ToolDef(
         name="execute_dynamic_wgsl",
         description="Execute LLM-generated WebGPU WGSL code in an overlay sandbox (Demo 13).",
         args_schema={
             "wgsl_compute_shader": {"type": "string"},
             "particle_count": {"type": "number"},
         },
+    ),
+    ToolDef(
+        name="destroy_webgpu_sandbox",
+        description="Destroy the WebGPU overlay sandbox and detach render sync hooks.",
+        args_schema={},
     ),
     ToolDef(
         name="trigger_gsap_wormhole",

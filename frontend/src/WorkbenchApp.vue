@@ -1258,6 +1258,15 @@ function applyCopilotEvents(events) {
       continue
     }
 
+    if (tool === 'disable_subsurface_mode') {
+      try {
+        engineRouter.value?.disableSubsurfaceMode?.()
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
     if (tool === 'execute_dynamic_wgsl') {
       // v7.2 Demo 13: write WGSL into editor + run WebGPU overlay sandbox.
       const wgsl = String(args?.wgsl_compute_shader || '').trim()
@@ -1285,6 +1294,15 @@ function applyCopilotEvents(events) {
           wgsl_compute_shader: wgsl,
           particle_count: args?.particle_count,
         })
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'destroy_webgpu_sandbox') {
+      try {
+        engineRouter.value?.destroyWebGpuSandbox?.()
       } catch (_) {
         // ignore
       }

@@ -47,6 +47,8 @@ let _webgpuCleanup = null
 let _postRenderUnsub = null
 let _webgpuState = null
 
+let _subsurfaceRestore = null
+
 let _vectorSwipeUnsub = null
 
 function _disableDefaultDoubleClick(viewer) {
@@ -277,6 +279,58 @@ function enableSubsurfaceMode(options = {}) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return false
 
+  // Capture previous state once so we can restore later.
+  if (!_subsurfaceRestore) {
+    try {
+      const globe = viewer.scene?.globe
+      const ctrl = viewer.scene?.screenSpaceCameraController
+      const translucency = globe?.translucency
+
+      const prev = {
+        collision: ctrl ? !!ctrl.enableCollisionDetection : null,
+        translucencyEnabled: translucency ? !!translucency.enabled : null,
+        frontFaceAlpha: translucency ? translucency.frontFaceAlpha : null,
+        backFaceAlpha: translucency ? translucency.backFaceAlpha : null,
+        frontFaceAlphaByDistance: translucency ? translucency.frontFaceAlphaByDistance : null,
+        backFaceAlphaByDistance: translucency ? translucency.backFaceAlphaByDistance : null,
+      }
+      _subsurfaceRestore = () => {
+        try {
+          if (ctrl && typeof prev.collision === 'boolean') ctrl.enableCollisionDetection = prev.collision
+        } catch (_) {
+          // ignore
+        }
+        try {
+          if (translucency && typeof prev.translucencyEnabled === 'boolean') translucency.enabled = prev.translucencyEnabled
+        } catch (_) {
+          // ignore
+        }
+        try {
+          if (translucency && prev.frontFaceAlphaByDistance) translucency.frontFaceAlphaByDistance = prev.frontFaceAlphaByDistance
+        } catch (_) {
+          // ignore
+        }
+        try {
+          if (translucency && prev.backFaceAlphaByDistance) translucency.backFaceAlphaByDistance = prev.backFaceAlphaByDistance
+        } catch (_) {
+          // ignore
+        }
+        try {
+          if (translucency && typeof prev.frontFaceAlpha === 'number') translucency.frontFaceAlpha = prev.frontFaceAlpha
+        } catch (_) {
+          // ignore
+        }
+        try {
+          if (translucency && typeof prev.backFaceAlpha === 'number') translucency.backFaceAlpha = prev.backFaceAlpha
+        } catch (_) {
+          // ignore
+        }
+      }
+    } catch (_) {
+      _subsurfaceRestore = null
+    }
+  }
+
   const tr = Number(options?.transparency)
   const transparency = Number.isFinite(tr) ? Math.max(0, Math.min(1, tr)) : 0.2
   const depthRaw = Number(options?.target_depth_meters)
@@ -326,6 +380,43 @@ function enableSubsurfaceMode(options = {}) {
   } catch (_) {
     // ignore
   }
+  return true
+}
+
+function disableSubsurfaceMode() {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  try {
+    if (typeof _subsurfaceRestore === 'function') _subsurfaceRestore()
+  } catch (_) {
+    // ignore
+  }
+  _subsurfaceRestore = null
+
+  // Best-effort safety defaults even if snapshot failed.
+  try {
+    const globe = viewer.scene?.globe
+    if (globe?.translucency) {
+      globe.translucency.enabled = false
+    }
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (viewer.scene?.screenSpaceCameraController) {
+      viewer.scene.screenSpaceCameraController.enableCollisionDetection = true
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    viewer.scene?.requestRender?.()
+  } catch (_) {
+    // ignore
+  }
+
   return true
 }
 
@@ -1467,6 +1558,7 @@ defineExpose({
   setGlobeTransparency,
   addExtrudedPolygons,
   enableSubsurfaceMode,
+  disableSubsurfaceMode,
   executeDynamicWgsl,
   destroyWebGpuSandbox,
   setSwipeMode,

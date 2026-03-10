@@ -31,7 +31,9 @@ describe('v7.2 WebGPU sandbox contracts', () => {
 
     // New v7.2 tools should be consumed in applyCopilotEvents.
     expect(sWorkbench).toMatch(/tool\s*===\s*'enable_subsurface_mode'/)
+    expect(sWorkbench).toMatch(/tool\s*===\s*'disable_subsurface_mode'/)
     expect(sWorkbench).toMatch(/tool\s*===\s*'execute_dynamic_wgsl'/)
+    expect(sWorkbench).toMatch(/tool\s*===\s*'destroy_webgpu_sandbox'/)
 
     // execute_dynamic_wgsl must write into the editor/code artifact.
     expect(sWorkbench).toMatch(/code\.value\s*=|write_to_editor/i)
