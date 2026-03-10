@@ -71,6 +71,30 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
     expect(sWorkbench).toMatch(/function applyPreset\(preset\)[\s\S]*runStub\(\)/)
   })
 
+  it('renders free-chat text robustly (resp.reply/text fallback before events.final)', () => {
+    const sWorkbench = read('../src/WorkbenchApp.vue')
+
+    // Patch update: avoid blank output when backend does not emit events.final.
+    expect(sWorkbench).toMatch(/resp\?\.(reply|text)/)
+
+    // Still support events.final as a fallback.
+    expect(sWorkbench).toMatch(/e\.type\s*===\s*'final'|type\s*===\s*'final'/)
+  })
+
+  it('loads layers concurrently on scene switch (Promise.allSettled task pool)', () => {
+    const sEngine = read('../src/views/workbench/EngineRouter.vue')
+    expect(sEngine).toMatch(/Promise\.allSettled\(/)
+    expect(sEngine).toMatch(/loadTasks|tasks|allSettled/)
+  })
+
+  it('auto-flyTo on scenario change (even if prompt emits no fly_to)', () => {
+    const sWorkbench = read('../src/WorkbenchApp.vue')
+
+    // There must be a watcher that reacts to scenario.id changes and forces a flyToScenario.
+    expect(sWorkbench).toMatch(/watch\([\s\S]*\(\)\s*=>\s*scenario\.value\?\.id[\s\S]*flyToScenario/s)
+    expect(sWorkbench).toMatch(/setTimeout\([\s\S]*,\s*100\s*\)/)
+  })
+
   it('hardens Cesium interactions: disable LEFT_DOUBLE_CLICK tracking + vector swipe hook', () => {
     const sEngine = read('../src/views/workbench/EngineRouter.vue')
 

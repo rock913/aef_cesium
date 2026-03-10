@@ -1064,12 +1064,16 @@ async function applyLayersAsync(layers) {
   const token = (applyToken.value += 1)
   const arr = Array.isArray(layers) ? layers : []
 
+  const loadTasks = []
+
   // 1) Boundaries (GeoJSON)
   try {
     const l = arr.find((x) => String(x?.id || '') === 'boundaries')
-    const enabled = !!l?.enabled
-    const opacity = _getLayerParam(l, 'opacity', 0.9)
-    await _ensureGeoJsonBoundaries({ enabled, opacity, token })
+    if (l) {
+      const enabled = !!l?.enabled
+      const opacity = _getLayerParam(l, 'opacity', 0.9)
+      loadTasks.push(_ensureGeoJsonBoundaries({ enabled, opacity, token }))
+    }
   } catch (_) {
     // ignore
   }
@@ -1077,11 +1081,13 @@ async function applyLayersAsync(layers) {
   // 2) AI vector overlay (GeoJSON)
   try {
     const l = arr.find((x) => String(x?.id || '') === 'ai-vector')
-    const enabled = !!l?.enabled
-    const opacity = _getLayerParam(l, 'opacity', 0.9)
-    const geojson = _getLayerParam(l, 'geojson', null)
-    const color = String(_getLayerParam(l, 'color', '#00F0FF') || '').trim() || '#00F0FF'
-    await _ensureAiVector({ enabled, opacity, geojson, token, color })
+    if (l) {
+      const enabled = !!l?.enabled
+      const opacity = _getLayerParam(l, 'opacity', 0.9)
+      const geojson = _getLayerParam(l, 'geojson', null)
+      const color = String(_getLayerParam(l, 'color', '#00F0FF') || '').trim() || '#00F0FF'
+      loadTasks.push(_ensureAiVector({ enabled, opacity, geojson, token, color }))
+    }
   } catch (_) {
     // ignore
   }
@@ -1109,7 +1115,17 @@ async function applyLayersAsync(layers) {
       opts.variant = 'heatmap'
     }
 
-    await _ensureImageryLayerForId({ id, enabled, opacity, options: opts, token })
+    try {
+      loadTasks.push(_ensureImageryLayerForId({ id, enabled, opacity, options: opts, token }))
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  try {
+    await Promise.allSettled(loadTasks)
+  } catch (_) {
+    // ignore
   }
 
   if (token !== applyToken.value) return

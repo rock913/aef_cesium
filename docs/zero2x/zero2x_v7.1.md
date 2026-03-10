@@ -209,16 +209,37 @@ Slice C：Hybrid Router（后端为主，默认关闭）
 4.9.3 Copilot 自由输入不再跑 Stub 剧本（探索态与演示态解耦）
 
 - 痛点：自由输入无论内容都会触发 `runExecute()`（硬编码剧本），覆盖真实 events/final text，形成“伪 AI 死循环”。
+- 痛点：
+	- 自由输入无论内容都会触发 `runExecute()`（硬编码剧本），覆盖真实 events/final text，形成“伪 AI 死循环”。
+	- 另一个常见翻车点：前端过度依赖 `events[].type === 'final'`，当后端只是闲聊/未发 final 事件时，UI 会出现“无响应/空白”。
 - 建议：
 	- Preset（演示剧本）仍走 `runExecute()`，确保 100% 可控。
-	- Free Chat（自由输入）仅渲染后端 `events` 与 `final` 文案，不再启动 stub 打字机。
-- 验收/门禁：前端合同测试锁定 onCopilotSubmit 不再无条件调用 `runExecute()`；onCopilotSelectPreset 仍可触发剧本。
+	- Free Chat（自由输入）仅渲染后端返回（优先 `resp.reply/resp.text`，其次 `events.final`），不再启动 stub 打字机。
+	- 若后端仅返回 tool events 但无自然语言回复，必须提供拟人化兜底文案（避免空白）。
+- 验收/门禁：
+	- 前端合同测试锁定 onCopilotSubmit：不再无条件调用 `runExecute()`；并且存在 `resp.reply/resp.text` 的文本回落策略。
+	- onCopilotSelectPreset 仍可触发剧本。
+
+4.9.4 Engine 图层加载并发化（切场景避免白屏排队）
+
+- 痛点：切换场景时，图层加载若按 `for ... await` 串行执行，会导致 GeoJSON/imagery 互相排队，形成明显白屏等待。
+- 建议：将 Boundaries / AI Vector / 各 imagery overlay 的加载包装成任务池，使用 `Promise.allSettled(loadTasks)` 并发执行；最后统一做 reorder + swipe state re-apply。
+- 验收/门禁：前端合同测试锁定 EngineRouter 存在 `Promise.allSettled` 的并发加载路径，且 token cancellation（applyToken）仍生效。
+
+4.9.5 场景切换强制 FlyTo（避免 preset 无 fly_to 时镜头不动）
+
+- 痛点：点击 preset 仅改变 `contextId`，如果 prompt 没触发 `fly_to/camera_fly_to` 工具事件，镜头可能停留在旧场景（认知割裂）。
+- 建议：在 Workbench 顶层监听 `scenario.id` 变化（非初次），viewerReady 后延迟约 100ms 强制 `stopGlobalStandby()` + `flyToScenario()`。
+- 验收/门禁：前端合同测试锁定 watcher 存在，且包含 `setTimeout(..., 100)` 与 `flyToScenario` 调用。
 
 As-built（已落地，截止 2026-03-10）
 
 - ✅ 矢量卷帘（退化实现）：`frontend/src/views/workbench/EngineRouter.vue` 在 Swipe 模式下对 `ai-vector` GeoJSON 以屏幕空间中心点做 show/hide（与 `scene.splitPosition` 同步）。
 - ✅ 禁用双击追踪：`frontend/src/views/workbench/EngineRouter.vue` 在 viewer-ready 时移除 `LEFT_DOUBLE_CLICK` 默认 action。
 - ✅ Free Chat 解耦 stub：`frontend/src/WorkbenchApp.vue` 的 onCopilotSubmit 仅应用后端 events/final，不再调用 `runExecute()`。
+- ✅ Free Chat 文本回落：优先渲染 `resp.reply/resp.text`，再回落到 `events.final`，仍无文本时给出拟人化兜底（避免空白）。
+- ✅ 切场景图层加载并发化：`frontend/src/views/workbench/EngineRouter.vue` 的 applyLayersAsync 使用 `Promise.allSettled` 并发加载 overlays，减少排队白屏。
+- ✅ 场景切换强制 FlyTo：`frontend/src/WorkbenchApp.vue` 监听 `scenario.id` 变化，在 viewerReady 后强制 stopStandby + flyToScenario（即使 prompt 未发 fly_to）。
 - ✅ 门禁：`frontend/tests/workbenchV72SwipeTimeline.test.js` 断言三项合同均存在。
 
 一、 架构演进：全尺度万能底座 (Omni-Scale Foundation)

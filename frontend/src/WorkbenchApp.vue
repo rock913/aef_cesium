@@ -1022,20 +1022,30 @@ function onCopilotSubmit(text) {
       copilotEvents.value = events
       applyCopilotEvents(events)
 
-      // Prefer backend-provided final text / events as the source of truth.
+      // Patch update: avoid blank output when backend doesn't emit events.final.
+      // Prefer explicit reply/text fields, then fallback to events.final.
       let finalText = ''
       try {
-        const finalEv = events.find((e) => e && typeof e === 'object' && e.type === 'final')
-        finalText = String(finalEv?.text || finalEv?.content || '').trim()
+        finalText = String(resp?.reply || resp?.text || '').trim()
       } catch (_) {
         finalText = ''
       }
+      if (!finalText) {
+        try {
+          const finalEv = events.find((e) => e && typeof e === 'object' && e.type === 'final')
+          finalText = String(finalEv?.text || finalEv?.content || '').trim()
+        } catch (_) {
+          finalText = ''
+        }
+      }
+
+      const safeAssistantText = finalText || '空间计算任务已执行完成，请查看左侧面板或右侧思维链。'
       if (finalText) theaterReport.value = finalText
 
       try {
         chatHistory.value = [
           ...(chatHistory.value || []),
-          { id: `a:${Date.now()}`, role: 'assistant', content: finalText || theaterReport.value || '', events },
+          { id: `a:${Date.now()}`, role: 'assistant', content: safeAssistantText, events },
         ]
       } catch (_) {
         // ignore
@@ -1451,6 +1461,24 @@ watch(
     if (!swipeEnabled.value) return
     swipeEnabled.value = false
     _applySwipeToEngine()
+  }
+)
+
+watch(
+  () => scenario.value?.id,
+  (newId, oldId) => {
+    if (!newId || newId === oldId) return
+    if (!viewerReady.value) return
+
+    // Patch update: presets may not emit fly_to; force one on scenario change.
+    setTimeout(() => {
+      try {
+        engineRouter.value?.stopGlobalStandby?.()
+        engineRouter.value?.flyToScenario?.()
+      } catch (_) {
+        // ignore
+      }
+    }, 100)
   }
 )
 
