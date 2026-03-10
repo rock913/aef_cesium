@@ -88,6 +88,18 @@ function _entityRepresentativeCartesian(ent, time) {
   return null
 }
 
+function _sceneCartesianToWindow(scene, cartesian, result) {
+  if (!scene || !cartesian) return null
+  const st = Cesium.SceneTransforms
+  const fn = (st && (st.worldToWindowCoordinates || st.wgs84ToWindowCoordinates)) || null
+  if (typeof fn !== 'function') return null
+  try {
+    return fn(scene, cartesian, result)
+  } catch (_) {
+    return null
+  }
+}
+
 function _stopVectorSwipeHook(viewer) {
   try {
     if (_vectorSwipeUnsub) {
@@ -126,6 +138,7 @@ function _ensureVectorSwipeHook(viewer) {
 
   // Fallback for Entity/DataSource overlays: approximate a vertical "cut" by
   // hiding entities based on their screen-space centroid relative to splitPosition.
+  const scratchWin = new Cesium.Cartesian2()
   const cb = () => {
     const enabled = !!swipeEnabled.value
     if (!enabled) return
@@ -145,7 +158,7 @@ function _ensureVectorSwipeHook(viewer) {
     for (const ent of entry.dataSource.entities.values) {
       const c = _entityRepresentativeCartesian(ent, t)
       if (!c) continue
-      const win = Cesium.SceneTransforms.wgs84ToWindowCoordinates(scene, c)
+      const win = _sceneCartesianToWindow(scene, c, scratchWin)
       if (!win) continue
       const x = Number(win.x)
       if (!Number.isFinite(x)) continue
