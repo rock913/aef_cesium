@@ -1240,6 +1240,57 @@ function applyCopilotEvents(events) {
       continue
     }
 
+    if (tool === 'enable_subsurface_mode') {
+      // v7.2 Demo 12: translucent globe + collision disabled + best-effort dive.
+      try {
+        engineRouter.value?.stopGlobalStandby?.()
+      } catch (_) {
+        // ignore
+      }
+      try {
+        engineRouter.value?.enableSubsurfaceMode?.({
+          transparency: args?.transparency,
+          target_depth_meters: args?.target_depth_meters,
+        })
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'execute_dynamic_wgsl') {
+      // v7.2 Demo 13: write WGSL into editor + run WebGPU overlay sandbox.
+      const wgsl = String(args?.wgsl_compute_shader || '').trim()
+      if (wgsl) {
+        try {
+          code.value = wgsl
+        } catch (_) {
+          // ignore
+        }
+        // Prefer Lab so the editor is visible when available.
+        try {
+          if (String(mode.value || '') === 'theater') setMode('lab')
+        } catch (_) {
+          // ignore
+        }
+        try {
+          ensureTabKind('twin')
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      try {
+        void engineRouter.value?.executeDynamicWgsl?.({
+          wgsl_compute_shader: wgsl,
+          particle_count: args?.particle_count,
+        })
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
     if (tool === 'add_cesium_extruded_polygons') {
       try {
         void engineRouter.value?.addExtrudedPolygons?.(args || {})

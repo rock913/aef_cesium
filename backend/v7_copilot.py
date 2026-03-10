@@ -123,6 +123,9 @@ _HYBRID_TOOL_ALLOWLIST = {
     "play_czml_animation",
     "set_globe_transparency",
     "add_subsurface_model",
+    # v7.2 WebGPU + subsurface mode
+    "enable_subsurface_mode",
+    "execute_dynamic_wgsl",
     "trigger_gsap_wormhole",
     "show_terminator_shield",
     "spin_macro_camera",
@@ -511,6 +514,22 @@ _TOOLS: List[ToolDef] = [
             "url": {"type": "string"},
             "name": {"type": "string"},
             "opacity": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="enable_subsurface_mode",
+        description="Enable subsurface exploration mode: translucent globe and collision disabled (Demo 12).",
+        args_schema={
+            "transparency": {"type": "number"},
+            "target_depth_meters": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="execute_dynamic_wgsl",
+        description="Execute LLM-generated WebGPU WGSL code in an overlay sandbox (Demo 13).",
+        args_schema={
+            "wgsl_compute_shader": {"type": "string"},
+            "particle_count": {"type": "number"},
         },
     ),
     ToolDef(

@@ -73,6 +73,10 @@ def test_v7_tools_list() -> None:
     assert "set_swipe_position" in names
     assert "disable_swipe_mode" in names
 
+    # v7.2 WebGPU / subsurface demo tools
+    assert "enable_subsurface_mode" in names
+    assert "execute_dynamic_wgsl" in names
+
 
 def test_v7_execute_returns_events() -> None:
     client = _client()

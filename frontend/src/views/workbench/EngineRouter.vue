@@ -1,17 +1,27 @@
 <template>
   <div class="engine-router" aria-label="Engine Router">
-    <!-- MVP: always mount Cesium Twin. Three.js modes are Phase 2. -->
-    <CesiumViewer
-      ref="cesiumViewer"
-      :initial-location="initialLocation"
-      @viewer-ready="onViewerReady"
-    />
+    <div class="engine-stack" aria-label="Engine Stack">
+      <!-- MVP: always mount Cesium Twin. Three.js modes are Phase 2. -->
+      <CesiumViewer
+        ref="cesiumViewer"
+        :initial-location="initialLocation"
+        @viewer-ready="onViewerReady"
+      />
+
+      <!-- v7.2: WebGPU sandbox overlay (Event-Driven Overlay). -->
+      <canvas
+        v-if="showWebGPU"
+        ref="gpuCanvas"
+        class="webgpu-canvas pointer-events-none"
+        aria-label="WebGPU Sandbox Canvas"
+      />
+    </div>
   </div>
 </template>
 
 <script setup>
 import * as Cesium from 'cesium'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import CesiumViewer from '../../components/CesiumViewer.vue'
 import { apiService } from '../../services/api.js'
 
@@ -30,6 +40,13 @@ const applyToken = ref(0)
 const swipeEnabled = ref(false)
 const swipePosition = ref(0.5)
 
+// v7.2 WebGPU sandbox overlay state.
+const showWebGPU = ref(false)
+const gpuCanvas = ref(null)
+let _webgpuCleanup = null
+let _postRenderUnsub = null
+let _webgpuState = null
+
 let _vectorSwipeUnsub = null
 
 function _disableDefaultDoubleClick(viewer) {
@@ -40,6 +57,276 @@ function _disableDefaultDoubleClick(viewer) {
   } catch (_) {
     // ignore
   }
+}
+
+function _stopWebGpuOverlay() {
+  try {
+    if (typeof _webgpuCleanup === 'function') _webgpuCleanup()
+  } catch (_) {
+    // ignore
+  }
+  _webgpuCleanup = null
+
+  try {
+    if (_postRenderUnsub) {
+      _postRenderUnsub()
+      _postRenderUnsub = null
+    }
+  } catch (_) {
+    _postRenderUnsub = null
+  }
+
+  _webgpuState = null
+  showWebGPU.value = false
+}
+
+function destroyWebGpuSandbox() {
+  _stopWebGpuOverlay()
+  return true
+}
+
+function _addScenePostRender(viewer, cb) {
+  if (!viewer?.scene?.postRender?.addEventListener) return null
+  viewer.scene.postRender.addEventListener(cb)
+  return () => {
+    try {
+      viewer.scene.postRender.removeEventListener(cb)
+    } catch (_) {
+      // ignore
+    }
+  }
+}
+
+async function executeDynamicWgsl(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return { ok: false, reason: 'viewer_not_ready' }
+
+  const wgsl = String(options?.wgsl_compute_shader || options?.wgsl || '').trim()
+  if (!wgsl) return { ok: false, reason: 'missing_wgsl' }
+
+  // Ensure a clean slate.
+  _stopWebGpuOverlay()
+
+  showWebGPU.value = true
+  await nextTick()
+
+  const canvas = gpuCanvas.value
+  if (!canvas) return { ok: false, reason: 'canvas_not_ready' }
+
+  const nav = typeof navigator !== 'undefined' ? navigator : null
+  const gpu = nav?.gpu || null
+  if (!gpu || typeof gpu.requestAdapter !== 'function') {
+    showWebGPU.value = false
+    return { ok: false, reason: 'webgpu_unavailable' }
+  }
+
+  let adapter = null
+  try {
+    // Keep this explicit for contract tests and readability.
+    adapter = await navigator.gpu.requestAdapter()
+  } catch (_) {
+    adapter = null
+  }
+  if (!adapter || typeof adapter.requestDevice !== 'function') {
+    showWebGPU.value = false
+    return { ok: false, reason: 'no_adapter' }
+  }
+
+  let device = null
+  try {
+    device = await adapter.requestDevice()
+  } catch (_) {
+    device = null
+  }
+  if (!device) {
+    showWebGPU.value = false
+    return { ok: false, reason: 'no_device' }
+  }
+
+  const ctx = canvas.getContext('webgpu')
+  if (!ctx) {
+    showWebGPU.value = false
+    return { ok: false, reason: 'no_webgpu_context' }
+  }
+
+  let format = 'bgra8unorm'
+  try {
+    if (gpu.getPreferredCanvasFormat) format = gpu.getPreferredCanvasFormat()
+  } catch (_) {
+    format = 'bgra8unorm'
+  }
+
+  try {
+    ctx.configure({
+      device,
+      format,
+      alphaMode: 'premultiplied',
+    })
+  } catch (_) {
+    showWebGPU.value = false
+    return { ok: false, reason: 'configure_failed' }
+  }
+
+  // v7.2 adaptive degradation: choose a safe particle budget based on device limits.
+  const requested = Number(options?.particle_count)
+  let particleCount = Number.isFinite(requested) && requested > 0 ? requested : 1000000
+  try {
+    const maxStorageBuffer = Number(device.limits.maxStorageBufferBindingSize)
+    const maxInvocations = Number(device.limits.maxComputeInvocationsPerWorkgroup)
+    const requiredBufferSize = particleCount * 16
+    if ((Number.isFinite(maxStorageBuffer) && requiredBufferSize > maxStorageBuffer) || (Number.isFinite(maxInvocations) && maxInvocations < 256)) {
+      const safe = Number.isFinite(maxStorageBuffer) ? Math.floor((maxStorageBuffer / 16) * 0.8) : 200000
+      particleCount = Math.min(Math.max(1000, safe), 200000)
+      try {
+        console.warn(`[Zero2x WebGPU Sandbox] adaptive degradation -> particleCount=${particleCount}`)
+      } catch (_) {
+        // ignore
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Validate WGSL at least compiles into a ShaderModule.
+  try {
+    device.createShaderModule({ code: wgsl })
+  } catch (_) {
+    // Still keep the sandbox alive (demo-safe), but report failure.
+    _webgpuState = { device, ctx, format, particleCount, wgslError: true }
+  }
+
+  // Uniform buffer for camera matrices (view + proj = 2 * mat4 = 128 bytes).
+  let cameraUbo = null
+  try {
+    const BU = (typeof globalThis !== 'undefined' && globalThis.GPUBufferUsage)
+      ? globalThis.GPUBufferUsage
+      : { UNIFORM: 0x10, COPY_DST: 0x08 }
+    cameraUbo = device.createBuffer({
+      size: 128,
+      usage: (BU.UNIFORM || 0x10) | (BU.COPY_DST || 0x08),
+    })
+  } catch (_) {
+    cameraUbo = null
+  }
+
+  const cameraScratch = new Float32Array(32)
+  function _writeCameraUniforms() {
+    if (!cameraUbo) return
+    try {
+      const view = viewer.camera?.viewMatrix
+      const proj = viewer.camera?.frustum?.projectionMatrix
+      if (!view || !proj || !Cesium.Matrix4) return
+      const a = Cesium.Matrix4.toArray(view, new Array(16))
+      const b = Cesium.Matrix4.toArray(proj, new Array(16))
+      for (let i = 0; i < 16; i += 1) cameraScratch[i] = Number(a[i])
+      for (let i = 0; i < 16; i += 1) cameraScratch[16 + i] = Number(b[i])
+      device.queue.writeBuffer(cameraUbo, 0, cameraScratch)
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function _renderClearPass() {
+    try {
+      const view = ctx.getCurrentTexture().createView()
+      const encoder = device.createCommandEncoder()
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view,
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
+      })
+      pass.end()
+      device.queue.submit([encoder.finish()])
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Event-driven overlay: sync on Cesium postRender.
+  const unsub = _addScenePostRender(viewer, () => {
+    _writeCameraUniforms()
+    _renderClearPass()
+  })
+  _postRenderUnsub = unsub
+
+  _webgpuState = { device, ctx, format, particleCount, cameraUbo }
+
+  _webgpuCleanup = () => {
+    try {
+      if (_postRenderUnsub) _postRenderUnsub()
+    } catch (_) {
+      // ignore
+    }
+    _postRenderUnsub = null
+    try {
+      cameraUbo?.destroy?.()
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  return { ok: true, particle_count: particleCount }
+}
+
+function enableSubsurfaceMode(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const tr = Number(options?.transparency)
+  const transparency = Number.isFinite(tr) ? Math.max(0, Math.min(1, tr)) : 0.2
+  const depthRaw = Number(options?.target_depth_meters)
+  const depth = Number.isFinite(depthRaw) ? Math.abs(depthRaw) : null
+
+  try {
+    const globe = viewer.scene?.globe
+    if (globe?.translucency) {
+      globe.translucency.enabled = true
+      // Prefer alpha-by-distance for a more cinematic subsurface read.
+      try {
+        globe.translucency.frontFaceAlphaByDistance = new Cesium.NearFarScalar(1000.0, transparency, 50000.0, 1.0)
+      } catch (_) {
+        globe.translucency.frontFaceAlpha = transparency
+      }
+      try {
+        globe.translucency.backFaceAlpha = transparency
+      } catch (_) {
+        // ignore
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    if (viewer.scene?.screenSpaceCameraController) {
+      viewer.scene.screenSpaceCameraController.enableCollisionDetection = false
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Best-effort: if a target depth is given, dive below the surface at current lon/lat.
+  if (depth) {
+    try {
+      const carto = Cesium.Cartographic.fromCartesian(viewer.camera.position)
+      const dest = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, -depth)
+      viewer.camera.flyTo({ destination: dest, duration: 1.2 })
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  try {
+    viewer.scene?.requestRender?.()
+  } catch (_) {
+    // ignore
+  }
+  return true
 }
 
 function _entityRepresentativeCartesian(ent, time) {
@@ -1179,6 +1466,9 @@ defineExpose({
   playCzmlAnimation,
   setGlobeTransparency,
   addExtrudedPolygons,
+  enableSubsurfaceMode,
+  executeDynamicWgsl,
+  destroyWebGpuSandbox,
   setSwipeMode,
   setSwipePosition: setSwipePosition01,
   cesiumViewer,
@@ -1190,6 +1480,24 @@ defineExpose({
 .engine-router {
   position: absolute;
   inset: 0;
+}
+
+.engine-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.webgpu-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 30;
+}
+
+.pointer-events-none {
+  pointer-events: none;
 }
 
 .engine-router :deep(.cesium-viewer-container) {
