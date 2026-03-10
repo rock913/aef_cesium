@@ -60,6 +60,18 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
     expect(sPanel).toMatch(/swipeEnabled|update:swipeEnabled|swipe-enabled/)
   })
 
+  it('keeps Vector Boundaries + AI Vector Overlay unchecked by default', () => {
+    const sWorkbench = read('../src/WorkbenchApp.vue')
+
+    // Initial layers defaults.
+    expect(sWorkbench).toMatch(/\{\s*id:\s*'boundaries'[\s\S]*enabled:\s*false/)
+    expect(sWorkbench).toMatch(/\{\s*id:\s*'ai-vector'[\s\S]*enabled:\s*false/)
+
+    // Normalization defaults must also keep them off.
+    expect(sWorkbench).toMatch(/\['boundaries',[\s\S]*enabled:\s*false/)
+    expect(sWorkbench).toMatch(/\['ai-vector',[\s\S]*enabled:\s*false/)
+  })
+
   it('decouples free chat from demo stub (latest patch 0303 feedback)', () => {
     const sWorkbench = read('../src/WorkbenchApp.vue')
 
