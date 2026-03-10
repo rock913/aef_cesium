@@ -376,6 +376,8 @@ _TOOLS: List[ToolDef] = [
             "lon": {"type": "number"},
             "height": {"type": "number"},
             "duration_s": {"type": "number"},
+            "heading_deg": {"type": "number"},
+            "pitch_deg": {"type": "number"},
         },
     ),
     ToolDef(
@@ -386,6 +388,8 @@ _TOOLS: List[ToolDef] = [
             "lon": {"type": "number"},
             "height": {"type": "number"},
             "duration_s": {"type": "number"},
+            "heading_deg": {"type": "number"},
+            "pitch_deg": {"type": "number"},
         },
     ),
     ToolDef(
@@ -1219,14 +1223,26 @@ async def _execute_stub(
         )
         return events
 
-    if "皮尔巴拉" in p or "高光谱" in p or "unmix" in lc or "spectral" in lc:
+    if "皮尔巴拉" in p or "高光谱" in p or "unmix" in lc or "spectral" in lc or "地下" in p or "矿脉" in p:
         events.extend(
             [
-                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": -22.30, "lon": 118.70, "height": 520000, "duration_s": 5.0}),
+                CopilotEvent(type="tool_call", tool="enable_subsurface_mode", args={"transparency": 0.35, "target_depth_meters": 4500}),
+                CopilotEvent(type="tool_result", tool="enable_subsurface_mode", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="fly_to",
+                    args={"lat": -22.30, "lon": 118.70, "height": -4500, "duration_s": 4.6, "pitch_deg": 10},
+                ),
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_subsurface_model",
+                    args={"url": "stub", "lat": -22.30, "lon": 118.70, "depth": -3800},
+                ),
+                CopilotEvent(type="tool_result", tool="add_subsurface_model", result="ok"),
                 CopilotEvent(type="tool_call", tool="hyperspectral_unmixing", args={"roi": "pilbara", "endmembers": ["Fe", "Li"]}),
                 CopilotEvent(type="tool_result", tool="hyperspectral_unmixing", result={"status": "stub", "voxels": None}),
-                CopilotEvent(type="final", text="已生成高光谱解混指令（stub）。"),
+                CopilotEvent(type="final", text="已开启地下模式并下潜至 -4500m，挂载地下锚点后执行高光谱解混（stub）。"),
             ]
         )
         return events
@@ -1249,11 +1265,13 @@ async def _execute_stub(
         ).strip()
         events.extend(
             [
+                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 15.0, "lon": 110.0, "height": 18000000, "duration_s": 4.0}),
+                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
                 CopilotEvent(type="tool_result", tool="write_to_editor", result="ok"),
                 CopilotEvent(type="tool_call", tool="execute_dynamic_wgsl", args={"wgsl_compute_shader": code, "particle_count": 120000}),
                 CopilotEvent(type="tool_result", tool="execute_dynamic_wgsl", result="ok"),
-                CopilotEvent(type="final", text="已下发 WebGPU/WGSL 粒子沙盒指令（stub）：编辑区包含 compute body，可直接运行。"),
+                CopilotEvent(type="final", text="已下发 WebGPU/WGSL 粒子沙盒指令（stub）：镜头已拉远，编辑区包含 compute body，可直接运行。"),
             ]
         )
         return events

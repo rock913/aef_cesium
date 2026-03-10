@@ -49,6 +49,8 @@ let _webgpuState = null
 
 let _subsurfaceRestore = null
 
+let _nightRestore = null
+
 let _vectorSwipeUnsub = null
 
 function _disableDefaultDoubleClick(viewer) {
@@ -153,7 +155,7 @@ fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
   var out : VSOut;
   let p = particles.data[vid];
   out.Position = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
-  out.color = vec4<f32>(1.0, 0.95, 0.3, 0.8);
+  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.85);
   return out;
 }
 
@@ -293,7 +295,7 @@ fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
   var out : VSOut;
   let p = particles.data[vid];
   out.Position = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
-  out.color = vec4<f32>(1.0, 0.95, 0.3, 0.8);
+  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.85);
   return out;
 }
 
@@ -387,21 +389,24 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   function _seedParticles() {
     if (!particleBuf) return
     try {
-      const center = viewer.camera?.positionWC
-      const dir = viewer.camera?.directionWC
-      if (!center || !dir) return
-      const base = Cesium.Cartesian3.add(center, Cesium.Cartesian3.multiplyByScalar(dir, 150000.0, new Cesium.Cartesian3()), new Cesium.Cartesian3())
-
       const arr = new Float32Array(particleCount * 4)
       for (let i = 0; i < particleCount; i += 1) {
-        // Small scatter in meters around base.
         const j = i * 4
-        const rx = (Math.random() - 0.5) * 8000.0
-        const ry = (Math.random() - 0.5) * 8000.0
-        const rz = (Math.random() - 0.5) * 8000.0
-        arr[j + 0] = base.x + rx
-        arr[j + 1] = base.y + ry
-        arr[j + 2] = base.z + rz
+        // Global scatter in ECEF meters for macro visual impact.
+        // Radius ~20,000km (covers the earth in a cinematic way).
+        const u = (Math.random() * 2.0) - 1.0
+        const theta = Math.random() * Math.PI * 2.0
+        const s = Math.sqrt(Math.max(0.0, 1.0 - (u * u)))
+        const x = s * Math.cos(theta)
+        const y = s * Math.sin(theta)
+        const z = u
+        const radius = 20000000.0
+
+        // Tiny jitter so points are not perfectly on a sphere.
+        const jitter = 15000.0
+        arr[j + 0] = (x * radius) + ((Math.random() - 0.5) * jitter)
+        arr[j + 1] = (y * radius) + ((Math.random() - 0.5) * jitter)
+        arr[j + 2] = (z * radius) + ((Math.random() - 0.5) * jitter)
         arr[j + 3] = 1.0
       }
       device.queue.writeBuffer(particleBuf, 0, arr)
@@ -692,6 +697,8 @@ function disableSubsurfaceMode() {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return false
 
+  _removeOverlayEntry(_RUNTIME_KEYS.subsurfaceModel)
+
   try {
     if (typeof _subsurfaceRestore === 'function') _subsurfaceRestore()
   } catch (_) {
@@ -723,6 +730,47 @@ function disableSubsurfaceMode() {
   }
 
   return true
+}
+
+async function addSubsurfaceModel(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  _removeOverlayEntry(_RUNTIME_KEYS.subsurfaceModel)
+
+  const lat = Number(options?.lat)
+  const lon = Number(options?.lon)
+  const depth = Number(options?.depth)
+  const lat0 = Number.isFinite(lat) ? lat : -22.3
+  const lon0 = Number.isFinite(lon) ? lon : 118.7
+  const depth0 = Number.isFinite(depth) ? depth : -3800.0
+
+  try {
+    const position = Cesium.Cartesian3.fromDegrees(lon0, lat0, depth0)
+    const entity = viewer.entities.add({
+      position,
+      ellipsoid: {
+        radii: new Cesium.Cartesian3(1200.0, 2500.0, 600.0),
+        material: Cesium.Color.fromCssColorString('#00F0FF').withAlpha(0.45),
+        outline: true,
+        outlineColor: Cesium.Color.fromCssColorString('#00F0FF'),
+      },
+      label: {
+        text: 'Subsurface Veins (stub)',
+        font: '14pt ui-monospace, monospace',
+        fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        pixelOffset: new Cesium.Cartesian2(0, -30),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    })
+    _setOverlayEntry(_RUNTIME_KEYS.subsurfaceModel, { kind: 'entity', entity })
+    return true
+  } catch (_) {
+    return false
+  }
 }
 
 function _entityRepresentativeCartesian(ent, time) {
@@ -883,6 +931,7 @@ const _RUNTIME_KEYS = Object.freeze({
   tileset: 'phase3-tileset',
   czml: 'phase3-czml',
   extruded: 'phase3-extruded',
+  subsurfaceModel: 'demo12-subsurface-model',
 })
 
 // Global Standby default: start from a deep-space view.
@@ -1001,6 +1050,13 @@ function _removeOverlayEntry(id) {
   } catch (_) {
     // ignore
   }
+  try {
+    if (entry.kind === 'entity' && entry.entity && viewer) {
+      viewer.entities.remove(entry.entity)
+    }
+  } catch (_) {
+    // ignore
+  }
   map.delete(id)
 }
 
@@ -1072,6 +1128,61 @@ function setSceneMode(mode = 'day') {
 
   try {
     if (viewer.scene?.globe) viewer.scene.globe.enableLighting = isNight
+  } catch (_) {
+    // ignore
+  }
+
+  // Demo 11 visual impact: tune base imagery so AI overlays/CZML pop.
+  // Reversible: we snapshot the current layer params and restore when leaving night.
+  try {
+    if (!isNight && typeof _nightRestore === 'function') {
+      _nightRestore()
+      _nightRestore = null
+    }
+  } catch (_) {
+    _nightRestore = null
+  }
+
+  try {
+    if (isNight && !_nightRestore && viewer.imageryLayers?.length) {
+      const layers = viewer.imageryLayers
+      const snapshot = []
+      for (let i = 0; i < layers.length; i += 1) {
+        const layer = layers.get(i)
+        if (!layer) continue
+        snapshot.push({
+          layer,
+          brightness: layer.brightness,
+          contrast: layer.contrast,
+          hue: layer.hue,
+          saturation: layer.saturation,
+          gamma: layer.gamma,
+        })
+        try {
+          layer.brightness = 0.22
+          layer.contrast = 1.7
+          layer.saturation = 0.65
+          layer.hue = -0.12
+          layer.gamma = 0.85
+        } catch (_) {
+          // ignore
+        }
+      }
+      _nightRestore = () => {
+        for (const s of snapshot) {
+          try {
+            if (!s?.layer) continue
+            s.layer.brightness = s.brightness
+            s.layer.contrast = s.contrast
+            s.layer.hue = s.hue
+            s.layer.saturation = s.saturation
+            s.layer.gamma = s.gamma
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
+    }
   } catch (_) {
     // ignore
   }
@@ -1883,6 +1994,7 @@ defineExpose({
   addExtrudedPolygons,
   enableSubsurfaceMode,
   disableSubsurfaceMode,
+  addSubsurfaceModel,
   executeDynamicWgsl,
   destroyWebGpuSandbox,
   setSwipeMode,

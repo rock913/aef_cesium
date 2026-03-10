@@ -109,8 +109,21 @@ def test_v7_execute_webgpu_demo_emits_wgsl_tool_calls() -> None:
     events = (r.json() or {}).get("events")
     assert isinstance(events, list)
     tools = _event_tools(events)
+    assert "fly_to" in tools
     assert "write_to_editor" in tools
     assert "execute_dynamic_wgsl" in tools
+
+
+def test_v7_execute_pilbara_emits_subsurface_and_anchor() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "皮尔巴拉 地下 矿脉 解译"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "enable_subsurface_mode" in tools
+    assert "fly_to" in tools
+    assert "add_subsurface_model" in tools
 
 
 def test_v7_execute_demo6_talatan_emits_extruded_and_chart() -> None:

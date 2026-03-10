@@ -28,6 +28,11 @@ describe('v7.2 WebGPU sandbox contracts', () => {
     // Minimal demo-safe compute+render example should exist (not just a clear pass).
     expect(sEngine).toMatch(/createComputePipeline/)
     expect(sEngine).toMatch(/createRenderPipeline/)
+
+    // Demo 11 visual-impact patch: night mode should tune base imagery layers.
+    expect(sEngine).toMatch(/imageryLayers/)
+    expect(sEngine).toMatch(/brightness/)
+    expect(sEngine).toMatch(/contrast/)
   })
 
   it('Workbench handles v7.2 tool calls for subsurface + dynamic WGSL execution', () => {
@@ -36,6 +41,7 @@ describe('v7.2 WebGPU sandbox contracts', () => {
     // New v7.2 tools should be consumed in applyCopilotEvents.
     expect(sWorkbench).toMatch(/tool\s*===\s*'enable_subsurface_mode'/)
     expect(sWorkbench).toMatch(/tool\s*===\s*'disable_subsurface_mode'/)
+    expect(sWorkbench).toMatch(/tool\s*===\s*'add_subsurface_model'/)
     expect(sWorkbench).toMatch(/tool\s*===\s*'execute_dynamic_wgsl'/)
     expect(sWorkbench).toMatch(/tool\s*===\s*'destroy_webgpu_sandbox'/)
 

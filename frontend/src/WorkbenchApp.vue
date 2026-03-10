@@ -1139,8 +1139,12 @@ function applyCopilotEvents(events) {
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
         const heightArg = Number(args?.height)
         const durationArg = Number(args?.duration_s)
+        const headingArg = Number(args?.heading_deg)
+        const pitchArg = Number(args?.pitch_deg)
         const height = Number.isFinite(heightArg) ? heightArg : 1800000
         const duration = Number.isFinite(durationArg) ? durationArg : 3.6
+        const heading = Number.isFinite(headingArg) ? headingArg : 0
+        const pitch = Number.isFinite(pitchArg) ? pitchArg : -55
 
         // Leaving standby: stop the global orbit and dive to target.
         try {
@@ -1171,7 +1175,7 @@ function applyCopilotEvents(events) {
         // Cinematic-ish default: high-altitude oblique view.
         try {
           engineRouter.value?.flyToLocation?.(
-            { lat, lon, height, heading_deg: 0, pitch_deg: -55, easing: 'cubicinout' },
+            { lat, lon, height, heading_deg: heading, pitch_deg: pitch, easing: 'cubicinout' },
             duration
           )
         } catch (_) {
@@ -1261,6 +1265,15 @@ function applyCopilotEvents(events) {
     if (tool === 'disable_subsurface_mode') {
       try {
         engineRouter.value?.disableSubsurfaceMode?.()
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'add_subsurface_model') {
+      try {
+        void engineRouter.value?.addSubsurfaceModel?.(args || {})
       } catch (_) {
         // ignore
       }

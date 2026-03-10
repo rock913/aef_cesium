@@ -18,6 +18,11 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
   - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
   - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
 
+- 🟡 视觉表现力补强（0303 patch）：对已跑通的 Demo 11/12/13 做“演示观感优先”的升级（不改变架构前提）。
+  - Demo 11：night 模式不仅启用 `globe.enableLighting`，还要对基础影像做调色（Brightness↓、Contrast↑、Hue 冷偏），使 CZML 轨迹/AI 图层明显可见。
+  - Demo 13：stub 需补齐 `fly_to` 拉远到 ~18,000km 上帝视角；WebGPU 粒子初始散布半径从 ~8km 提升到 ~20,000km（全局宏大感），默认粒子颜色改为高亮 Cyan。
+  - Demo 12：补齐 `add_subsurface_model` 作为“地下视觉锚点”；`fly_to` 支持 `pitch_deg`，并确保顺序为：先 `enable_subsurface_mode`（关闭碰撞）→ 再下潜飞行 → 再挂载地下模型。
+
 分支与落地记录
 - 分支：`patch/0303-v72-phase4`
 - 已落地基础闭环提交：`e41fdcb`（v7.2 subsurface + WebGPU tools，TDD）
@@ -81,6 +86,20 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 实现约束（稳定优先）
 - WebGPU 沙盒必须与 Cesium 渲染解耦（不侵入 Cesium 内部 WebGPU API）。
 - 所有新能力必须可降级：WebGPU 不可用时不影响 Cesium 主渲染；地下模式不依赖外部模型也可演示。
+
+### 0303 Patch：视觉表现力验收标准（可演示优先）
+
+Demo 11（马六甲暗夜 + 轨迹凸显）
+- 验收：触发 `set_scene_mode('night')` 后，底图整体亮度显著压暗、对比度提升，轨迹/AI 图层在大屏上可一眼辨识。
+- 实现建议：在 `EngineRouter.setSceneMode('night')` 中对 `viewer.imageryLayers` 做可逆调参（brightness/contrast/hue/saturation/gamma），并在切回 day 时恢复原值。
+
+Demo 13（WebGPU 全局粒子宏大感）
+- 验收：执行 Demo 13 预置后相机拉远到地球全景（~18,000km），粒子云覆盖全局且颜色高亮（Cyan），即使粒子数量自适应降级也能看到“包裹地球”的效果。
+- 实现建议：后端 stub 在 `write_to_editor/execute_dynamic_wgsl` 前下发一次 `fly_to`；前端 `_seedParticles()` 改为基于球面随机方向的全局播种（半径约 20,000km），默认 shader 颜色改为 Cyan。
+
+Demo 12（地下模式“下潜 + 锚点”）
+- 验收：触发“皮尔巴拉/地下/矿脉”类指令后，先进入地下模式（透明地球 + 关闭碰撞），相机以可控仰俯角下潜到负高程，并在地下看到明显的发光锚点实体。
+- 实现建议：后端 stub 工具序列固定为 `enable_subsurface_mode` → `fly_to(height<0, pitch_deg=...)` → `add_subsurface_model`；前端 Workbench 放行 `add_subsurface_model`，EngineRouter 以可清理的 entity stub 实现锚点。
 
 ---
 
