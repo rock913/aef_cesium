@@ -33,6 +33,9 @@ describe('v7.2 WebGPU sandbox contracts', () => {
     expect(sEngine).toMatch(/imageryLayers/)
     expect(sEngine).toMatch(/brightness/)
     expect(sEngine).toMatch(/contrast/)
+
+    // 0303 stability patch: night mode should NOT enable physical lighting.
+    expect(sEngine).not.toMatch(/enableLighting\s*=\s*isNight/)
   })
 
   it('Workbench handles v7.2 tool calls for subsurface + dynamic WGSL execution', () => {

@@ -16,24 +16,22 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
   - Demo 13：stub 增加 `fly_to(~18,000km)`；粒子播种半径升级为 ~20,000km 全局分布；默认粒子颜色改为 Cyan。
   - Demo 12：补齐 `add_subsurface_model` 地下锚点；`fly_to` 支持 `pitch_deg`，并固定顺序 `enable_subsurface_mode` → 下潜 → 锚点。
 - ✅ Demo 7（珠峰冰川湖溃决）：已具备“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
+- ✅ Demo 8（火山形变×热异常）：已具备“无资源依赖”闭环：后端 stub 发出 `fetch_insar_displacement` + `fetch_lst_anomaly` + `apply_custom_shader` + `generate_cesium_custom_shader`；前端提供 `applyCustomShader()`（优先 Cesium CustomShader，失败则 entity fallback），并会把 shader code 写入编辑区。
+- ✅ 0303 稳定性补强已落地：night 模式不启用物理光照（避免纯黑背光面）；场景切换会触发 resetSceneState（销毁 WebGPU/退出地下/移除 overlays/恢复默认时钟与碰撞），避免“卡顿/黑屏/状态串扰”。
 
 下一步（🟡）
 - ✅ Demo 13 进阶：已固化“LLM 输出 WGSL 模板”（compute body 可自动 wrap 成完整 WGSL module），让模型生成代码更稳定可执行。
 - 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts）。
   - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
   - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
-  - 🟡 Demo 8（火山形变×热异常）：按同样策略先做“无资源依赖”竖切片（stub 数据 + 可视化骨架 + 可逆清理），再补真实 InSAR/LST 资产与 shader 细节。
-
-- 🟡 视觉表现力补强（0303 patch）：对已跑通的 Demo 11/12/13 做“演示观感优先”的升级（不改变架构前提）。
-  - Demo 11：night 模式不仅启用 `globe.enableLighting`，还要对基础影像做调色（Brightness↓、Contrast↑、Hue 冷偏），使 CZML 轨迹/AI 图层明显可见。
-  - Demo 13：stub 需补齐 `fly_to` 拉远到 ~18,000km 上帝视角；WebGPU 粒子初始散布半径从 ~8km 提升到 ~20,000km（全局宏大感），默认粒子颜色改为高亮 Cyan。
-  - Demo 12：补齐 `add_subsurface_model` 作为“地下视觉锚点”；`fly_to` 支持 `pitch_deg`，并确保顺序为：先 `enable_subsurface_mode`（关闭碰撞）→ 再下潜飞行 → 再挂载地下模型。
+  - 🟡 Demo 9/10：按同样策略优先交付“无资源依赖”竖切片（artifacts + 可视化骨架），再替换真实资产与计算。
 
 分支与落地记录
 - 分支：`patch/0303-v72-phase4`
 - 已落地基础闭环提交：`e41fdcb`（v7.2 subsurface + WebGPU tools，TDD）
 - 0303 视觉补强：`8bf07fb`（Demo 11/12/13 visual impact）
 - Demo 7 竖切片：`bb63aec`（Everest water polygon slice）
+- Demo 8 竖切片：`e6a5372`（Volcano custom shader slice + 工具链落地）
 
 本文件作为 v7.2 主版本开发文档（source of truth）。以下规划会以当前仓库实现为基线：
 - Workbench 已具备 Copilot tool_call → 前端引擎执行链路（Cesium Twin + 部分 Three Twin）。
@@ -46,7 +44,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 目标：优先落地“高表现、低风险”的 Demo 11/12，并以最小可用沙盒打通 Demo 13 的 WebGPU 叠加框架（Event-Driven Overlay），确保演示稳定与可扩展。
 
 M0（已具备/保持稳定）
-- Demo 11 基础能力：夜景模式（globe.enableLighting）+ CZML 时空轨迹（CzmlDataSource + clock.shouldAnimate）。
+- Demo 11 基础能力：夜景模式（赛博暗色底图：imageryLayers 调色；不启用物理光照）+ CZML 时空轨迹（CzmlDataSource + clock.shouldAnimate）。
 - Copilot 执行链路：前端可消费 `/api/v7/tools` 工具定义，后端执行返回 events，前端按 tool_call 驱动引擎。
 
 M1（本轮必须完成：Demo 12 “地下模式”最小闭环）

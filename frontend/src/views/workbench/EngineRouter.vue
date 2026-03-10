@@ -596,6 +596,14 @@ function enableSubsurfaceMode(options = {}) {
       const ctrl = viewer.scene?.screenSpaceCameraController
       const translucency = globe?.translucency
 
+      let undergroundColor = null
+      try {
+        if (globe && globe.undergroundColor && Cesium?.Color?.clone) undergroundColor = Cesium.Color.clone(globe.undergroundColor)
+        else if (globe && globe.undergroundColor) undergroundColor = globe.undergroundColor
+      } catch (_) {
+        undergroundColor = null
+      }
+
       const prev = {
         collision: ctrl ? !!ctrl.enableCollisionDetection : null,
         translucencyEnabled: translucency ? !!translucency.enabled : null,
@@ -603,6 +611,7 @@ function enableSubsurfaceMode(options = {}) {
         backFaceAlpha: translucency ? translucency.backFaceAlpha : null,
         frontFaceAlphaByDistance: translucency ? translucency.frontFaceAlphaByDistance : null,
         backFaceAlphaByDistance: translucency ? translucency.backFaceAlphaByDistance : null,
+        undergroundColor,
       }
       _subsurfaceRestore = () => {
         try {
@@ -635,6 +644,12 @@ function enableSubsurfaceMode(options = {}) {
         } catch (_) {
           // ignore
         }
+
+        try {
+          if (globe && prev.undergroundColor) globe.undergroundColor = prev.undergroundColor
+        } catch (_) {
+          // ignore
+        }
       }
     } catch (_) {
       _subsurfaceRestore = null
@@ -650,17 +665,38 @@ function enableSubsurfaceMode(options = {}) {
     const globe = viewer.scene?.globe
     if (globe?.translucency) {
       globe.translucency.enabled = true
-      // Prefer alpha-by-distance for a more cinematic subsurface read.
+      // 0303 patch: avoid alpha-by-distance. Keep the globe instantly "cyber crystal"
+      // even from a far camera, so the audience sees the effect immediately.
       try {
-        globe.translucency.frontFaceAlphaByDistance = new Cesium.NearFarScalar(1000.0, transparency, 50000.0, 1.0)
+        globe.translucency.frontFaceAlphaByDistance = null
       } catch (_) {
+        // ignore
+      }
+      try {
+        globe.translucency.backFaceAlphaByDistance = null
+      } catch (_) {
+        // ignore
+      }
+      try {
         globe.translucency.frontFaceAlpha = transparency
+      } catch (_) {
+        // ignore
       }
       try {
         globe.translucency.backFaceAlpha = transparency
       } catch (_) {
         // ignore
       }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // 0303 patch: avoid a pure-black underground mask.
+  try {
+    const globe = viewer.scene?.globe
+    if (globe && globe.undergroundColor && Cesium?.Color?.fromCssColorString) {
+      globe.undergroundColor = Cesium.Color.fromCssColorString('#00141A').withAlpha(1.0)
     }
   } catch (_) {
     // ignore
@@ -1136,7 +1172,9 @@ function setSceneMode(mode = 'day') {
   const isNight = m === 'night'
 
   try {
-    if (viewer.scene?.globe) viewer.scene.globe.enableLighting = isNight
+    // 0303 patch: do NOT use Cesium physical lighting for the "night" demo.
+    // We want a stylized cyber-dark basemap, otherwise backfaces can become pure black.
+    if (viewer.scene?.globe) viewer.scene.globe.enableLighting = false
   } catch (_) {
     // ignore
   }
@@ -1196,16 +1234,83 @@ function setSceneMode(mode = 'day') {
     // ignore
   }
 
+  return true
+}
+
+function resetSceneState() {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  // Cancel any in-flight async layer application.
   try {
-    if (isNight) {
-      const d = new Date('2026-03-03T16:00:00Z')
-      viewer.clock.currentTime = Cesium.JulianDate.fromDate(d)
+    applyToken.value += 1
+  } catch (_) {
+    // ignore
+  }
+
+  // Stop compute/overlays first to avoid background GPU work.
+  try {
+    destroyWebGpuSandbox()
+  } catch (_) {
+    // ignore
+  }
+
+  // Restore stylized night filter if active.
+  try {
+    if (typeof _nightRestore === 'function') _nightRestore()
+  } catch (_) {
+    // ignore
+  }
+  _nightRestore = null
+
+  // Exit subsurface mode and restore camera collision defaults.
+  try {
+    disableSubsurfaceMode()
+  } catch (_) {
+    // ignore
+  }
+
+  // Remove all runtime overlays (tileset/czml/extruded/water/subsurface/deformation and any others).
+  try {
+    const keys = Array.from(overlayHandles.value.keys())
+    for (const k of keys) _removeOverlayEntry(k)
+  } catch (_) {
+    // ignore
+  }
+
+  // Stop swipe hooks (preRender callbacks) if any.
+  try {
+    _stopVectorSwipeHook(viewer)
+  } catch (_) {
+    // ignore
+  }
+
+  // Safety defaults: opaque globe, no physical lighting, sane clock.
+  try {
+    if (viewer.scene?.globe) viewer.scene.globe.enableLighting = false
+  } catch (_) {
+    // ignore
+  }
+  try {
+    setGlobeTransparency(1.0)
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (viewer.clock) {
       viewer.clock.shouldAnimate = false
+      viewer.clock.multiplier = 1.0
+      if (Cesium?.JulianDate?.now) viewer.clock.currentTime = Cesium.JulianDate.now()
     }
   } catch (_) {
     // ignore
   }
 
+  try {
+    viewer.scene?.requestRender?.()
+  } catch (_) {
+    // ignore
+  }
   return true
 }
 
@@ -2193,6 +2298,11 @@ async function applyLayersAsync(layers) {
 watch(
   () => props.scenario?.id,
   () => {
+    try {
+      resetSceneState()
+    } catch (_) {
+      // ignore
+    }
     try {
       void applyLayersAsync(props.layers)
     } catch (_) {
