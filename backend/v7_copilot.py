@@ -351,6 +351,15 @@ _PRESETS: List[CopilotPreset] = [
         prompt="用 GLSL 为我写一段基于 GFS 数据的全球风场流体渲染代码，并直接在地图上运行。",
     ),
     CopilotPreset(
+        id="demo:webgpu_particles_wgsl",
+        label="[演示] WebGPU 粒子沙盒 (WGSL)",
+        prompt=(
+            "Demo 13：请生成一段可执行的 WGSL（或仅 compute body 片段），用于更新 particles 缓冲区。\n"
+            "要求：使用 tool execute_dynamic_wgsl 下发 wgsl_compute_shader，并指定 particle_count。\n"
+            "约定：引擎会提供 group(0) bindings：0=particles(storage vec4 array), 1=camera(mat4x4 view+proj), 2=params(vec4: t, stepScale, _, _)。"
+        ),
+    ),
+    CopilotPreset(
         id="demo:wormhole_micro",
         label="[演示] 宏微虫洞跃迁",
         prompt="触发虫洞动画并切换到 micro，生成 SiO2 分子晶格。",
@@ -533,7 +542,12 @@ _TOOLS: List[ToolDef] = [
     ),
     ToolDef(
         name="execute_dynamic_wgsl",
-        description="Execute LLM-generated WebGPU WGSL code in an overlay sandbox (Demo 13).",
+        description=(
+            "Execute WebGPU WGSL code in an overlay sandbox (Demo 13). "
+            "Accepts either a full WGSL module with entryPoints cs_main/vs_main/fs_main, "
+            "or a compute-body snippet that will be wrapped into a stable template. "
+            "Template bindings: group(0) binding(0)=particles storage(vec4[]), binding(1)=camera uniform(view+proj), binding(2)=params uniform(vec4: t, stepScale, _, _)."
+        ),
         args_schema={
             "wgsl_compute_shader": {"type": "string"},
             "particle_count": {"type": "number"},
@@ -1144,6 +1158,33 @@ async def _execute_stub(
                 CopilotEvent(type="tool_call", tool="hyperspectral_unmixing", args={"roi": "pilbara", "endmembers": ["Fe", "Li"]}),
                 CopilotEvent(type="tool_result", tool="hyperspectral_unmixing", result={"status": "stub", "voxels": None}),
                 CopilotEvent(type="final", text="已生成高光谱解混指令（stub）。"),
+            ]
+        )
+        return events
+
+    if "webgpu" in lc or "wgsl" in lc or ("demo 13" in lc and ("粒子" in p or "sandbox" in lc)):
+        code = (
+            "// WGSL compute body snippet (template-wrapped by EngineRouter)\n"
+            "// You can reference: particles (storage vec4 array), uParams (vec4: t, stepScale, _, _)\n"
+            "// Example: tiny swirl motion\n"
+            "let i = gid.x;\n"
+            "let n = arrayLength(&particles.data);\n"
+            "if (i >= n) { return; }\n"
+            "let t = uParams.x;\n"
+            "let s = max(0.0, uParams.y);\n"
+            "var p = particles.data[i];\n"
+            "let a = f32(i) * 0.0001 + t * 0.6;\n"
+            "p.x = p.x + sin(a) * (2.0 * s);\n"
+            "p.y = p.y + cos(a) * (2.0 * s);\n"
+            "particles.data[i] = p;\n"
+        ).strip()
+        events.extend(
+            [
+                CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
+                CopilotEvent(type="tool_result", tool="write_to_editor", result="ok"),
+                CopilotEvent(type="tool_call", tool="execute_dynamic_wgsl", args={"wgsl_compute_shader": code, "particle_count": 120000}),
+                CopilotEvent(type="tool_result", tool="execute_dynamic_wgsl", result="ok"),
+                CopilotEvent(type="final", text="已下发 WebGPU/WGSL 粒子沙盒指令（stub）：编辑区包含 compute body，可直接运行。"),
             ]
         )
         return events

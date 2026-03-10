@@ -13,7 +13,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 - ✅ 回归测试已覆盖：后端 `/api/v7/tools` 工具清单包含 v7.2 新工具；前端契约测试锁定 WebGPU overlay 与 postRender 同步策略。
 
 下一步（🟡）
-- 🟡 Demo 13 进阶：约定并固化一份“LLM 输出 WGSL 模板”（entryPoints/绑定布局），让模型生成代码更稳定可执行。
+- ✅ Demo 13 进阶：已固化“LLM 输出 WGSL 模板”（compute body 可自动 wrap 成完整 WGSL module），让模型生成代码更稳定可执行。
 - 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts 业务样式与示例数据）。
 
 分支与落地记录
@@ -61,7 +61,20 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 
 工具链门控（v7.2 新增）
 - `enable_subsurface_mode(transparency, target_depth_meters)`：Demo 12
+- `disable_subsurface_mode()`：Demo 12（退出地下模式）
 - `execute_dynamic_wgsl(wgsl_compute_shader, particle_count)`：Demo 13
+- `destroy_webgpu_sandbox()`：Demo 13（销毁 overlay + 解绑 postRender）
+
+### Demo 13：LLM 输出 WGSL 模板约定（稳定优先）
+
+引擎 `execute_dynamic_wgsl` 接受两种输入：
+- ① 完整 WGSL module（包含 entryPoints：`cs_main`/`vs_main`/`fs_main`）
+- ② 仅 compute body 片段（不包含 `@compute` / `fn cs_main`），引擎会自动 wrap 成稳定模板
+
+稳定绑定布局（group(0)）：
+- binding(0)：`particles`，`var<storage, read_write>`，`array<vec4<f32>>`
+- binding(1)：`uCamera`，`var<uniform>`，`view`/`proj` 两个 `mat4x4<f32>`
+- binding(2)：`uParams`，`var<uniform>`，`vec4<f32>`：`(t, stepScale, _, _)`
 
 实现约束（稳定优先）
 - WebGPU 沙盒必须与 Cesium 渲染解耦（不侵入 Cesium 内部 WebGPU API）。

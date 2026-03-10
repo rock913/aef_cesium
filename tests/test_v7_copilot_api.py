@@ -33,6 +33,7 @@ def test_v7_prompts_list() -> None:
     ids = {p.get("id") for p in data}
     assert "demo:amazon_cluster" in ids
     assert "demo:global_wind_glsl" in ids
+    assert "demo:webgpu_particles_wgsl" in ids
     assert "demo:wormhole_micro" in ids
 
 
@@ -99,6 +100,17 @@ def test_v7_execute_code_gen_demo_writes_editor() -> None:
     events = (r.json() or {}).get("events")
     assert isinstance(events, list)
     assert any(e.get("type") == "tool_call" and e.get("tool") == "write_to_editor" for e in events)
+
+
+def test_v7_execute_webgpu_demo_emits_wgsl_tool_calls() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "Demo 13 WebGPU WGSL 粒子沙盒"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "write_to_editor" in tools
+    assert "execute_dynamic_wgsl" in tools
 
 
 def _event_tools(events: list[dict]) -> list[str | None]:

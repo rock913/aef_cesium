@@ -103,8 +103,69 @@ async function executeDynamicWgsl(options = {}) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return { ok: false, reason: 'viewer_not_ready' }
 
-  const wgsl = String(options?.wgsl_compute_shader || options?.wgsl || '').trim()
-  if (!wgsl) return { ok: false, reason: 'missing_wgsl' }
+  const wgslInput = String(options?.wgsl_compute_shader || options?.wgsl || '').trim()
+  if (!wgslInput) return { ok: false, reason: 'missing_wgsl' }
+
+  function _indentLines(s, pad = '  ') {
+    return String(s || '')
+      .split('\n')
+      .map((l) => (l.trim().length ? `${pad}${l}` : l))
+      .join('\n')
+  }
+
+  // Stable template contract for LLM outputs.
+  // Accept:
+  // - Full WGSL module that defines entryPoints: cs_main/vs_main/fs_main
+  // - Compute-body snippet (no @compute / no fn cs_main), which will be wrapped.
+  function _looksLikeFullModule(s) {
+    const t = String(s || '')
+    return /@compute\b/.test(t) || /fn\s+cs_main\s*\(/.test(t) || /@vertex\b/.test(t) || /@fragment\b/.test(t)
+  }
+
+  function _wrapComputeBodyIntoTemplate(body) {
+    const computeBody = _indentLines(String(body || '').trim(), '  ')
+    return `
+struct Camera {
+  view : mat4x4<f32>,
+  proj : mat4x4<f32>,
+}
+
+struct Particles {
+  data : array<vec4<f32>>,
+}
+
+@group(0) @binding(0) var<storage, read_write> particles : Particles;
+@group(0) @binding(1) var<uniform> uCamera : Camera;
+@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, _, _
+
+@compute @workgroup_size(256)
+fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
+${computeBody}
+}
+
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+  @location(0) color : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  let p = particles.data[vid];
+  out.Position = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+  out.color = vec4<f32>(1.0, 0.95, 0.3, 0.8);
+  return out;
+}
+
+@fragment
+fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+  return in.color;
+}
+`.trim()
+  }
+
+  const wrapped = !_looksLikeFullModule(wgslInput)
+  const wgsl = wrapped ? _wrapComputeBodyIntoTemplate(wgslInput) : wgslInput
 
   // Ensure a clean slate.
   _stopWebGpuOverlay()
@@ -516,7 +577,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  return { ok: true, particle_count: particleCount, fallback_used: fallbackUsed, pipeline_ready: pipelineReady }
+  return { ok: true, particle_count: particleCount, fallback_used: fallbackUsed, pipeline_ready: pipelineReady, wrapped }
 }
 
 function enableSubsurfaceMode(options = {}) {
