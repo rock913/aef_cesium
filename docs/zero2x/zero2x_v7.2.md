@@ -17,6 +17,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 - 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts）。
   - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
   - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
+  - Demo 7（珠峰冰川湖溃决）：先交付“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
 
 - 🟡 视觉表现力补强（0303 patch）：对已跑通的 Demo 11/12/13 做“演示观感优先”的升级（不改变架构前提）。
   - Demo 11：night 模式不仅启用 `globe.enableLighting`，还要对基础影像做调色（Brightness↓、Contrast↑、Hue 冷偏），使 CZML 轨迹/AI 图层明显可见。

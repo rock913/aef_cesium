@@ -931,6 +931,7 @@ const _RUNTIME_KEYS = Object.freeze({
   tileset: 'phase3-tileset',
   czml: 'phase3-czml',
   extruded: 'phase3-extruded',
+  water: 'demo7-water',
   subsurfaceModel: 'demo12-subsurface-model',
 })
 
@@ -1328,6 +1329,62 @@ async function addExtrudedPolygons(options = {}) {
 
     viewer.dataSources.add(ds)
     _setOverlayEntry(_RUNTIME_KEYS.extruded, { kind: 'geojson', dataSource: ds, sig: `extruded:${Date.now()}` })
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+async function addWaterPolygon(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const arr = Array.isArray(options?.positions_degrees) ? options.positions_degrees : null
+  if (!arr || arr.length < 6) return false
+
+  const css = String(options?.color || '#00F0FF').trim() || '#00F0FF'
+  const opacityRaw = Number(options?.opacity)
+  const opacity = Number.isFinite(opacityRaw) ? Math.max(0.05, Math.min(1, opacityRaw)) : 0.45
+  const labelText = String(options?.label || '').trim()
+  const waveSpeedRaw = Number(options?.wave_speed)
+  const waveSpeed = Number.isFinite(waveSpeedRaw) ? Math.max(0.05, Math.min(10, waveSpeedRaw)) : 1.2
+
+  _removeOverlayEntry(_RUNTIME_KEYS.water)
+
+  try {
+    const positions = Cesium.Cartesian3.fromDegreesArray(arr.map((x) => Number(x)))
+    const base = Cesium.Color.fromCssColorString(css)
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+
+    const colorProp = new Cesium.CallbackProperty(() => {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+      const t = (now - t0) / 1000.0
+      const pulse = 0.65 + 0.25 * Math.sin(t * waveSpeed)
+      return base.withAlpha(Math.max(0.05, Math.min(1.0, opacity * pulse)))
+    }, false)
+
+    const entity = viewer.entities.add({
+      polygon: {
+        hierarchy: positions,
+        material: new Cesium.ColorMaterialProperty(colorProp),
+        outline: true,
+        outlineColor: base.withAlpha(Math.min(0.9, opacity + 0.25)),
+      },
+      label: labelText
+        ? {
+            text: labelText,
+            font: '13pt ui-monospace, monospace',
+            fillColor: Cesium.Color.WHITE,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          }
+        : undefined,
+    })
+
+    _setOverlayEntry(_RUNTIME_KEYS.water, { kind: 'entity', entity })
     return true
   } catch (_) {
     return false
@@ -1992,6 +2049,7 @@ defineExpose({
   playCzmlAnimation,
   setGlobeTransparency,
   addExtrudedPolygons,
+  addWaterPolygon,
   enableSubsurfaceMode,
   disableSubsurfaceMode,
   addSubsurfaceModel,

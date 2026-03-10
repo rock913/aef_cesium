@@ -63,6 +63,7 @@ def test_v7_tools_list() -> None:
     assert "apply_custom_shader" in names
     assert "generate_cesium_custom_shader" in names
     assert "add_cesium_extruded_polygons" in names
+    assert "add_cesium_water_polygon" in names
     assert "set_scene_mode" in names
     assert "play_czml_animation" in names
     assert "set_globe_transparency" in names
@@ -135,6 +136,18 @@ def test_v7_execute_demo6_talatan_emits_extruded_and_chart() -> None:
     tools = _event_tools(events)
     assert "add_cesium_extruded_polygons" in tools
     assert "show_chart" in tools
+
+
+def test_v7_execute_demo7_everest_emits_terrain_tiles_and_water() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "Demo 7 珠峰 冰川湖 溃决 预警"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "enable_3d_terrain" in tools
+    assert "add_cesium_3d_tiles" in tools
+    assert "add_cesium_water_polygon" in tools
 
 
 def _event_tools(events: list[dict]) -> list[str | None]:

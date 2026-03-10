@@ -1322,6 +1322,15 @@ function applyCopilotEvents(events) {
       continue
     }
 
+    if (tool === 'add_cesium_water_polygon') {
+      try {
+        void engineRouter.value?.addWaterPolygon?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
     if (tool === 'add_cesium_extruded_polygons') {
       try {
         void engineRouter.value?.addExtrudedPolygons?.(args || {})

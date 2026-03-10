@@ -119,6 +119,7 @@ _HYBRID_TOOL_ALLOWLIST = {
     "apply_custom_shader",
     "generate_cesium_custom_shader",
     "add_cesium_extruded_polygons",
+    "add_cesium_water_polygon",
     "set_scene_mode",
     "play_czml_animation",
     "set_globe_transparency",
@@ -487,6 +488,17 @@ _TOOLS: List[ToolDef] = [
         },
     ),
     ToolDef(
+        name="add_cesium_water_polygon",
+        description="Add an animated flood/water polygon entity (resource-free, demo-safe).",
+        args_schema={
+            "positions_degrees": {"type": "array", "items": {"type": "number"}},
+            "color": {"type": "string"},
+            "opacity": {"type": "number"},
+            "label": {"type": "string"},
+            "wave_speed": {"type": "number"},
+        },
+    ),
+    ToolDef(
         name="apply_custom_shader",
         description="Apply a custom visualization shader/pipeline (stub-friendly).",
         args_schema={
@@ -533,6 +545,9 @@ _TOOLS: List[ToolDef] = [
             "url": {"type": "string"},
             "name": {"type": "string"},
             "opacity": {"type": "number"},
+            "lat": {"type": "number"},
+            "lon": {"type": "number"},
+            "depth": {"type": "number"},
         },
     ),
     ToolDef(
@@ -1148,6 +1163,18 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="enable_3d_terrain", result="ok"),
                 CopilotEvent(type="tool_call", tool="add_cesium_3d_tiles", args={"name": "Everest (stub tiles)", "url": "", "ion_asset_id": None, "opacity": 1.0}),
                 CopilotEvent(type="tool_result", tool="add_cesium_3d_tiles", result={"status": "stub"}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_water_polygon",
+                    args={
+                        "positions_degrees": [86.92, 28.03, 86.96, 28.03, 86.96, 28.06, 86.92, 28.06],
+                        "color": "#00F0FF",
+                        "opacity": 0.45,
+                        "label": "Flood extent (stub)",
+                        "wave_speed": 1.2,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_water_polygon", result="ok"),
                 CopilotEvent(type="tool_call", tool="calculate_3d_volume", args={"roi": "everest_lake", "use_dem": True}),
                 CopilotEvent(type="tool_result", tool="calculate_3d_volume", result={"status": "stub", "volume": 0.0}),
                 CopilotEvent(type="tool_call", tool="simulate_glof_fluid", args={"origin": "everest_lake", "volume": 0.0}),
