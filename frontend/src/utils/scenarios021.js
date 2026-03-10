@@ -18,6 +18,8 @@ export const scenarios021 = [
       mode: 'ch6_water_pulse',
       mission_id: 'ch6_poyang',
     },
+    hasTime: true,
+    timeRange: { minYear: 2020, maxYear: 2026 },
     camera: { lat: 29.20, lon: 116.20, height: 95000, duration_s: 4.0, pitch_deg: -42.0 },
   },
   {
@@ -32,6 +34,8 @@ export const scenarios021 = [
       mode: 'ch1_yuhang_faceid',
       mission_id: 'ch1_yuhang',
     },
+    hasTime: true,
+    timeRange: { minYear: 2017, maxYear: 2024 },
     camera: { lat: 30.26879, lon: 119.92284, height: 16000, duration_s: 3.8, pitch_deg: -45.0 },
   },
   {
@@ -60,6 +64,8 @@ export const scenarios021 = [
       mode: 'ch2_maowusu_shield',
       mission_id: 'ch2_maowusu',
     },
+    hasTime: true,
+    timeRange: { minYear: 2019, maxYear: 2024 },
     camera: { lat: 38.60, lon: 109.60, height: 70000, duration_s: 3.9, pitch_deg: -42.0 },
   },
   {

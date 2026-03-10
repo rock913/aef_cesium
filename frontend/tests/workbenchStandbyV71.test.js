@@ -8,12 +8,21 @@ function read(file) {
 }
 
 describe('Workbench v7.1 Global Standby + Lab persistence', () => {
-  it('does not auto-fly to scenario on viewer-ready', () => {
+  it('enters standby on viewer-ready; only auto-dives when context is present', () => {
     const s = read('../src/WorkbenchApp.vue')
 
     // viewer-ready should enter standby, not jump to local camera
     expect(s).toMatch(/function onViewerReady\(\)[\s\S]*startGlobalStandby/)
-    expect(s).not.toMatch(/function onViewerReady\(\)[\s\S]*_flyToScenario\(\)/)
+
+    // Patch 0303: allow a conditional auto-dive when entering with ?context=.
+    expect(s).toMatch(
+      /function onViewerReady\(\)[\s\S]*const hasContextFromUrl[\s\S]*if\s*\(hasContextFromUrl[\s\S]*_flyToScenario\(\)/
+    )
+
+    // Must not unconditionally dive (i.e., call before the context gate).
+    expect(s).not.toMatch(
+      /function onViewerReady\(\)[\s\S]*_flyToScenario\(\)[\s\S]*if\s*\(hasContextFromUrl/
+    )
   })
 
   it('does not force Theater mode after execute', () => {

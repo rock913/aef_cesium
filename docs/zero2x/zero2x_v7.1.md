@@ -7,7 +7,14 @@ Zero2x 021 v7.2：Copilot 驱动的通用科研工作台与空间交互蓝图
 
 本节保留 v7.1 工程约束与交付追踪体系。
 
-已完成（可运行 + 有门禁，截止 2026-03-06）
+快照（可运行 + 有门禁，截止 2026-03-10）
+
+- v7.1+ 体验稳定化：Global Standby / Intent-Driven Dive / Command Palette / HUD 顶栏 / Lab-Theater 门控均已落地。
+- v7.2 Phase 4 已收口：Swipe 空间态 + 情境时间轴 HUD + Hybrid Router（默认关闭，flag+key 才触网，异常回退 stub）。
+- Phase 4 清债完成：移除遗留 EXECUTE 文案；Swipe 左右图层选择器已进面板；Hybrid Explore 离线门禁已补齐。
+- 回归门禁：前端 Vitest、后端 Pytest 保持全绿。
+
+已完成（明细保留，用于追溯）
 
 UI / 交互（前端）
 
@@ -68,6 +75,119 @@ As-built（补充，截止 2026-03-06）：
 - 前端 Workbench 已能接收并“可见化”这些工具调用（Artifacts 层确定性写入 + Cesium 侧 best-effort 应用：terrain/tileset/night/CZML/透明度/挤出体；虫洞以 macro→micro 量子俯冲动画实现）。
 - TDD 门禁已扩展：后端 Pytest 覆盖 Phase 3 tools list + Demo 7/11/14 发射序列；前端 Vitest 覆盖 Phase 3 artifacts 归约逻辑。
 
+Phase 4（v7.2 升级需求，来自 update_patch_0303.md，2026-03-03 版本）：将“对比、时间、LLM”升华为工作台的空间态与交互底座
+
+本阶段不是“加一个功能点”，而是将 Swipe/时间轴/LLM 统一纳入 Twin Canvas 的空间交互范式：
+
+4.1 Swipe（卷帘对比）= Twin Canvas 的一种“特殊空间态”
+
+定位：Swipe 不被当成单一工具按钮，而是 Twin Canvas 的一种稳定空间态（类似 Lab/Theater 之于 UI）。
+
+触发方式：
+
+- 手动（交互层级纠偏）：收敛到图层面板（Unified Artifacts / Layers）的 View Mode：Overlay / Swipe 切换（不在顶栏常驻）。
+- Copilot：当识别到“对比/差异/两年”意图时，可通过工具调用自动开启（例如：enable_swipe_mode）。
+
+视觉表现：
+
+- 中央 Twin 视窗出现绝对定位的拖拽分割线与把手（光刃感），拖动实时更新对比位置。
+
+Cesium 底层支撑：
+
+- 使用 `imageryLayer.splitDirection = LEFT/RIGHT`。
+- 使用 `viewer.scene.splitPosition = 0..1`。
+
+验收标准（含 TDD 门禁）：
+
+- 后端 `/api/v7/tools` 注册 `enable_swipe_mode` / `set_swipe_position` / `disable_swipe_mode`（或等价的 enabled=false）。
+- 前端能够在 Earth scale 上：开启 Swipe → 左右图层正确分配 → 拖拽分割线实时更新 `splitPosition` → 关闭 Swipe 后恢复 NONE。
+- 单测锁定：EngineRouter 中存在 splitDirection / splitPosition 相关处理；Workbench 具备 Swipe HUD 组件与工具映射。
+
+4.2 底部栏重构：废弃 EXECUTE，时间轴升格为“悬浮式情境组件”
+
+结论：`EXECUTE ON TWIN` 冗余，破坏“对话即操作”的心智模型。v7.2 起删除实体执行按钮，执行收敛到右侧 Chat Input（Enter 或 Cmd/Ctrl+K）。
+
+升级策略：删除写死的底部通栏；仅当当前上下文挂载了“时间属性数据”（如近 7 年城建扩张、季节生态变化）时，时间轴作为半透明悬浮控件出现在画面正下方。
+
+验收标准（含 TDD 门禁）：
+
+- 前端不再出现 `EXECUTE ON TWIN` 文案/按钮。
+- 时间轴默认不显示；当 `currentContextHasTime` 且 `isTimeSeriesDataReady` 为 true 时才显示（未打通真实时序数据时宁可隐藏，保证演示高级感）。
+- TimelineHUD 必须是“受控组件”（progress / isPlaying / isLoading 由父级驱动），避免组件内部自嗨式 setInterval 伪播放。
+- 时间轴为中央悬浮控件（不占据全宽底栏），具备最小可用交互：拖动/播放暂停（由外部数据加载队列/引擎时钟驱动）。
+
+4.3 Copilot AI 升级：从“预设剧本”到“混合路由 (Hybrid Router)”
+
+目标：既接入真实大模型（DashScope/Qwen OpenAI-compatible）获得自然语言解释与探索能力，又确保 15 个黄金 Demo 在汇报场景 100% 可控。
+
+混合路由策略：
+
+- 分支 A（硬路由 Demo）：命中演示上下文时，强制执行确定性预设 Tool 链（安全不翻车）+ 可选调用 LLM 生成口语化讲解文案（仅文案可由 LLM 生成）。
+- 分支 B（探索态）：未命中时，允许 LLM Tool Calling，但必须受工具白名单/参数校验/超时保护约束。
+
+工程约束：
+
+- 默认保持 v7 的确定性 stub 行为（TDD 合同不变）。
+- Hybrid Router 必须可通过 feature flag 启用；测试环境下不得进行真实网络调用。
+
+4.4 开发计划（TDD 优先，推荐按 PR 切片交付）
+
+Slice A：Swipe 空间态（前端为主）
+
+- 测试先行：Vitest 新增 “Swipe plumbing / splitPosition / splitDirection / HUD 可见性” 的合同门禁。
+- 后端：/api/v7/tools 注册 enable_swipe_mode / set_swipe_position / disable_swipe_mode；Demo 1 在合适时机发射 enable_swipe_mode（可选）。
+- 前端：EngineRouter 落地 Cesium splitDirection + scene.splitPosition；EngineScaleRouter 暴露 setSwipeMode/setSwipePosition；Workbench 映射工具调用 + HUD 拖拽。
+
+Slice B：底部栏 → 悬浮式情境组件（前端为主）
+
+- 测试先行：确保不再出现 EXECUTE ON TWIN；时间轴默认隐藏；当 currentContextHasTime=true 时显示。
+- 实现：TimelineHUD 改为无执行按钮的悬浮组件；Workbench 使用场景元数据/挂载数据决定显示。
+
+Slice C：Hybrid Router（后端为主，默认关闭）
+
+- 测试先行：feature flag 打开但缺少 LLM key 时，行为仍与 stub 一致且不报错。
+- 实现：保留确定性工具链；仅对 final 文案做可选 LLM 替换（不影响工具调用确定性）。
+
+回归门禁（每次合入必须通过）
+
+- 前端：`npm test`（Vitest run 全绿）。
+- 后端：Pytest 至少覆盖 v7 prompts/tools/execute 合同测试。
+
+4.5 完成情况盘点（As-built，对照 update_patch_0303.md，截止 2026-03-10）
+
+说明：本节仅记录“已落地的工程事实（含门禁）”，不改变 v7 的确定性 stub 合同。
+
+| 需求条目（update_patch_0303） | 状态 | 工程落点（实现） | 门禁/验收落点 |
+|---|---|---|---|
+| Swipe 被提升为 Twin Canvas 的空间态（非一次性按钮） | ✅ Done | `swipeEnabled/swipePosition` 作为 Workbench 空间态，离开 Earth/切场景时自动退出 | 前端合同：`frontend/tests/workbenchV72SwipeTimeline.test.js` 锁定 plumbing；后端合同：`tests/test_v7_copilot_api.py` tools list | 
+| 手动触发（交互层级纠偏）：Swipe 不在顶栏常驻 | ✅ Done | Swipe 模式开关收敛到面板（Layers 区的 View Mode: Overlay/Swipe），并与 Left/Right 选择器同域 | 前端合同：Vitest 锁定“顶栏无 Swipe 按钮”+ 面板含 View Mode；运行验收：在面板一处完成开关+配置 |
+| Copilot 触发：识别“对比/差异/两年”意图可自动开启 | ✅ Done（通过工具事件） | 后端 stub / Hybrid explore 均可发 `enable_swipe_mode`；前端映射 `enable_swipe_mode`/`set_swipe_position`/`disable_swipe_mode` | 后端验收：Demo 1 事件序列包含 `enable_swipe_mode`；工具列表包含三件套 |
+| 视觉表现：中央 absolute 分割线 + 把手，拖动实时更新位置 | ✅ Done | `frontend/src/views/workbench/components/SwipeHUD.vue`（pointer drag + keyboard） | 运行验收：拖拽更新；工具 `set_swipe_position` 可编程更新 |
+| Cesium 底层：`ImagerySplitDirection` + `scene.splitPosition` | ✅ Done | `frontend/src/views/workbench/EngineRouter.vue`：`_applySwipeState` / `setSwipeMode` / `setSwipePosition01`，并在图层重建后重应用 | 前端合同：测试锁定关键字符串与 expose |
+| 底部栏重构：废弃 `EXECUTE ON TWIN` | ✅ Done | Workbench 主 UI 已移除底栏执行；遗留组件中的旧文案已清理 | 前端合同：`frontend/tests/workbenchV72SwipeTimeline.test.js` 锁定“不出现 EXECUTE”；运行验收：无底栏执行按钮 |
+| 时间轴升格为 Contextual Widget：默认隐藏，仅在“数据就绪”时出现 | ✅ Done | `currentContextHasTime` + `isTimeSeriesDataReady` + `showTimelineHud`（默认严格隐藏；可通过 flag/参数强制展示以便演示） | 前端合同：Vitest 锁定“TimelineHUD 受控 + 无内部 timer”与“showTimelineHud gate”；运行验收：无数据时不出现 |
+| 时间轴受控化（为未来真实时序数据准备） | ✅ Done | TimelineHUD 改为 controlled component（progress/isPlaying/isLoading + emits）；父级负责驱动/加载队列 | 前端合同：Vitest 锁定 props/emits；后续接入 GEE ImageCollection 时无需改 HUD |
+| Landing→Workbench 视觉-数据一致：带 context 自动下钻 | ✅ Done | onViewerReady：无 context 时保持 Global Standby；有 `?context=` 时短暂停机后 stopStandby + flyToScenario | 前端合同：`frontend/tests/workbenchStandbyV71.test.js` 锁定“viewer-ready 必进 standby，且无 context 不下钻”；`frontend/tests/workbenchAutoDive0303.test.js` 锁定“context auto-dive” |
+| Hybrid Router：分支 A 硬路由 Demo + 可选 LLM 口语化文案 | ✅ Done（默认关闭） | `backend/v7_copilot.py`：`_maybe_hybridize_final_text`（flag+key 才触网；异常回退 stub） | 后端合同：flag=1 但无 key 时仍能返回 final（离线安全） |
+| Hybrid Router：分支 B 探索态 Tool Calling（白名单/校验/超时） | ✅ Done（默认关闭） | `backend/v7_copilot.py`：`_maybe_hybrid_explore_events`；`backend/llm_service.py`：OpenAI-compatible tool_calls 解析 | 后端门禁：离线 mock LLM tool_calls 回归测试覆盖 allowlist + args 过滤 + 事件形态稳定 |
+
+4.6 Phase 4 收口清单（As-built，截止 2026-03-10）
+
+- ✅ 清债：全仓库不再出现 `EXECUTE ON TWIN`（含遗留面板组件）。
+- ✅ Swipe 面板化（完成交互层级纠偏）：Unified Artifacts / Layers 区提供 View Mode（Overlay/Swipe）+ Left/Right 选择器，并与引擎空间态联动。
+- ✅ Hybrid Explore 门禁补齐：后端回归测试通过 mock/monkeypatch 固定 tool_calls，验证 allowlist + args schema 过滤，且保持离线不触网。
+
+4.7 延展项（As-built，截止 2026-03-10）
+
+- ✅ Swipe 图层候选扩展：面板候选从“硬编码白名单”改为基于当前 Layers 列表动态推导（并优先展示 enabled 图层）。
+- ✅ 文档与门禁同步：前端 Vitest 新增合同断言，锁定 Swipe Left/Right 选择器存在与 Right=AI-only 约束。
+- ✅ Hybrid Explore 渐进上线：后端探索态新增软速率限制 + 硬超时包裹 + tool_calls 数量上限 + args size cap（仍保持默认关闭 + 无 key 不触网 + 异常回退 stub）。
+
+4.8 下一步建议（可选）
+
+- Swipe 选择器进一步联动：补充“当前选中图层”概念（LayerTree 增加选中态），并支持一键“用当前两层作为 Left/Right”。
+- AI 图层可见性提示：当 Right=AI 但 `tile_url` 为空时，在面板提示“尚未生成 AI overlay（需要一次 add_cesium_imagery 事件）”。
+
 一、 架构演进：全尺度万能底座 (Omni-Scale Foundation)
 
 为了全面兼容四大核心学科，工作台底层视窗不再绑定单一引擎，升级为受 021 模型自动调度的**“万能渲染容器”**。
@@ -92,269 +212,67 @@ As-built（补充，截止 2026-03-06）：
 
 系统顶栏设计了极具科技感的**“状态切换拨片”**，解耦了场景执行与 UI 状态，将控制权完全交还给演示者：
 
-🛠️ 硬核作业态 (Lab Mode - 默认)：左右实体面板停靠，呈现代码、产物与 Agent 思维链，展示系统“白盒可解释性”。
-
-🎬 沉浸演示态 (Theater Mode)：一键折叠两侧面板，3D 视窗铺满 100vw/100vh，专为领导视察与大屏投屏设计。
+- 🛠️ 硬核作业态 (Lab Mode - 默认)：左右实体面板停靠，呈现代码、产物与事件过程，强调白盒可解释。
+- 🎬 沉浸演示态 (Theater Mode)：一键折叠两侧面板，Twin Canvas 全屏，优先汇报稳定与观感。
 
 2.2 全局视界降临 (Global-to-Local Spatial Flow)
 
-初始降临 (Global Standby)：进入 /workbench 后，Cesium 始终默认悬停于“宏观地球轨道视角”，不急于切入局部。
+- Global Standby：进入 /workbench 默认轨道待机（慢速旋转），不“进入即跳本地”。
+- Cinematic Auto-Dive（来自 update_patch_0303）：当用户从 Landing 携带明确意图（例如 `/workbench?context=yuhang`）进入时，先短暂停机形成“蓄势”，随后自动停止待机并 FlyTo 到该场景，避免“数据已切换但镜头仍在太空”的认知割裂。
+- Intent-Driven FlyTo：除上述“带 context 的首次入场自动下钻”外，其余情况下仅当工具事件触发 `fly_to/camera_fly_to` 时才俯冲到目标区域。
 
-意图驱动俯冲 (Intent-Driven FlyTo)：在 Copilot 执行指令后，才触发 flyTo 动画，从太空急速俯冲至目标区域，保留完美的空间连续性。
+2.3 三栏流式布局 (Left-Center-Right)
 
-2.3 严谨的三栏流式布局 (Left-Center-Right)
+- 左侧 Unified Artifacts：Layers / Code / Charts / Reports（统一承接 tool 产物）。
+- 中央 Twin Canvas：纯净引擎视窗 + 极简 HUD（Swipe/Timeline 等情境控件）。
+- 右侧 Copilot Chat：Header / History / Input Zone（Prompt Chips 与多行输入）。
 
-【左侧】统一资产与产物面板 (Unified Artifacts)：宽 360px。
+三、 核心 Demo 场景大盘（12+2 = 14，简表）
 
-LAYER & DATA: 管理 GEE 图层、阈值、色标。
+第一阵列：经典传承（OneEarth）
 
-CODE & SCRIPT: 收纳 Monaco Editor，展示 AI 生成的底层渲染或推演代码。
+- Demo 1 余杭城建审计：`fly_to` → `add_cesium_imagery` → `generate_report`
+- Demo 2 亚马逊零样本聚类：`add_cesium_vector`
+- Demo 3 毛乌素生态穿透：`add_cesium_imagery`
+- Demo 4 盐城红线：按 v7.1 稳定链路集成
+- Demo 5 周口内涝：按 v7.1 稳定链路集成
+- Demo 6 塔拉滩光伏：按 v7.1 稳定链路集成
 
-CHARTS / REPORTS: 存放统计图表与自动生成的 Markdown 分析报告。
+第二阵列：前沿开拓（空天视界）
 
-【中央】无界空间底座 (The Twin Canvas)：
+- Demo 7 珠峰冰原：`enable_3d_terrain` + `add_cesium_3d_tiles`
+- Demo 8 夏威夷形变：`apply_custom_shader`
+- Demo 9 刚果碳汇：`add_cesium_extruded_polygons`
+- Demo 10 纽约热岛：`show_chart`
+- Demo 11 马六甲暗夜：`set_scene_mode('night')` + `play_czml_animation`
+- Demo 12 澳洲地下：`set_globe_transparency` + `add_subsurface_model`
 
-Flex 自适应撑满。纯净的三维宇宙/地球，仅悬浮时间轴或极简控件。
+第三阵列：系统级张力
 
-【右侧】021 Copilot Chat (空间智能中枢)：宽 400px。
+- Demo 13 Global 代码热生成：`execute_editor_code`
+- Demo 14 宏微观虫洞：`trigger_gsap_wormhole`
 
-Top (Header)：折叠控制与标题。
+四、 核心架构落地（用“真实工程指向”替代长伪代码）
 
-Middle (History)：气泡式对话流 + 折叠式思维链 (CoT)。
+为保持蓝图简洁，本节不再粘贴大段 UI 伪代码；以“可跳转到工程实现”的指向为准。
 
-Bottom (Input Zone)：自适应多行文本框 (完美容纳复杂 Prompt)，紧贴上方悬浮横向滚动的 Prompt Chips (预置剧本胶囊)。
+4.1 工作台壳与三栏布局
 
-三、 核心 Demo 场景大盘与技术实现 (12+2 全矩阵)
+- 主入口与全局状态：`frontend/src/WorkbenchApp.vue`（Lab/Theater、HUD、Artifacts 面板、引擎容器、Swipe/Timeline 空间态联动）。
+- 引擎适配与 Cesium 行为：`frontend/src/views/workbench/EngineRouter.vue`（Swipe splitDirection/splitPosition 应用、图层重建后重应用）。
 
-注：本节融合 v7.1 定义的所有 Tool Calling API 逻辑，确保演示链路闭环。
+4.2 Copilot Chat（输入/历史/门禁）
 
-🌍 第一阵列：经典传承 (OneEarth 6 大核心场景)
+- 右侧 Chat UI：`frontend/src/views/workbench/components/CopilotChatPanel.vue`。
+- v7.2 HUD：`frontend/src/views/workbench/components/SwipeHUD.vue`、`frontend/src/views/workbench/components/TimelineHUD.vue`。
 
-Demo 1: 沧海桑田的城建审计 (杭州余杭)
+4.3 统一资产面板（Layers/Artifacts）
 
-Prompt: "对比余杭近7年的城建扩张，使用欧氏距离算子，生成城建审计图层。"
+- 面板与 Tabs：`frontend/src/views/workbench/components/UnifiedArtifactsPanel.vue`。
+- Swipe 左右图层选择器：位于 Layers 区（与 Workbench swipe 空间态双向绑定）。
 
-Tools Call: aef_compute_diff(roi='yuhang', metric='euclidean', dim='A00')
+4.4 后端 Hybrid Router 与离线门禁
 
-UI Action: fly_to/camera_fly_to -> add_cesium_imagery(palette='Oranges') -> generate_report()
-
-Demo 2: 行星级零样本聚类 (亚马逊雨林)
-
-Prompt: "扫描当前视窗，不使用先验标签，根据 64维特征进行零样本聚类(k=6)。"
-
-Tools Call: aef_kmeans_cluster(bbox=current_bbox, k=6)
-
-UI Action: add_cesium_vector(color_map='category_6')
-
-Demo 3: 剥离季节伪装的生态穿透 (毛乌素沙地)
-
-Prompt: "评估毛乌素近5年真实治理成效，改用余弦相似度排除秋冬植被枯黄干扰。"
-
-Tools Call: aef_compute_diff(metric='cosine_similarity')
-
-UI Action: add_cesium_imagery(palette='Greens')
-
-(Demo 4 盐城红线, Demo 5 周口内涝, Demo 6 塔拉滩光伏 - 实现逻辑参照 V7.1 规范稳定集成入系统)
-
-🚀 第二阵列：前沿开拓 (空天视界 6 大全新场景)
-
-Demo 7: 冰原溃决预警 (珠峰) -> enable_3d_terrain + add_cesium_3d_tiles
-
-Demo 8: 地壳形变与火山预判 (夏威夷) -> apply_custom_shader(InSAR+LST)
-
-Demo 9: 全球碳汇三维估算 (刚果) -> add_cesium_extruded_polygons
-
-Demo 10: 城市热岛与社会折叠 (纽约) -> show_chart + render_bivariate_map
-
-Demo 11: 暗夜油污与船舶溯源 (马六甲) -> set_scene_mode('night') + play_czml_animation
-
-Demo 12: 极深地下矿脉解译 (澳洲) -> set_globe_transparency(0.5) + add_subsurface_model
-
-🔮 第三阵列：极客炫技 (系统级架构张力)
-
-Demo 13: 气象流体力学代码热生成 (Global)
-
-Prompt: "用 GLSL 写一段基于 GFS 数据的全球风场流体渲染代码，直接运行。"
-
-Tools Call: LLM 生成自定义着色器代码。
-
-UI Action: write_to_editor() (写入左侧 Code Tab) -> execute_editor_code()。
-
-Demo 14: 宏微观双模态虫洞跃迁 (Sky to Micro)
-
-Prompt: "地表分析完毕，挂载微观物理引擎，生成该岩石的二氧化硅分子晶体结构。"
-
-UI Action: trigger_gsap_wormhole() -> 销毁 Cesium -> 挂载 Three.js (Micro-Sphere) -> 切换左侧资产面板模式。
-
-四、 核心架构重构伪代码 (Vue 3 组合式 API)
-
-4.1 主工作台布局（示意伪代码；实际实现以 frontend/src/WorkbenchApp.vue 为准）
-
-集成了显性双态拨片与左中右动态面板布局。
-
-<script setup>
-import { ref } from 'vue';
-import EngineRouter from './engines/EngineRouter.vue'; // 实际工程中由 EngineScaleRouter/EngineRouter 组合封装
-import ArtifactsPanel from './components/ArtifactsPanel.vue';
-import CopilotChatPanel from './components/CopilotChatPanel.vue';
-
-// 默认硬核作业态，保留 IDE 专业感
-const isTheaterMode = ref(false); 
-
-function setMode(mode) {
-  isTheaterMode.value = mode === 'theater';
-}
-</script>
-
-<template>
-  <div class="h-screen w-screen bg-[#030409] flex flex-col text-white overflow-hidden font-sans">
-    
-    <!-- 🌟 赛博顶栏：包含显性双态切换拨片 -->
-    <header class="h-14 border-b border-[#00F0FF]/20 flex justify-between items-center px-6 bg-[#050810]/90 backdrop-blur-md relative z-50">
-      <div class="flex items-center gap-4">
-        <div class="w-2 h-2 rounded-full bg-[#00F0FF] animate-pulse shadow-[0_0_8px_#00F0FF]"></div>
-        <span class="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-[#00F0FF] to-[#9D4EDD]">
-          ZERO2X <span class="text-xs font-bold text-gray-200">021 WORKBENCH</span>
-        </span>
-      </div>
-      
-      <!-- 显性演示门控 -->
-      <div class="flex bg-black/60 p-1 rounded-lg border border-white/10">
-        <button @click="setMode('lab')" :class="!isTheaterMode ? 'bg-[#9D4EDD] text-white font-bold' : 'text-gray-500'" class="px-5 py-1.5 rounded-md text-xs transition-all">
-          🛠️ 硬核作业视图
-        </button>
-        <button @click="setMode('theater')" :class="isTheaterMode ? 'bg-[#00F0FF] text-black font-bold' : 'text-gray-500'" class="px-5 py-1.5 rounded-md text-xs transition-all">
-          🎬 沉浸推演视图
-        </button>
-      </div>
-    </header>
-
-    <!-- 核心 IDE 三栏布局 -->
-    <div class="flex-1 flex overflow-hidden relative">
-      
-      <!-- 左侧：统一资产面板 (Layers / Code / Charts / Reports) -->
-      <aside :class="isTheaterMode ? '-translate-x-full opacity-0 w-0' : 'w-[360px] opacity-100'" class="border-r border-white/10 bg-[#080b12] flex-shrink-0 transition-all duration-500 z-10">
-        <ArtifactsPanel />
-      </aside>
-
-      <!-- 中间：无界万能底座 (默认 Global Standby) -->
-      <main class="flex-1 relative bg-black">
-        <EngineRouter class="absolute inset-0" />
-      </main>
-
-      <!-- 右侧：021 Copilot Chat 中枢 -->
-      <aside :class="isTheaterMode ? 'translate-x-full opacity-0 w-0' : 'w-[400px] opacity-100'" class="border-l border-white/10 bg-[#080b12] flex-shrink-0 transition-all duration-500 z-10 flex flex-col">
-        <CopilotChatPanel />
-      </aside>
-
-    </div>
-  </div>
-</template>
-
-
-4.2 空间智能副驾面板（示意伪代码；实际实现以 frontend/src/views/workbench/components/CopilotChatPanel.vue 为准）
-
-集成了气泡历史流、可折叠 CoT，以及带有动态横向预置 Chips 和多行自适应的输入区。
-
-<script setup>
-import { ref } from 'vue';
-import { useCopilotStore } from '@/stores/copilotStore';
-
-const store = useCopilotStore();
-const promptText = ref('');
-const textareaRef = ref(null);
-
-// 动态高度计算：最大支持 120px
-function autoResize() {
-  const el = textareaRef.value;
-  if(!el) return;
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-function handleChipClick(scenario) {
-  promptText.value = scenario.prompt;
-  autoResize();
-  submitPrompt(scenario.id);
-}
-
-function submitPrompt(forcedContextId = null) {
-  if(!promptText.value.trim()) return;
-  // 派发指令：后端执行逻辑，触发 UI Tool Events (如 flyTo, add_imagery)
-  store.executeCopilotCommand(promptText.value, forcedContextId);
-  promptText.value = '';
-  textareaRef.value.style.height = 'auto'; // 恢复初始高度
-}
-</script>
-
-<template>
-  <div class="flex flex-col h-full w-full">
-    <!-- Header -->
-    <div class="h-12 border-b border-white/10 flex justify-between items-center px-4">
-      <span class="text-xs font-bold tracking-widest text-[#00F0FF]">021 COPILOT</span>
-      <span class="text-[10px] text-gray-500">Connected to Nanhu Hub</span>
-    </div>
-
-    <!-- Message History (气泡流 + CoT) -->
-    <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div v-for="msg in store.chatHistory" :key="msg.id">
-        <!-- 用户气泡 (右侧) -->
-        <div v-if="msg.role === 'user'" class="ml-auto bg-[#00F0FF]/20 text-[#00F0FF] p-3 rounded-l-xl rounded-tr-xl max-w-[85%] text-sm">
-          {{ msg.content }}
-        </div>
-        
-        <!-- AI 气泡 (左侧) -->
-        <div v-else class="mr-auto bg-white/5 text-gray-200 p-3 rounded-r-xl rounded-tl-xl max-w-[90%] text-sm border border-white/10">
-          
-          <!-- 手风琴：折叠的 Tool Calling 过程 (CoT) -->
-          <details v-if="msg.tools" class="mb-2 bg-black/40 border border-white/5 rounded p-2 text-xs">
-            <summary class="cursor-pointer text-gray-400 font-bold outline-none">
-              ✓ 分析已完成 (耗时 {{ msg.latency }}s)
-            </summary>
-            <div class="mt-2 text-gray-500 pl-4 border-l-2 border-gray-700">
-              > Action: fly_to(yuhang)<br>
-              > Call: aef_compute_diff(dim='A00')<br>
-              > Action: add_cesium_imagery(Oranges)<br>
-            </div>
-          </details>
-
-          <!-- 最终模型推演回复 -->
-          <div class="leading-relaxed">{{ msg.content }}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Input Zone (横向 Chips + 多行自适应输入) -->
-    <div class="p-4 bg-[#0a0f1a] border-t border-white/10">
-      <!-- 预置指令胶囊 -->
-      <div class="flex overflow-x-auto hide-scrollbar gap-2 pb-2">
-        <button v-for="chip in store.promptChips" :key="chip.id" 
-                @click="handleChipClick(chip)"
-                class="px-3 py-1.5 bg-white/5 hover:bg-[#00F0FF]/20 rounded-full whitespace-nowrap text-xs text-[#00F0FF] border border-[#00F0FF]/20 transition-colors">
-          ✨ {{ chip.shortLabel }}
-        </button>
-      </div>
-
-      <!-- 自适应多行框 -->
-      <div class="relative mt-1">
-        <textarea 
-          ref="textareaRef"
-          v-model="promptText"
-          @input="autoResize"
-          @keydown.enter.prevent="submitPrompt()"
-          rows="1"
-          class="w-full bg-black/50 border border-white/20 hover:border-[#00F0FF]/50 focus:border-[#00F0FF] rounded-lg pl-3 pr-10 py-3 text-sm text-white placeholder-gray-500 resize-none outline-none transition-colors"
-          placeholder="输入意图，例如：审计余杭区城建物理重构..."></textarea>
-        
-        <button @click="submitPrompt()" class="absolute right-3 bottom-3 text-[#00F0FF] hover:text-white transition-colors">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
-        </button>
-      </div>
-    </div>
-  </div>
-</template>
-
-<style scoped>
-.hide-scrollbar::-webkit-scrollbar { display: none; }
-.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-</style>
+- Hybrid Router 与探索态过滤：`backend/v7_copilot.py`。
+- OpenAI-compatible tool_calls 解析：`backend/llm_service.py`。
+- 合同/回归门禁：`tests/test_v7_copilot_api.py`（离线 mock tool_calls，校验 allowlist + args 过滤）。

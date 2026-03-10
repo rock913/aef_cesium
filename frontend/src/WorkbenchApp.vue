@@ -10,6 +10,12 @@
       @viewer-ready="onViewerReady"
     />
 
+    <!-- Swipe split UI: above engine, below all HUD controls -->
+    <SwipeHUD
+      :active="swipeEnabled && currentScale === 'earth' && activeTab?.kind === 'twin'"
+      v-model:position="swipePosition"
+    />
+
     <!-- Top: HUD overlay (Z=10). Default pointer-events off; panels opt-in. -->
     <div class="hud-layer pointer-events-none" aria-label="HUD Layer">
       <header class="top-nav glass-panel pointer-events-auto" aria-label="Top Navigation">
@@ -71,6 +77,9 @@
           <UnifiedArtifactsPanel
             v-model:layers="layers"
             v-model:code="code"
+            v-model:swipe-enabled="swipeEnabled"
+            v-model:swipe-left-layer-id="swipeLeftLayerId"
+            v-model:swipe-right-layer-id="swipeRightLayerId"
             :current-scale="currentScale"
             :report-text="theaterReport"
             :charts="charts"
@@ -104,10 +113,20 @@
         </aside>
       </div>
 
-      <div class="bottom-console" aria-label="Bottom Console">
-        <div class="glass-panel pointer-events-auto bottom-panel">
-          <TimelineHUD @execute="runExecute" />
-        </div>
+      <div
+        v-if="showTimelineHud"
+        class="timeline-float glass-panel pointer-events-auto"
+        aria-label="Contextual Timeline"
+      >
+        <TimelineHUD
+          :min-year="timelineRange.minYear"
+          :max-year="timelineRange.maxYear"
+          :progress="timelineProgress"
+          :is-playing="timelineIsPlaying"
+          :is-loading="timelineIsLoading"
+          @toggle-play="onTimelineTogglePlay"
+          @seek="onTimelineSeek"
+        />
       </div>
 
       <TheaterHUD
@@ -132,6 +151,7 @@ import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
 import { TaskQueue } from './utils/taskQueue.js'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
+import SwipeHUD from './views/workbench/components/SwipeHUD.vue'
 import TabBar from './views/workbench/components/TabBar.vue'
 import TheaterHUD from './views/workbench/components/TheaterHUD.vue'
 import DataTableTab from './views/workbench/components/DataTableTab.vue'
@@ -150,8 +170,175 @@ const executeQueue = new TaskQueue()
 const mode = ref('lab')
 const isImmersive = computed(() => mode.value === 'theater')
 
+const swipeEnabled = ref(false)
+const swipePosition = ref(0.5)
+const swipeLeftLayerId = ref('')
+const swipeRightLayerId = ref('')
+
+const timelineProgress = ref(30)
+const timelineIsPlaying = ref(false)
+const timelineIsLoading = ref(false)
+let _timelineTimer = null
+
+function _stopTimeline() {
+  timelineIsPlaying.value = false
+  timelineIsLoading.value = false
+  if (_timelineTimer) {
+    clearInterval(_timelineTimer)
+    _timelineTimer = null
+  }
+}
+
+function onTimelineSeek(v) {
+  const n = Number(v)
+  timelineProgress.value = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0
+}
+
+function onTimelineTogglePlay() {
+  // Controlled component: parent decides how to advance.
+  // If no real timeseries driver is wired, we keep this as a no-op unless
+  // explicitly forced on (URL/env) for demo purposes.
+  if (timelineIsPlaying.value) {
+    _stopTimeline()
+    return
+  }
+
+  timelineIsPlaying.value = true
+
+  if (!_forceTimelineUi) {
+    // No driver: immediately fall back to paused state.
+    timelineIsPlaying.value = false
+    return
+  }
+
+  _timelineTimer = setInterval(() => {
+    timelineProgress.value = (timelineProgress.value + 1) % 101
+  }, 240)
+}
+
+function _isAiLayerId(id) {
+  const v = String(id || '').trim().toLowerCase()
+  return v === 'ai-imagery' || v.startsWith('ai-')
+}
+
+function _getNonAiSwipeCandidates() {
+  const arr = Array.isArray(layers.value) ? layers.value : []
+  return arr
+    .filter((l) => {
+      const id = String(l?.id || '').trim()
+      if (!id) return false
+      if (_isAiLayerId(id)) return false
+      if (id === 'boundaries' || id === 'ai-vector' || id.endsWith('-vector')) return false
+      const tileUrl = String(l?.params?.tile_url || '').trim()
+      return !!tileUrl || id === 'gee-heatmap' || id === 'anomaly-mask'
+    })
+    .sort((a, b) => Number(!!b?.enabled) - Number(!!a?.enabled))
+    .map((l) => String(l.id))
+}
+
 const contextId = ref('poyang')
 const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
+
+const currentContextHasTime = computed(() => {
+  const s = scenario.value
+  if (s?.hasTime) return true
+  try {
+    const ids = new Set((layers.value || []).filter((l) => !!l?.enabled).map((l) => String(l?.id || '')))
+    if (ids.has('gee-heatmap') || ids.has('anomaly-mask')) return true
+  } catch (_) {
+    // ignore
+  }
+  return false
+})
+
+const _forceTimelineUi = (() => {
+  try {
+    const u = new URL(String(window?.location?.href || ''))
+    const v = String(u.searchParams.get('timeline') || '').trim().toLowerCase()
+    if (v === '1' || v === 'true') return true
+  } catch (_) {
+    // ignore
+  }
+  try {
+    return String(import.meta.env?.VITE_ENABLE_TIMELINE_UI || '').trim() === '1'
+  } catch (_) {
+    return false
+  }
+})()
+
+const isTimeSeriesDataReady = computed(() => {
+  // Patch 0303: hide timeline unless we are confident a real timeseries driver
+  // is wired (or explicitly forced on for demos).
+  if (_forceTimelineUi) return true
+  return false
+})
+
+const showTimelineHud = computed(() => {
+  if (activeTab.value?.kind !== 'twin') return false
+  if (!currentContextHasTime.value) return false
+  if (!isTimeSeriesDataReady.value) return false
+  return true
+})
+
+const timelineRange = computed(() => {
+  const s = scenario.value
+  const minYear = Number(s?.timeRange?.minYear)
+  const maxYear = Number(s?.timeRange?.maxYear)
+  return {
+    minYear: Number.isFinite(minYear) ? minYear : 2017,
+    maxYear: Number.isFinite(maxYear) ? maxYear : 2024,
+  }
+})
+
+function _applySwipeToEngine() {
+  try {
+    engineRouter.value?.setSwipeMode?.({
+      enabled: !!swipeEnabled.value,
+      left_layer_id: String(swipeLeftLayerId.value || '').trim(),
+      right_layer_id: String(swipeRightLayerId.value || '').trim(),
+      position: swipePosition.value,
+    })
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _ensureSwipeLayersEnabled() {
+  try {
+    const ids = new Set([String(swipeLeftLayerId.value || '').trim(), String(swipeRightLayerId.value || '').trim()].filter(Boolean))
+    if (!ids.size) return
+    layers.value = (layers.value || []).map((l) => (ids.has(String(l?.id || '')) ? { ...l, enabled: true } : l))
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _normalizeSwipeIds() {
+  const left = String(swipeLeftLayerId.value || '').trim()
+  const right = String(swipeRightLayerId.value || '').trim()
+
+  // v7.2 contract: Left is non-AI, Right is AI imagery.
+  // Defaults are "best effort" but deterministic.
+  const nonAi = _getNonAiSwipeCandidates()
+  if (!left) swipeLeftLayerId.value = nonAi[0] || 'gee-heatmap'
+
+  // Always prefer ai-imagery on the right.
+  if (!right || !_isAiLayerId(right)) swipeRightLayerId.value = 'ai-imagery'
+
+  // If left accidentally becomes AI, force a non-AI fallback.
+  if (_isAiLayerId(String(swipeLeftLayerId.value || '').trim())) {
+    swipeLeftLayerId.value = nonAi[0] || 'gee-heatmap'
+  }
+
+  // Avoid a no-op compare.
+  if (String(swipeLeftLayerId.value || '').trim() && String(swipeLeftLayerId.value || '').trim() === String(swipeRightLayerId.value || '').trim()) {
+    const fallback = nonAi.find((id) => id && id !== String(swipeRightLayerId.value || '').trim())
+    swipeLeftLayerId.value = fallback || 'gee-heatmap'
+  }
+}
+
+// Patch 0303: Swipe toggle UI lives in the Layers panel (not the top nav).
+// swipeEnabled changes are handled via a watcher.
 
 const _initialSearch = (() => {
   try {
@@ -790,12 +977,39 @@ function _flyToScenario() {
 
 function onViewerReady() {
   viewerReady.value = true
+  const hasContextFromUrl = !!String(_contextFromUrl || '').trim()
+
+  // Patch 0303: keep Global Standby for blank workbench; when entering with a
+  // specific ?context=, do a short standby then auto-dive to keep visuals+data
+  // in sync.
   try {
     engineRouter.value?.startGlobalStandby?.()
   } catch (_) {
     // ignore
   }
+
+  if (hasContextFromUrl && !_autoDiveDone.value) {
+    _autoDiveDone.value = true
+    if (_autoDiveTimer) {
+      clearTimeout(_autoDiveTimer)
+      _autoDiveTimer = null
+    }
+    _autoDiveTimer = setTimeout(() => {
+      try {
+        engineRouter.value?.stopGlobalStandby?.()
+      } catch (_) {
+        // ignore
+      }
+      _flyToScenario()
+    }, 1200)
+  }
+
+  // Default should always start with swipe off (reset split state).
+  _applySwipeToEngine()
 }
+
+const _autoDiveDone = ref(false)
+let _autoDiveTimer = null
 
 function setMode(next) {
   const v = String(next || '').trim().toLowerCase()
@@ -883,6 +1097,46 @@ function applyCopilotEvents(events) {
     if (tool === 'switch_scale') {
       const target = String(args?.target || '').trim().toLowerCase()
       if (target) setScale(target)
+      continue
+    }
+
+    if (tool === 'enable_swipe_mode') {
+      const leftId = String(args?.left_layer_id || args?.leftLayerId || '').trim()
+      const rightId = String(args?.right_layer_id || args?.rightLayerId || '').trim()
+      const posArg = Number(args?.position)
+      swipeEnabled.value = true
+      swipeLeftLayerId.value = leftId || 'gee-heatmap'
+      swipeRightLayerId.value = rightId || 'ai-imagery'
+      swipePosition.value = Number.isFinite(posArg) ? Math.max(0, Math.min(1, posArg)) : 0.5
+
+      // Enforce Left=non-AI, Right=AI.
+      _normalizeSwipeIds()
+
+      try {
+        const ids = new Set([swipeLeftLayerId.value, swipeRightLayerId.value].filter(Boolean))
+        layers.value = (layers.value || []).map((l) => (ids.has(String(l?.id || '')) ? { ...l, enabled: true } : l))
+      } catch (_) {
+        // ignore
+      }
+
+      _applySwipeToEngine()
+      continue
+    }
+
+    if (tool === 'set_swipe_position') {
+      const posArg = Number(args?.position)
+      if (Number.isFinite(posArg)) swipePosition.value = Math.max(0, Math.min(1, posArg))
+      try {
+        engineRouter.value?.setSwipePosition?.(swipePosition.value)
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'disable_swipe_mode') {
+      swipeEnabled.value = false
+      _applySwipeToEngine()
       continue
     }
 
@@ -1145,6 +1399,19 @@ watch(
 )
 
 watch(
+  () => swipeEnabled.value,
+  () => {
+    // Enabling swipe should deterministically pick sane ids and ensure layers
+    // are visible; disabling should reset split state.
+    if (swipeEnabled.value) {
+      _normalizeSwipeIds()
+      _ensureSwipeLayersEnabled()
+    }
+    _applySwipeToEngine()
+  }
+)
+
+watch(
   () => openTabs.value,
   (v) => {
     try {
@@ -1172,6 +1439,49 @@ watch(
     } catch (_) {
       // ignore
     }
+
+    // Swipe is an Earth-only spatial mode; reset when leaving earth.
+    try {
+      const cur = String(researchStore.currentScale.value || '').trim().toLowerCase()
+      if (cur !== 'earth' && swipeEnabled.value) {
+        swipeEnabled.value = false
+        _applySwipeToEngine()
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+)
+
+watch(
+  () => swipePosition.value,
+  () => {
+    if (!swipeEnabled.value) return
+    try {
+      engineRouter.value?.setSwipePosition?.(swipePosition.value)
+    } catch (_) {
+      // ignore
+    }
+  }
+)
+
+watch(
+  () => [swipeLeftLayerId.value, swipeRightLayerId.value],
+  () => {
+    if (!swipeEnabled.value) return
+    _normalizeSwipeIds()
+    _ensureSwipeLayersEnabled()
+    _applySwipeToEngine()
+  }
+)
+
+watch(
+  () => scenario.value?.id,
+  () => {
+    // Changing context should not keep a split from previous compare.
+    if (!swipeEnabled.value) return
+    swipeEnabled.value = false
+    _applySwipeToEngine()
   }
 )
 
@@ -1232,6 +1542,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   _stop()
+  _stopTimeline()
+  if (_autoDiveTimer) {
+    clearTimeout(_autoDiveTimer)
+    _autoDiveTimer = null
+  }
   try {
     document.body.style.overflow = 'auto'
   } catch (_) {
@@ -1278,7 +1593,8 @@ onBeforeUnmount(() => {
   z-index: 10;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 18px;
   padding: 24px;
   background:
     radial-gradient(1200px 900px at 50% 0%, rgba(0, 240, 255, 0.08), rgba(0, 0, 0, 0)),
@@ -1461,14 +1777,15 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.bottom-console {
-  height: 72px;
-}
 
-.bottom-panel {
-  height: 100%;
+.timeline-float {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 64px));
   padding: 10px 12px;
-  overflow: hidden;
+  border-radius: 16px;
 }
 
 .omnibox-layer {

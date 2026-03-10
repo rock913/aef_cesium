@@ -46,6 +46,12 @@ class Settings(BaseModel):
     llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
     llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "512"))
 
+    # Hybrid Router (explore branch) safety knobs.
+    # These are intentionally conservative; explore is still feature-flag + key gated.
+    hybrid_explore_timeout_s: float = float(os.getenv("HYBRID_EXPLORE_TIMEOUT_S", os.getenv("LLM_TIMEOUT_S", "12")))
+    hybrid_explore_max_tool_calls: int = int(os.getenv("HYBRID_EXPLORE_MAX_TOOL_CALLS", "8"))
+    hybrid_explore_rate_limit_per_min: int = int(os.getenv("HYBRID_EXPLORE_RATE_LIMIT_PER_MIN", "30"))
+
     # Map viewport buffer (meters)
     # Used for backend-side filterBounds region when generating AI layers.
     viewport_buffer_m: int = int(os.getenv("VIEWPORT_BUFFER_M", "150000"))

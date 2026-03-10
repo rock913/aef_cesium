@@ -131,6 +131,22 @@ async function addExtrudedPolygons(opts) {
   }
 }
 
+function setSwipeMode(opts) {
+  try {
+    return earthTwin.value?.setSwipeMode?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function setSwipePosition(pos) {
+  try {
+    return earthTwin.value?.setSwipePosition?.(pos)
+  } catch (_) {
+    // ignore
+  }
+}
+
 async function highlightMacroCluster() {
   try {
     return await threeTwin.value?.highlightMacroCluster?.()
@@ -166,6 +182,8 @@ defineExpose({
   playCzmlAnimation,
   setGlobeTransparency,
   addExtrudedPolygons,
+  setSwipeMode,
+  setSwipePosition,
   highlightMacroCluster,
   spinMacroCamera,
   rebuildMicroLattice,

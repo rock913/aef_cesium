@@ -27,6 +27,22 @@ const cesiumViewerInstance = ref(null)
 const overlayHandles = ref(new Map())
 const applyToken = ref(0)
 
+const swipeEnabled = ref(false)
+const swipePosition = ref(0.5)
+const swipeLeftId = ref('')
+const swipeRightId = ref('')
+
+function _viewerAlive() {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return null
+  try {
+    if (typeof viewer.isDestroyed === 'function' && viewer.isDestroyed()) return null
+  } catch (_) {
+    // ignore
+  }
+  return viewer
+}
+
 const _RUNTIME_KEYS = Object.freeze({
   tileset: 'phase3-tileset',
   czml: 'phase3-czml',
@@ -299,15 +315,20 @@ async function addExtrudedPolygons(options = {}) {
   const css = String(options?.color || '#00F0FF').trim() || '#00F0FF'
   const a = Number.isFinite(opacity) ? Math.max(0.05, Math.min(1, opacity)) : 0.55
   const fill = Cesium.Color.fromCssColorString(css).withAlpha(a)
+  const stroke = fill.withAlpha(Math.min(0.9, a + 0.25))
+  const baseFill = fill.withAlpha(Math.max(0.12, a * 0.25))
 
   _removeOverlayEntry(_RUNTIME_KEYS.extruded)
 
   try {
     const ds = await Cesium.GeoJsonDataSource.load(geojson, {
       clampToGround: true,
-      stroke: fill.withAlpha(Math.min(0.9, a + 0.25)),
-      strokeWidth: 2,
-      fill: fill.withAlpha(Math.max(0.12, a * 0.25)),
+      // IMPORTANT: disable GeoJSON default stroke at load-time.
+      // Otherwise Cesium may create terrain-clamped polygon outlines and emit
+      // the one-time warning before we can set `polygon.outline = false`.
+      stroke: Cesium.Color.TRANSPARENT,
+      strokeWidth: 0,
+      fill: baseFill,
     })
 
     for (const ent of ds.entities.values) {
@@ -319,9 +340,22 @@ async function addExtrudedPolygons(options = {}) {
         // ignore
       }
       try {
+        poly.outline = false
         poly.material = fill
       } catch (_) {
         // ignore
+      }
+
+      // If the GeoJSON contains line features, re-apply a visible stroke.
+      const line = ent?.polyline
+      if (line) {
+        try {
+          line.clampToGround = true
+          line.width = 2
+          line.material = stroke
+        } catch (_) {
+          // ignore
+        }
       }
     }
 
@@ -354,7 +388,10 @@ async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
       const c = Cesium.Color.fromCssColorString(css).withAlpha(Math.max(0.15, a))
       for (const ent of existing.dataSource.entities.values) {
         if (ent?.polyline?.material) ent.polyline.material = c
-        if (ent?.polygon?.material) ent.polygon.material = c.withAlpha(Math.max(0.10, a * 0.35))
+        if (ent?.polygon) {
+          if (ent.polygon.material) ent.polygon.material = c.withAlpha(Math.max(0.10, a * 0.35))
+          ent.polygon.outline = false
+        }
         if (ent?.point?.color) ent.point.color = c
       }
     } catch (_) {
@@ -374,11 +411,47 @@ async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
 
     const ds = await Cesium.GeoJsonDataSource.load(geojson, {
       clampToGround: true,
-      stroke,
-      strokeWidth: 2,
+      // IMPORTANT: disable GeoJSON default stroke at load-time.
+      // Otherwise Cesium may create terrain-clamped polygon outlines and emit
+      // the one-time warning before we can set `polygon.outline = false`.
+      stroke: Cesium.Color.TRANSPARENT,
+      strokeWidth: 0,
       fill,
     })
     if (token !== applyToken.value) return
+
+    // Re-apply styling post-load so polylines remain visible while polygon
+    // outlines stay disabled on terrain.
+    try {
+      for (const ent of ds.entities.values) {
+        if (ent?.polyline) {
+          try {
+            ent.polyline.clampToGround = true
+            ent.polyline.width = 2
+            ent.polyline.material = stroke
+          } catch (_) {
+            // ignore
+          }
+        }
+        if (ent?.polygon) {
+          try {
+            ent.polygon.outline = false
+            ent.polygon.material = fill
+          } catch (_) {
+            // ignore
+          }
+        }
+        if (ent?.point) {
+          try {
+            ent.point.color = stroke
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
     try {
       ds.show = !!enabled
     } catch (_) {
@@ -742,6 +815,98 @@ function _reorderImageryLayers(layers) {
   }
 }
 
+function _resetSwipeDirections(viewer) {
+  if (!viewer) return
+  try {
+    for (const [, entry] of overlayHandles.value.entries()) {
+      if (entry?.kind !== 'imagery' || !entry?.layer) continue
+      try {
+        entry.layer.splitDirection = Cesium.ImagerySplitDirection.NONE
+      } catch (_) {
+        // ignore
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _applySwipeState(viewer) {
+  if (!viewer) return
+  const enabled = !!swipeEnabled.value
+  const pos = Math.max(0, Math.min(1, Number(swipePosition.value) || 0.5))
+
+  try {
+    viewer.scene.splitPosition = enabled ? pos : 0.5
+  } catch (_) {
+    // ignore
+  }
+
+  _resetSwipeDirections(viewer)
+  if (!enabled) return
+
+  const leftId = String(swipeLeftId.value || '').trim()
+  const rightId = String(swipeRightId.value || '').trim()
+  if (leftId) {
+    const e = _overlayEntry(leftId)
+    if (e?.kind === 'imagery' && e.layer) {
+      try {
+        e.layer.splitDirection = Cesium.ImagerySplitDirection.LEFT
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+  if (rightId) {
+    const e = _overlayEntry(rightId)
+    if (e?.kind === 'imagery' && e.layer) {
+      try {
+        e.layer.splitDirection = Cesium.ImagerySplitDirection.RIGHT
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+}
+
+function setSwipeMode(opts = {}) {
+  swipeEnabled.value = !!opts?.enabled
+  const pos = Number(opts?.position)
+  if (Number.isFinite(pos)) swipePosition.value = Math.max(0, Math.min(1, pos))
+
+  const leftId = String(opts?.left_layer_id || opts?.leftLayerId || '').trim()
+  const rightId = String(opts?.right_layer_id || opts?.rightLayerId || '').trim()
+  if (leftId || rightId) {
+    swipeLeftId.value = leftId
+    swipeRightId.value = rightId
+  }
+
+  const viewer = _viewerAlive()
+  _applySwipeState(viewer)
+  try {
+    viewer?.scene?.requestRender?.()
+  } catch (_) {
+    // ignore
+  }
+  return true
+}
+
+function setSwipePosition01(pos) {
+  const n = Number(pos)
+  if (!Number.isFinite(n)) return false
+  swipePosition.value = Math.max(0, Math.min(1, n))
+  const viewer = _viewerAlive()
+  if (viewer && swipeEnabled.value) {
+    _applySwipeState(viewer)
+    try {
+      viewer.scene?.requestRender?.()
+    } catch (_) {
+      // ignore
+    }
+  }
+  return true
+}
+
 async function applyLayersAsync(layers) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return
@@ -801,6 +966,12 @@ async function applyLayersAsync(layers) {
   _reorderImageryLayers(arr)
 
   try {
+    _applySwipeState(viewer)
+  } catch (_) {
+    // ignore
+  }
+
+  try {
     viewer.scene?.requestRender?.()
   } catch (_) {
     // ignore
@@ -842,6 +1013,8 @@ defineExpose({
   playCzmlAnimation,
   setGlobeTransparency,
   addExtrudedPolygons,
+  setSwipeMode,
+  setSwipePosition: setSwipePosition01,
   cesiumViewer,
   cesiumViewerInstance,
 })

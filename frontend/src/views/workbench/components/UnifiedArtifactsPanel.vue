@@ -20,6 +20,55 @@
 
     <div class="artifacts-body" data-testid="artifacts-body">
       <section v-if="tab === 'layers'" class="panel" aria-label="Layer & Data">
+        <div v-if="currentScale === 'earth'" class="swipe-box" aria-label="Swipe Compare Settings">
+          <div class="swipe-title">VIEW MODE</div>
+          <div class="mode-toggle" role="group" aria-label="View Mode">
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="!swipeEnabledModel"
+              :class="{ active: !swipeEnabledModel }"
+              @click="swipeEnabledModel = false"
+            >
+              Overlay
+            </button>
+            <button
+              class="mode-btn"
+              type="button"
+              :aria-pressed="swipeEnabledModel"
+              :class="{ active: swipeEnabledModel }"
+              @click="swipeEnabledModel = true"
+            >
+              Swipe
+            </button>
+          </div>
+
+          <div v-if="swipeEnabledModel" class="swipe-config" aria-label="Swipe Layer Selectors">
+            <div class="swipe-subtitle">SWIPE COMPARE</div>
+            <div class="swipe-grid">
+              <label class="swipe-field">
+                <span class="swipe-k">Left</span>
+                <select class="swipe-sel" v-model="swipeLeftModel" :disabled="!swipeLeftCandidates.length">
+                  <option value="">Auto</option>
+                  <option v-for="l in swipeLeftCandidates" :key="String(l.id)" :value="String(l.id)">
+                    {{ l.name || l.id }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="swipe-field">
+                <span class="swipe-k">Right</span>
+                <select class="swipe-sel" v-model="swipeRightModel" :disabled="!swipeRightCandidates.length">
+                  <option value="">Auto</option>
+                  <option v-for="l in swipeRightCandidates" :key="String(l.id)" :value="String(l.id)">
+                    {{ l.name || l.id }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div class="swipe-hint">Left excludes AI layers; Right is AI-only (used when Swipe mode is active).</div>
+          </div>
+        </div>
         <LayerTree v-model:layers="layersModel" :current-scale="currentScale" />
       </section>
 
@@ -55,11 +104,23 @@ const props = defineProps({
   code: { type: String, default: '' },
   reportText: { type: String, default: '' },
   charts: { type: Array, default: () => [] },
+  swipeEnabled: { type: Boolean, default: false },
+  swipeLeftLayerId: { type: String, default: '' },
+  swipeRightLayerId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:layers', 'update:code'])
+const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled', 'update:swipeLeftLayerId', 'update:swipeRightLayerId'])
 
 const tab = ref('layers')
+
+const swipeEnabledModel = computed({
+  get() {
+    return !!props.swipeEnabled
+  },
+  set(v) {
+    emit('update:swipeEnabled', !!v)
+  },
+})
 
 const layersModel = computed({
   get() {
@@ -76,6 +137,52 @@ const codeModel = computed({
   },
   set(v) {
     emit('update:code', String(v ?? ''))
+  },
+})
+
+const swipeCandidates = computed(() => {
+  const arr = Array.isArray(props.layers) ? props.layers : []
+
+  // Prefer "currently meaningful" Earth overlays:
+  // - anything that looks like an imagery overlay (has tile_url), OR
+  // - the built-in non-AI compare layers used by v7 demos.
+  const out = []
+  for (const l of arr) {
+    const id = String(l?.id || '').trim()
+    if (!id) continue
+    if (id === 'boundaries' || id === 'ai-vector' || id.endsWith('-vector')) continue
+    const tileUrl = String(l?.params?.tile_url || '').trim()
+    if (tileUrl || id === 'gee-heatmap' || id === 'anomaly-mask' || id === 'ai-imagery') out.push(l)
+  }
+
+  // Stable UX: enabled layers first so the dropdown is "what you see".
+  out.sort((a, b) => Number(!!b?.enabled) - Number(!!a?.enabled))
+  return out
+})
+
+function _isAiLayerId(id) {
+  const v = String(id || '').trim().toLowerCase()
+  return v === 'ai-imagery' || v.startsWith('ai-')
+}
+
+const swipeLeftCandidates = computed(() => swipeCandidates.value.filter((l) => !_isAiLayerId(l?.id)))
+const swipeRightCandidates = computed(() => swipeCandidates.value.filter((l) => _isAiLayerId(l?.id)))
+
+const swipeLeftModel = computed({
+  get() {
+    return String(props.swipeLeftLayerId || '')
+  },
+  set(v) {
+    emit('update:swipeLeftLayerId', String(v ?? ''))
+  },
+})
+
+const swipeRightModel = computed({
+  get() {
+    return String(props.swipeRightLayerId || '')
+  },
+  set(v) {
+    emit('update:swipeRightLayerId', String(v ?? ''))
   },
 })
 
@@ -145,6 +252,99 @@ function stringify(v) {
   height: 100%;
   padding: 10px;
   overflow: auto;
+}
+
+.swipe-box {
+  border-radius: 14px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: rgba(10, 15, 26, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.swipe-title {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 900;
+  opacity: 0.82;
+  margin-bottom: 8px;
+}
+
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.18);
+  margin-bottom: 10px;
+}
+
+.mode-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.mode-btn.active {
+  background: rgba(0, 240, 255, 0.14);
+  border-color: rgba(0, 240, 255, 0.26);
+  color: rgba(0, 240, 255, 0.95);
+  text-shadow: 0 0 18px rgba(0, 240, 255, 0.20);
+}
+
+.swipe-config {
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.swipe-subtitle {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 900;
+  opacity: 0.82;
+  margin: 6px 0 8px;
+}
+
+.swipe-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.swipe-field {
+  display: grid;
+  gap: 6px;
+}
+
+.swipe-k {
+  font-size: 11px;
+  opacity: 0.78;
+}
+
+.swipe-sel {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.86);
+  padding: 8px 10px;
+  font-size: 12px;
+  outline: none;
+}
+
+.swipe-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  opacity: 0.66;
 }
 
 .placeholder {

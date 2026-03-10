@@ -7,7 +7,7 @@ Model: qwen-plus
 This module is intentionally small and dependency-free (uses httpx).
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -167,3 +167,142 @@ async def generate_agent_analysis_openai_compatible(
         raise ValueError("LLM response missing message.content")
 
     return str(message["content"]).strip()
+
+
+async def generate_flavor_text_openai_compatible(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    user_prompt: str,
+    timeout_s: float = 12,
+    temperature: float = 0.4,
+    max_tokens: int = 240,
+) -> str:
+    """Generate short demo narration text via OpenAI-compatible Chat Completions.
+
+    This is intentionally simple and should be called behind a feature flag.
+    """
+
+    if not api_key:
+        raise ValueError("Missing LLM api_key")
+
+    prompt = (
+        "你是一名面向领导汇报场景的空间智能工作台演示解说员。\n"
+        "请基于用户指令，生成一段自然、克制、可信的中文讲解文案。\n"
+        "要求：\n"
+        "1) 80~160 字；\n"
+        "2) 不要编造不存在的数据；不确定则用‘可能/建议核查’；\n"
+        "3) 不要输出工具名或代码，只输出给观众听的讲解。\n\n"
+        f"用户指令：{str(user_prompt or '').strip()}\n"
+    )
+
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "你是严谨的空间情报分析助手。"},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+    choices = data.get("choices")
+    if not choices:
+        raise ValueError("LLM response missing choices")
+
+    message: Optional[Dict[str, Any]] = choices[0].get("message")
+    if not message or not message.get("content"):
+        raise ValueError("LLM response missing message.content")
+
+    return str(message["content"]).strip()
+
+
+async def plan_tool_calls_openai_compatible(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    user_prompt: str,
+    tools: List[Dict[str, Any]],
+    timeout_s: float = 12,
+    temperature: float = 0.2,
+    max_tokens: int = 700,
+) -> Dict[str, Any]:
+    """Ask an OpenAI-compatible model to decide tool calls for a user prompt.
+
+    Returns a dict with:
+      - content: optional assistant text (may be empty)
+      - tool_calls: list[{name: str, arguments: str}]
+
+    Notes:
+    - This should be called behind a feature flag.
+    - This function does not execute tools; it only plans calls.
+    """
+
+    if not api_key:
+        raise ValueError("Missing LLM api_key")
+
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是严谨的空间智能副驾。仅在确有必要时才调用工具，并保证参数是有效 JSON。",
+            },
+            {"role": "user", "content": str(user_prompt or "").strip()},
+        ],
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+    choices = data.get("choices")
+    if not choices:
+        raise ValueError("LLM response missing choices")
+
+    message: Optional[Dict[str, Any]] = choices[0].get("message")
+    if not message:
+        raise ValueError("LLM response missing message")
+
+    content = str(message.get("content") or "").strip()
+    raw_calls = message.get("tool_calls") or []
+
+    tool_calls: List[Dict[str, str]] = []
+    if isinstance(raw_calls, list):
+        for tc in raw_calls:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function")
+            if not isinstance(fn, dict):
+                continue
+            name = fn.get("name")
+            args = fn.get("arguments")
+            if not name:
+                continue
+            tool_calls.append({"name": str(name), "arguments": str(args or "").strip()})
+
+    return {"content": content, "tool_calls": tool_calls}

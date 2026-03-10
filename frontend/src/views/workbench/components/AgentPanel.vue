@@ -5,7 +5,6 @@
     <pre class="panel-pre">{{ text }}</pre>
 
     <div class="panel-row">
-      <button class="btn" type="button" @click="$emit('execute')">EXECUTE ON TWIN</button>
       <button class="btn secondary" type="button" @click="$emit('reset')">Reset</button>
     </div>
   </div>
@@ -16,7 +15,7 @@ defineProps({
   text: { type: String, default: '' },
 })
 
-defineEmits(['execute', 'reset'])
+defineEmits(['reset'])
 </script>
 
 <style scoped>

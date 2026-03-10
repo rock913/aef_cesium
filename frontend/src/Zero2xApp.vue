@@ -270,9 +270,14 @@ const query = ref(activeScenario.value?.label || '')
 const placeholder = computed(() => '请点击选择 V6.0 核心演示场景...')
 const isOmniOpen = ref(false)
 
-const workbenchHref = '/workbench'
-// Act 5 launch should enter a quiet workbench (no scenario context parameter).
-const workbenchLaunchpadHref = computed(() => '/workbench')
+const workbenchHref = computed(() => {
+  const ctx = String(selectedContextId.value || '').trim().toLowerCase()
+  if (!ctx) return '/workbench'
+  return `/workbench?context=${encodeURIComponent(ctx)}`
+})
+
+// Act 5 launch should enter the selected scenario (first step: jump into the correct context).
+const workbenchLaunchpadHref = computed(() => workbenchHref.value)
 
 const act2CinematicVideoOk = ref(true)
 const act3CinematicVideoOk = ref(true)
@@ -392,13 +397,13 @@ function selectScenario(scenario) {
   // zero2x_v6: wormhole teleportation — jump straight into the heavy workbench.
   // Keep it explicit (vs. router) because this repo uses path-based mounting.
   try {
-    window.location.href = `/workbench?context=${encodeURIComponent(String(s.id))}`
+    window.location.assign(workbenchHref.value)
   } catch (_) {
     // ignore
   }
 }
 
-function goWorkbench() { navigateWithFade(workbenchHref, { reason: 'landing-cta-workbench' }) }
+function goWorkbench() { navigateWithFade(workbenchHref.value, { reason: 'landing-cta-workbench' }) }
 function goWorkbenchLaunchpad() { navigateWithFade(workbenchLaunchpadHref.value, { reason: 'landing-cta-workbench-launchpad' }) }
 
 function onGlobalKeydown(e) {

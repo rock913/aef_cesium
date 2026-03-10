@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
+import asyncio
+import time
+from collections import deque
+import os
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
+
+from config import settings
 
 
 router = APIRouter(prefix="/api/v7", tags=["v7"])
@@ -41,6 +48,235 @@ class CopilotExecuteRequest(BaseModel):
 
 class CopilotExecuteResponse(BaseModel):
     events: List[CopilotEvent]
+
+
+_STUB_FALLBACK_FINAL = "已收到指令（stub）。请尝试点击 Prompt Gallery 的预置场景。"
+
+
+def _is_stub_fallback(events: List[CopilotEvent]) -> bool:
+    if not events:
+        return True
+    last = events[-1]
+    return last.type == "final" and str(last.text or "") == _STUB_FALLBACK_FINAL
+
+
+def _hybrid_router_enabled() -> bool:
+    v = str(os.getenv("V7_HYBRID_ROUTER", "")).strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+async def _maybe_hybridize_final_text(prompt: str, events: List[CopilotEvent]) -> List[CopilotEvent]:
+    """Optionally replace the final narration text using LLM.
+
+    Contract:
+    - Tool calls remain deterministic.
+    - Network calls happen only when V7_HYBRID_ROUTER=1 AND LLM_API_KEY is set.
+    """
+
+    if not _hybrid_router_enabled():
+        return events
+    if not str(getattr(settings, "llm_api_key", "") or "").strip():
+        return events
+
+    try:
+        from llm_service import generate_flavor_text_openai_compatible  # local import by design
+        text = await generate_flavor_text_openai_compatible(
+            base_url=str(settings.llm_base_url),
+            api_key=str(settings.llm_api_key),
+            model=str(settings.llm_model),
+            user_prompt=str(prompt or "").strip(),
+            timeout_s=float(getattr(settings, "llm_timeout_s", 12)),
+        )
+        for e in reversed(events):
+            if e.type == "final":
+                e.text = text
+                break
+    except Exception:
+        # Keep demo safe: never fail execution due to LLM.
+        return events
+
+    return events
+
+
+_HYBRID_TOOL_ALLOWLIST = {
+    # Navigation / scale
+    "camera_fly_to",
+    "fly_to",
+    "switch_scale",
+    # Cesium layers + compare
+    "add_cesium_imagery",
+    "add_cesium_vector",
+    "enable_swipe_mode",
+    "set_swipe_position",
+    "disable_swipe_mode",
+    # Artifacts
+    "show_chart",
+    "render_bivariate_map",
+    "generate_report",
+    # Cinematic / viz toggles (safe UI)
+    "enable_3d_terrain",
+    "add_cesium_3d_tiles",
+    "apply_custom_shader",
+    "generate_cesium_custom_shader",
+    "add_cesium_extruded_polygons",
+    "set_scene_mode",
+    "play_czml_animation",
+    "set_globe_transparency",
+    "add_subsurface_model",
+    "trigger_gsap_wormhole",
+    "show_terminator_shield",
+    "spin_macro_camera",
+}
+
+
+def _tooldef_by_name() -> Dict[str, ToolDef]:
+    return {t.name: t for t in _TOOLS}
+
+
+def _tooldef_to_openai_tool(t: ToolDef) -> Dict[str, Any]:
+    props: Dict[str, Any] = {}
+    for k, v in (t.args_schema or {}).items():
+        if not isinstance(k, str):
+            continue
+        props[k] = v if isinstance(v, dict) else {"type": "string"}
+    return {
+        "type": "function",
+        "function": {
+            "name": t.name,
+            "description": t.description,
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _filter_tool_args(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    tool = _tooldef_by_name().get(tool_name)
+    if not tool:
+        return {}
+    allowed = set((tool.args_schema or {}).keys())
+    if not allowed:
+        return {}
+    out: Dict[str, Any] = {}
+    for k, v in (args or {}).items():
+        if k in allowed:
+            out[k] = v
+    return out
+
+
+async def _maybe_hybrid_explore_events(prompt: str) -> Optional[List[CopilotEvent]]:
+    """Hybrid Router exploration mode (branch B).
+
+    Only used when:
+    - feature flag enabled
+    - api key exists
+    - stub would otherwise fall back
+
+    The model may suggest tool calls; we emit them as CopilotEvents but never execute tools here.
+    """
+
+    if not _hybrid_router_enabled():
+        return None
+    if not str(getattr(settings, "llm_api_key", "") or "").strip():
+        return None
+
+    # Soft rate-limit to avoid accidental LLM spamming in explore mode.
+    # In-memory only (per-process) by design.
+    try:
+        per_min = int(getattr(settings, "hybrid_explore_rate_limit_per_min", 30))
+    except Exception:
+        per_min = 30
+    if per_min > 0:
+        now = time.monotonic()
+        window_s = 60.0
+        try:
+            q = _HYBRID_EXPLORE_CALLS
+        except NameError:
+            q = deque()  # type: ignore
+            globals()["_HYBRID_EXPLORE_CALLS"] = q
+        while q and (now - float(q[0])) > window_s:
+            q.popleft()
+        if len(q) >= per_min:
+            return None
+        q.append(now)
+
+    try:
+        from llm_service import plan_tool_calls_openai_compatible  # local import by design
+
+        allowed_defs = [t for t in _TOOLS if t.name in _HYBRID_TOOL_ALLOWLIST]
+        openai_tools = [_tooldef_to_openai_tool(t) for t in allowed_defs]
+
+        try:
+            max_calls = int(getattr(settings, "hybrid_explore_max_tool_calls", 8))
+        except Exception:
+            max_calls = 8
+        max_calls = max(0, min(32, max_calls))
+
+        try:
+            hard_timeout_s = float(getattr(settings, "hybrid_explore_timeout_s", getattr(settings, "llm_timeout_s", 12)))
+        except Exception:
+            hard_timeout_s = float(getattr(settings, "llm_timeout_s", 12))
+        hard_timeout_s = max(1.0, min(60.0, hard_timeout_s))
+
+        coro = plan_tool_calls_openai_compatible(
+            base_url=str(settings.llm_base_url),
+            api_key=str(settings.llm_api_key),
+            model=str(settings.llm_model),
+            user_prompt=str(prompt or "").strip(),
+            tools=openai_tools,
+            timeout_s=float(getattr(settings, "llm_timeout_s", 12)),
+            temperature=float(getattr(settings, "llm_temperature", 0.2)),
+            max_tokens=int(getattr(settings, "llm_max_tokens", 700)),
+        )
+
+        resp = await asyncio.wait_for(coro, timeout=hard_timeout_s)
+
+        content = str((resp or {}).get("content") or "").strip()
+        raw_calls = (resp or {}).get("tool_calls") or []
+        events: List[CopilotEvent] = []
+
+        calls = raw_calls if isinstance(raw_calls, list) else []
+        calls = calls[:max_calls]
+        for tc in calls:
+            if not isinstance(tc, dict):
+                continue
+            name = str(tc.get("name") or "").strip()
+            if not name or name not in _HYBRID_TOOL_ALLOWLIST:
+                continue
+            arg_s = str(tc.get("arguments") or "").strip()
+            if len(arg_s) > 16000:
+                # Drop suspiciously large payloads.
+                arg_s = ""
+            parsed: Dict[str, Any] = {}
+            if arg_s:
+                try:
+                    parsed_any = json.loads(arg_s)
+                    if isinstance(parsed_any, dict):
+                        parsed = parsed_any
+                except Exception:
+                    parsed = {}
+
+            parsed = _filter_tool_args(name, parsed)
+            events.append(CopilotEvent(type="tool_call", tool=name, args=parsed))
+            events.append(CopilotEvent(type="tool_result", tool=name, result="ok"))
+
+        if not events:
+            # No tools suggested; return a pure-text answer if any.
+            if content:
+                return [CopilotEvent(type="final", text=content)]
+            return None
+
+        events.append(CopilotEvent(type="final", text=content or "已下发工具指令。"))
+        return events
+
+    except Exception:
+        # Offline-safe: never fail execution due to LLM/network.
+        return None
+
+
 
 
 _PRESETS: List[CopilotPreset] = [
@@ -156,6 +392,27 @@ _TOOLS: List[ToolDef] = [
             "opacity": {"type": "number"},
             "color": {"type": "string"},
         },
+    ),
+    ToolDef(
+        name="enable_swipe_mode",
+        description="Enable Cesium swipe split-view compare mode (assign left/right imagery layers and set split position).",
+        args_schema={
+            "left_layer_id": {"type": "string"},
+            "right_layer_id": {"type": "string"},
+            "position": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="set_swipe_position",
+        description="Set swipe split position (0..1).",
+        args_schema={
+            "position": {"type": "number"},
+        },
+    ),
+    ToolDef(
+        name="disable_swipe_mode",
+        description="Disable swipe split-view and reset split directions.",
+        args_schema={},
     ),
     ToolDef(
         name="show_chart",
@@ -615,6 +872,12 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="add_cesium_imagery", result="ok"),
                 CopilotEvent(
                     type="tool_call",
+                    tool="enable_swipe_mode",
+                    args={"left_layer_id": "ai-imagery", "right_layer_id": "gee-heatmap", "position": 0.5},
+                ),
+                CopilotEvent(type="tool_result", tool="enable_swipe_mode", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
                     tool="generate_report",
                     args={
                         "text": "# 余杭城建审计\n\n"
@@ -886,7 +1149,7 @@ async def _execute_stub(
         return events
 
     # Fallback.
-    events.append(CopilotEvent(type="final", text="已收到指令（stub）。请尝试点击 Prompt Gallery 的预置场景。"))
+    events.append(CopilotEvent(type="final", text=_STUB_FALLBACK_FINAL))
     return events
 
 
@@ -894,4 +1157,20 @@ async def _execute_stub(
 async def copilot_execute(request: Request, req: CopilotExecuteRequest) -> CopilotExecuteResponse:
     prompt = str(req.prompt or "")
     events = await _execute_stub(request, prompt, context_id=req.context_id, scale=req.scale)
+
+    # Hybrid exploration (branch B): only when stub would otherwise fall back.
+    if _is_stub_fallback(events):
+        try:
+            explored = await _maybe_hybrid_explore_events(prompt)
+            if explored:
+                return CopilotExecuteResponse(events=explored)
+        except Exception:
+            # Never fail the deterministic stub.
+            pass
+
+    try:
+        events = await _maybe_hybridize_final_text(prompt, events)
+    except Exception:
+        # Never fail the deterministic stub.
+        pass
     return CopilotExecuteResponse(events=events)

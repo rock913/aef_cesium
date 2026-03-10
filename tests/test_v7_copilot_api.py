@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import types
 from pathlib import Path
@@ -67,6 +68,11 @@ def test_v7_tools_list() -> None:
     assert "add_subsurface_model" in names
     assert "trigger_gsap_wormhole" in names
 
+    # v7.2 twin spatial mode tools
+    assert "enable_swipe_mode" in names
+    assert "set_swipe_position" in names
+    assert "disable_swipe_mode" in names
+
 
 def test_v7_execute_returns_events() -> None:
     client = _client()
@@ -102,6 +108,8 @@ def test_v7_demo1_yuhang_emits_imagery_and_report() -> None:
     tools = _event_tools(events)
     assert "add_cesium_imagery" in tools
     assert "generate_report" in tools
+    # v7.2: Demo 1 may auto-enter swipe compare mode
+    assert "enable_swipe_mode" in tools
 
 
 def test_v7_demo2_amazon_emits_vector_and_report() -> None:
@@ -113,6 +121,118 @@ def test_v7_demo2_amazon_emits_vector_and_report() -> None:
     tools = _event_tools(events)
     assert "add_cesium_vector" in tools
     assert "generate_report" in tools
+
+
+def test_v7_hybrid_router_flag_safe_without_key() -> None:
+    client = _client()
+    old = os.environ.get("V7_HYBRID_ROUTER")
+    os.environ["V7_HYBRID_ROUTER"] = "1"
+    try:
+        r = client.post("/api/v7/copilot/execute", json={"prompt": "Demo 1 余杭 城建 审计"})
+        assert r.status_code == 200
+        events = (r.json() or {}).get("events")
+        assert isinstance(events, list)
+        assert any(e.get("type") == "final" for e in events)
+    finally:
+        if old is None:
+            os.environ.pop("V7_HYBRID_ROUTER", None)
+        else:
+            os.environ["V7_HYBRID_ROUTER"] = old
+
+
+def test_v7_hybrid_router_unknown_prompt_safe_without_key() -> None:
+    client = _client()
+    old = os.environ.get("V7_HYBRID_ROUTER")
+    os.environ["V7_HYBRID_ROUTER"] = "1"
+    try:
+        r = client.post("/api/v7/copilot/execute", json={"prompt": "帮我对比一下这两年的变化"})
+        assert r.status_code == 200
+        events = (r.json() or {}).get("events")
+        assert isinstance(events, list)
+        assert any(e.get("type") == "final" for e in events)
+    finally:
+        if old is None:
+            os.environ.pop("V7_HYBRID_ROUTER", None)
+        else:
+            os.environ["V7_HYBRID_ROUTER"] = old
+
+
+def test_v7_hybrid_router_explore_filters_tool_calls_offline() -> None:
+    old_flag = os.environ.get("V7_HYBRID_ROUTER")
+    old_key = os.environ.get("LLM_API_KEY")
+    os.environ["V7_HYBRID_ROUTER"] = "1"
+    os.environ["LLM_API_KEY"] = "test-key"
+
+    try:
+        # Create a fresh client so backend/config picks up LLM_API_KEY.
+        backend_path = Path(__file__).parent.parent / "backend"
+        sys.path.insert(0, str(backend_path))
+        if "ee" not in sys.modules:
+            fake_ee = types.ModuleType("ee")
+            fake_ee.Geometry = types.SimpleNamespace(Point=lambda *a, **k: None)
+            sys.modules["ee"] = fake_ee
+        for m in ["main", "config", "v7_copilot", "llm_service"]:
+            sys.modules.pop(m, None)
+        import main as main_module  # noqa: WPS433
+
+        client = TestClient(main_module.app)
+
+        import llm_service  # noqa: WPS433
+
+        async def _fake_plan_tool_calls_openai_compatible(**_kwargs):
+            return {
+                "content": "mock-plan",
+                "tool_calls": [
+                    {
+                        "name": "enable_swipe_mode",
+                        "arguments": '{"left_layer_id":"gee-heatmap","right_layer_id":"anomaly-mask","position":0.25,"evil":1}',
+                    },
+                    {"name": "delete_all", "arguments": "{}"},
+                    {
+                        "name": "camera_fly_to",
+                        "arguments": '{"lat":10,"lon":20,"height":1000,"duration_s":1.0,"oops":"x"}',
+                    },
+                ],
+            }
+
+        llm_service.plan_tool_calls_openai_compatible = _fake_plan_tool_calls_openai_compatible
+
+        r = client.post("/api/v7/copilot/execute", json={"prompt": "随便探索一下，不要命中 Demo"})
+        assert r.status_code == 200
+        events = (r.json() or {}).get("events")
+        assert isinstance(events, list)
+
+        tools = _event_tools(events)
+        assert "enable_swipe_mode" in tools
+        assert "camera_fly_to" in tools
+        assert "delete_all" not in tools
+
+        swipe_calls = [e for e in events if e.get("type") == "tool_call" and e.get("tool") == "enable_swipe_mode"]
+        assert len(swipe_calls) == 1
+        swipe_args = swipe_calls[0].get("args")
+        assert isinstance(swipe_args, dict)
+        assert swipe_args.get("left_layer_id") == "gee-heatmap"
+        assert swipe_args.get("right_layer_id") == "anomaly-mask"
+        assert "evil" not in swipe_args
+
+        fly_calls = [e for e in events if e.get("type") == "tool_call" and e.get("tool") == "camera_fly_to"]
+        assert len(fly_calls) == 1
+        fly_args = fly_calls[0].get("args")
+        assert isinstance(fly_args, dict)
+        assert fly_args.get("lat") == 10
+        assert fly_args.get("lon") == 20
+        assert "oops" not in fly_args
+
+        assert any(e.get("type") == "final" for e in events)
+    finally:
+        if old_flag is None:
+            os.environ.pop("V7_HYBRID_ROUTER", None)
+        else:
+            os.environ["V7_HYBRID_ROUTER"] = old_flag
+        if old_key is None:
+            os.environ.pop("LLM_API_KEY", None)
+        else:
+            os.environ["LLM_API_KEY"] = old_key
 
 
 def test_v7_demo3_maowusu_emits_imagery_and_report() -> None:

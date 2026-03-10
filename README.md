@@ -102,6 +102,25 @@ make docker-dev-up
 make docker-dev-check
 ```
 
+远程访问（公网 IP / 反代）说明
+
+- 默认情况下，compose 会把 8404/8405 绑定到 `127.0.0.1`（仅本机可访问）。如果你需要从其他机器访问（例如 `http://<server-ip>:8404`），请显式开放绑定：
+
+```bash
+ONEEARTH_BIND_IP=0.0.0.0 make docker-dev-up
+```
+
+- 如果你通过公网 IP / 反向代理访问 Vite Dev Server，HMR websocket 可能不可达；两种处理方式：
+  - 最简单：禁用 HMR（适合演示/只读访问）：`VITE_DISABLE_HMR=1 ONEEARTH_BIND_IP=0.0.0.0 make docker-dev-up`
+  - 或者指定 HMR host/port（适合需要热更新）：设置 `VITE_HMR_HOST/VITE_HMR_PORT/VITE_HMR_CLIENT_PORT`（见 frontend/vite.config.js）。
+
+常见 502 排障（你浏览器里看到 `/src/App.vue` 或 `/api/tiles/*` 502）
+
+- 先确认 502 是不是来自 Vite：
+  - 正常命中 Vite 时，响应头会带 `X-OneEarth-Upstream: vite-dev`。
+  - 如果没有该响应头，通常说明你打到的是“外层 nginx/反代/端口占用者”在返回 502，而不是本项目的 Vite。
+- 若 `/api/tiles/*` 频繁报错：优先检查 backend 容器是否在运行（`make docker-dev-ps` / `make docker-dev-logs`），以及是否被外层反代正确转发到 8404（让前端通过同源 `/api` 代理到 8405）。
+
 ### Docker Prod 一键跑通（8406/8407）
 
 适用于“静态前端 + 同源 /api 反代”的更接近生产的形态。
