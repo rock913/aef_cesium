@@ -1148,6 +1148,13 @@ async function addExtrudedPolygons(options = {}) {
   if (!geojson) return false
 
   const height = Number(options?.height)
+  const heightProperty = String(options?.height_property || '').trim()
+  const heightScaleRaw = Number(options?.height_scale)
+  const heightScale = Number.isFinite(heightScaleRaw) ? heightScaleRaw : 1.0
+  const heightMinRaw = Number(options?.height_min)
+  const heightMaxRaw = Number(options?.height_max)
+  const heightMin = Number.isFinite(heightMinRaw) ? heightMinRaw : 0.0
+  const heightMax = Number.isFinite(heightMaxRaw) ? heightMaxRaw : Number.POSITIVE_INFINITY
   const opacity = Number(options?.opacity)
   const css = String(options?.color || '#00F0FF').trim() || '#00F0FF'
   const a = Number.isFinite(opacity) ? Math.max(0.05, Math.min(1, opacity)) : 0.55
@@ -1172,7 +1179,19 @@ async function addExtrudedPolygons(options = {}) {
       const poly = ent?.polygon
       if (!poly) continue
       try {
-        if (Number.isFinite(height)) poly.extrudedHeight = height
+        if (Number.isFinite(height)) {
+          poly.extrudedHeight = height
+        } else if (heightProperty) {
+          const props = ent?.properties
+          const v = props?.[heightProperty]
+          const now = Cesium.JulianDate.now()
+          const raw = (typeof v?.getValue === 'function') ? v.getValue(now) : v
+          const num = Number(raw)
+          if (Number.isFinite(num)) {
+            const h = Math.max(heightMin, Math.min(heightMax, num * heightScale))
+            poly.extrudedHeight = h
+          }
+        }
       } catch (_) {
         // ignore
       }

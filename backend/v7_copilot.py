@@ -474,6 +474,10 @@ _TOOLS: List[ToolDef] = [
         args_schema={
             "geojson": {"type": "object"},
             "height": {"type": "number"},
+            "height_property": {"type": "string"},
+            "height_scale": {"type": "number"},
+            "height_min": {"type": "number"},
+            "height_max": {"type": "number"},
             "color": {"type": "string"},
             "opacity": {"type": "number"},
         },
@@ -1055,13 +1059,78 @@ async def _execute_stub(
         return events
 
     if "塔拉滩" in p or "光伏" in p or "co-occurrence" in lc or "共现" in p:
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"name": "PV-A", "panel_area": 520000},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [101.62, 36.06],
+                                [101.66, 36.06],
+                                [101.66, 36.09],
+                                [101.62, 36.09],
+                                [101.62, 36.06],
+                            ]
+                        ],
+                    },
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "PV-B", "panel_area": 310000},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [101.69, 36.10],
+                                [101.73, 36.10],
+                                [101.73, 36.13],
+                                [101.69, 36.13],
+                                [101.69, 36.10],
+                            ]
+                        ],
+                    },
+                },
+            ],
+        }
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 36.10, "lon": 101.70, "height": 180000, "duration_s": 4.2}),
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="aef_spatial_co_occurrence", args={"layer1": "A00_solar", "layer2": "A01_biomass"}),
                 CopilotEvent(type="tool_result", tool="aef_spatial_co_occurrence", result={"status": "stub", "matrix": ""}),
-                CopilotEvent(type="final", text="已生成光伏×生物量共现性计算指令（stub）。"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="add_cesium_extruded_polygons",
+                    args={
+                        "geojson": geojson,
+                        "height_property": "panel_area",
+                        "height_scale": 0.00035,
+                        "height_min": 12.0,
+                        "height_max": 180.0,
+                        "color": "#00F0FF",
+                        "opacity": 0.55,
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_extruded_polygons", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="show_chart",
+                    args={
+                        "kind": "bar",
+                        "title": "塔拉滩光伏面元（stub）",
+                        "data": {
+                            "labels": ["PV-A", "PV-B"],
+                            "values": [520000, 310000],
+                            "unit": "m²",
+                        },
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="show_chart", result="ok"),
+                CopilotEvent(type="final", text="已生成光伏×生物量共现性指令（stub），并挂载了 Demo 6 的拉伸面元 + 图表用于端到端验收。"),
             ]
         )
         return events

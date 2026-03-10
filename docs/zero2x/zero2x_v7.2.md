@@ -14,7 +14,9 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 
 下一步（🟡）
 - ✅ Demo 13 进阶：已固化“LLM 输出 WGSL 模板”（compute body 可自动 wrap 成完整 WGSL module），让模型生成代码更稳定可执行。
-- 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts 业务样式与示例数据）。
+- 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts）。
+  - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
+  - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
 
 分支与落地记录
 - 分支：`patch/0303-v72-phase4`

@@ -113,6 +113,17 @@ def test_v7_execute_webgpu_demo_emits_wgsl_tool_calls() -> None:
     assert "execute_dynamic_wgsl" in tools
 
 
+def test_v7_execute_demo6_talatan_emits_extruded_and_chart() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "Demo 6 塔拉滩 光伏 面积"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "add_cesium_extruded_polygons" in tools
+    assert "show_chart" in tools
+
+
 def _event_tools(events: list[dict]) -> list[str | None]:
     return [e.get("tool") for e in events if e.get("type") == "tool_call"]
 
