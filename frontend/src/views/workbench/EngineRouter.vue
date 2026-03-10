@@ -189,26 +189,103 @@ async function executeDynamicWgsl(options = {}) {
     // ignore
   }
 
-  // Validate WGSL at least compiles into a ShaderModule.
+  const BU = (typeof globalThis !== 'undefined' && globalThis.GPUBufferUsage)
+    ? globalThis.GPUBufferUsage
+    : { MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008, INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080, INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200 }
+
+  const FALLBACK_WGSL = `
+struct Camera {
+  view : mat4x4<f32>,
+  proj : mat4x4<f32>,
+}
+
+struct Particles {
+  data : array<vec4<f32>>,
+}
+
+@group(0) @binding(0) var<storage, read_write> particles : Particles;
+@group(0) @binding(1) var<uniform> uCamera : Camera;
+@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, _, _
+
+@compute @workgroup_size(256)
+fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  let n = arrayLength(&particles.data);
+  if (i >= n) { return; }
+  let t = uParams.x;
+  let s = max(0.0, uParams.y);
+  var p = particles.data[i];
+  // Tiny swirling motion in ECEF meters (demo-safe).
+  let a = f32(i) * 0.0001 + t * 0.6;
+  p.x = p.x + sin(a) * (2.0 * s);
+  p.y = p.y + cos(a) * (2.0 * s);
+  particles.data[i] = p;
+}
+
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+  @location(0) color : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  let p = particles.data[vid];
+  out.Position = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+  out.color = vec4<f32>(1.0, 0.95, 0.3, 0.8);
+  return out;
+}
+
+@fragment
+fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+  return in.color;
+}
+`
+
+  let shaderModule = null
+  let fallbackUsed = false
   try {
-    device.createShaderModule({ code: wgsl })
+    shaderModule = device.createShaderModule({ code: wgsl })
   } catch (_) {
-    // Still keep the sandbox alive (demo-safe), but report failure.
-    _webgpuState = { device, ctx, format, particleCount, wgslError: true }
+    fallbackUsed = true
+    try {
+      shaderModule = device.createShaderModule({ code: FALLBACK_WGSL })
+    } catch (_) {
+      shaderModule = null
+    }
   }
 
   // Uniform buffer for camera matrices (view + proj = 2 * mat4 = 128 bytes).
   let cameraUbo = null
   try {
-    const BU = (typeof globalThis !== 'undefined' && globalThis.GPUBufferUsage)
-      ? globalThis.GPUBufferUsage
-      : { UNIFORM: 0x10, COPY_DST: 0x08 }
     cameraUbo = device.createBuffer({
       size: 128,
       usage: (BU.UNIFORM || 0x10) | (BU.COPY_DST || 0x08),
     })
   } catch (_) {
     cameraUbo = null
+  }
+
+  // Params buffer for time/step scale (vec4 = 16 bytes).
+  let paramsUbo = null
+  try {
+    paramsUbo = device.createBuffer({
+      size: 16,
+      usage: (BU.UNIFORM || 0x10) | (BU.COPY_DST || 0x08),
+    })
+  } catch (_) {
+    paramsUbo = null
+  }
+
+  // Particle storage buffer: vec4<f32> per particle.
+  let particleBuf = null
+  try {
+    particleBuf = device.createBuffer({
+      size: particleCount * 16,
+      usage: (BU.STORAGE || 0x80) | (BU.COPY_DST || 0x08),
+    })
+  } catch (_) {
+    particleBuf = null
   }
 
   const cameraScratch = new Float32Array(32)
@@ -227,6 +304,52 @@ async function executeDynamicWgsl(options = {}) {
       // ignore
     }
   }
+
+  const paramsScratch = new Float32Array(4)
+  let t0 = 0
+  function _writeParams() {
+    if (!paramsUbo) return
+    try {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+      if (!t0) t0 = now
+      const t = (now - t0) / 1000.0
+      paramsScratch[0] = t
+      paramsScratch[1] = 1.0
+      paramsScratch[2] = 0.0
+      paramsScratch[3] = 0.0
+      device.queue.writeBuffer(paramsUbo, 0, paramsScratch)
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function _seedParticles() {
+    if (!particleBuf) return
+    try {
+      const center = viewer.camera?.positionWC
+      const dir = viewer.camera?.directionWC
+      if (!center || !dir) return
+      const base = Cesium.Cartesian3.add(center, Cesium.Cartesian3.multiplyByScalar(dir, 150000.0, new Cesium.Cartesian3()), new Cesium.Cartesian3())
+
+      const arr = new Float32Array(particleCount * 4)
+      for (let i = 0; i < particleCount; i += 1) {
+        // Small scatter in meters around base.
+        const j = i * 4
+        const rx = (Math.random() - 0.5) * 8000.0
+        const ry = (Math.random() - 0.5) * 8000.0
+        const rz = (Math.random() - 0.5) * 8000.0
+        arr[j + 0] = base.x + rx
+        arr[j + 1] = base.y + ry
+        arr[j + 2] = base.z + rz
+        arr[j + 3] = 1.0
+      }
+      device.queue.writeBuffer(particleBuf, 0, arr)
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  _seedParticles()
 
   function _renderClearPass() {
     try {
@@ -249,14 +372,125 @@ async function executeDynamicWgsl(options = {}) {
     }
   }
 
+  let bindGroupLayout = null
+  let pipelineLayout = null
+  let bindGroup = null
+  let computePipeline = null
+  let renderPipeline = null
+  let pipelineReady = false
+
+  try {
+    if (shaderModule && cameraUbo && paramsUbo && particleBuf) {
+      bindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          {
+            binding: 0,
+            visibility: (globalThis.GPUShaderStage?.COMPUTE || 0x04) | (globalThis.GPUShaderStage?.VERTEX || 0x01),
+            buffer: { type: 'storage' },
+          },
+          {
+            binding: 1,
+            visibility: globalThis.GPUShaderStage?.VERTEX || 0x01,
+            buffer: { type: 'uniform' },
+          },
+          {
+            binding: 2,
+            visibility: globalThis.GPUShaderStage?.COMPUTE || 0x04,
+            buffer: { type: 'uniform' },
+          },
+        ],
+      })
+      pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] })
+      bindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: particleBuf } },
+          { binding: 1, resource: { buffer: cameraUbo } },
+          { binding: 2, resource: { buffer: paramsUbo } },
+        ],
+      })
+
+      computePipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+        compute: { module: shaderModule, entryPoint: 'cs_main' },
+      })
+
+      renderPipeline = device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main' },
+        fragment: {
+          module: shaderModule,
+          entryPoint: 'fs_main',
+          targets: [
+            {
+              format,
+              blend: {
+                color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              },
+            },
+          ],
+        },
+        primitive: { topology: 'point-list' },
+      })
+
+      pipelineReady = true
+    }
+  } catch (_) {
+    pipelineReady = false
+    computePipeline = null
+    renderPipeline = null
+  }
+
+  function _computeAndRender() {
+    if (!pipelineReady || !computePipeline || !renderPipeline || !bindGroup) {
+      _renderClearPass()
+      return
+    }
+    try {
+      const encoder = device.createCommandEncoder()
+
+      // Compute pass (update particles).
+      const cpass = encoder.beginComputePass()
+      cpass.setPipeline(computePipeline)
+      cpass.setBindGroup(0, bindGroup)
+      const wg = 256
+      const workgroups = Math.ceil(particleCount / wg)
+      cpass.dispatchWorkgroups(workgroups)
+      cpass.end()
+
+      // Render pass (draw points into transparent overlay).
+      const view = ctx.getCurrentTexture().createView()
+      const rpass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view,
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
+      })
+      rpass.setPipeline(renderPipeline)
+      rpass.setBindGroup(0, bindGroup)
+      rpass.draw(particleCount, 1, 0, 0)
+      rpass.end()
+
+      device.queue.submit([encoder.finish()])
+    } catch (_) {
+      _renderClearPass()
+    }
+  }
+
   // Event-driven overlay: sync on Cesium postRender.
   const unsub = _addScenePostRender(viewer, () => {
     _writeCameraUniforms()
-    _renderClearPass()
+    _writeParams()
+    _computeAndRender()
   })
   _postRenderUnsub = unsub
 
-  _webgpuState = { device, ctx, format, particleCount, cameraUbo }
+  _webgpuState = { device, ctx, format, particleCount, cameraUbo, paramsUbo, particleBuf, pipelineReady, fallbackUsed }
 
   _webgpuCleanup = () => {
     try {
@@ -270,9 +504,19 @@ async function executeDynamicWgsl(options = {}) {
     } catch (_) {
       // ignore
     }
+    try {
+      paramsUbo?.destroy?.()
+    } catch (_) {
+      // ignore
+    }
+    try {
+      particleBuf?.destroy?.()
+    } catch (_) {
+      // ignore
+    }
   }
 
-  return { ok: true, particle_count: particleCount }
+  return { ok: true, particle_count: particleCount, fallback_used: fallbackUsed, pipeline_ready: pipelineReady }
 }
 
 function enableSubsurfaceMode(options = {}) {

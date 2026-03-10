@@ -8,11 +8,12 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 - ✅ M0：Demo 11 基础能力与 Copilot tool_call → 引擎执行链路保持稳定。
 - ✅ M1：Demo 12 最小闭环：`enable_subsurface_mode` 已打通（透明地球 + 关闭碰撞 + 可选下潜）。
 - ✅ M2：Demo 13 最小沙盒骨架：`execute_dynamic_wgsl` 已打通（WGSL 写入编辑区 + WebGPU overlay + `scene.postRender` 同步 + `device.limits` 降级）。
+- ✅ v7.2 可逆/清理：`disable_subsurface_mode`、`destroy_webgpu_sandbox` 已打通（退出地下模式、销毁 overlay）。
+- ✅ Demo 13 进阶（最小 compute+render）：在 overlay 中增加了 demo-safe 的 compute+render 管线（若动态 WGSL 不兼容会自动回退到内置 WGSL/清屏）。
 - ✅ 回归测试已覆盖：后端 `/api/v7/tools` 工具清单包含 v7.2 新工具；前端契约测试锁定 WebGPU overlay 与 postRender 同步策略。
 
 下一步（🟡）
-- 🟡 补齐“可逆/清理”工具：`disable_subsurface_mode`、`destroy_webgpu_sandbox`（用于退出地下模式、销毁 overlay，确保长时间演示不堆积状态）。
-- 🟡 Demo 13 进阶：在“安全沙盒”基础上增加一个最小 compute+render 示例（不追求百万粒子，先保证可观测、可复现、可降级）。
+- 🟡 Demo 13 进阶：约定并固化一份“LLM 输出 WGSL 模板”（entryPoints/绑定布局），让模型生成代码更稳定可执行。
 - 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts 业务样式与示例数据）。
 
 分支与落地记录

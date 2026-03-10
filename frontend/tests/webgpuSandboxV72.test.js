@@ -24,6 +24,10 @@ describe('v7.2 WebGPU sandbox contracts', () => {
 
     // Hardware limits sniffing (adaptive degradation) should be present.
     expect(sEngine).toMatch(/device\.limits\./)
+
+    // Minimal demo-safe compute+render example should exist (not just a clear pass).
+    expect(sEngine).toMatch(/createComputePipeline/)
+    expect(sEngine).toMatch(/createRenderPipeline/)
   })
 
   it('Workbench handles v7.2 tool calls for subsurface + dynamic WGSL execution', () => {
