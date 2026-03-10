@@ -616,7 +616,7 @@ function ensureTabKind(kind) {
 }
 
 const layers = ref([
-  { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } },
+  { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: false, params: { opacity: 0.78 } },
   { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } },
   { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } },
   { id: 'ai-imagery', name: 'AI Imagery Overlay', enabled: false, params: { opacity: 0.65, tile_url: '' } },
@@ -660,7 +660,7 @@ function _normalizeLayers(arr) {
   const a = Array.isArray(arr) ? arr : []
   const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-imagery', 'ai-vector', 'bloom', 'macro-spiral', 'micro-atoms'])
   const defaults = new Map([
-    ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: true, params: { opacity: 0.78 } }],
+    ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: false, params: { opacity: 0.78 } }],
     ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } }],
     ['anomaly-mask', { id: 'anomaly-mask', name: 'Anomaly Mask', enabled: false, params: { opacity: 0.45, threshold: 0.10, palette: 'FF4D6D' } }],
     ['ai-imagery', { id: 'ai-imagery', name: 'AI Imagery Overlay', enabled: false, params: { opacity: 0.65, tile_url: '' } }],
@@ -1538,7 +1538,10 @@ onMounted(() => {
     const layersRaw = window.sessionStorage?.getItem?.('z2x:layers') || ''
     const layersParsed = _normalizeLayers(_safeJsonParse(layersRaw, null))
     if (layersParsed && layersParsed.length) {
-      layers.value = layersParsed
+      // UX: keep these heavy / diagnostic overlays unchecked by default.
+      // This is applied on restore as well to avoid surprising users.
+      const forceOff = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-vector'])
+      layers.value = (layersParsed || []).map((l) => (forceOff.has(String(l?.id || '')) ? { ...l, enabled: false } : l))
     }
 
     lastIntent.value = window.sessionStorage?.getItem?.('z2x:lastIntent') || ''
