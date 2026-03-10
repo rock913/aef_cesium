@@ -150,6 +150,19 @@ def test_v7_execute_demo7_everest_emits_terrain_tiles_and_water() -> None:
     assert "add_cesium_water_polygon" in tools
 
 
+def test_v7_execute_demo8_mauna_loa_emits_custom_shader_chain() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "Demo 8 冒纳罗亚 火山 InSAR 形变 热异常"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "fetch_insar_displacement" in tools
+    assert "fetch_lst_anomaly" in tools
+    assert "apply_custom_shader" in tools
+    assert "generate_cesium_custom_shader" in tools
+
+
 def _event_tools(events: list[dict]) -> list[str | None]:
     return [e.get("tool") for e in events if e.get("type") == "tool_call"]
 

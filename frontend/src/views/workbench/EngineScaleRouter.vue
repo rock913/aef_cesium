@@ -99,6 +99,62 @@ async function addCesium3DTiles(opts) {
   }
 }
 
+function enableSubsurfaceMode(opts) {
+  try {
+    return earthTwin.value?.enableSubsurfaceMode?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function disableSubsurfaceMode() {
+  try {
+    return earthTwin.value?.disableSubsurfaceMode?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function addSubsurfaceModel(opts) {
+  try {
+    return await earthTwin.value?.addSubsurfaceModel?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function addWaterPolygon(opts) {
+  try {
+    return await earthTwin.value?.addWaterPolygon?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function executeDynamicWgsl(opts) {
+  try {
+    return await earthTwin.value?.executeDynamicWgsl?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function destroyWebGpuSandbox() {
+  try {
+    return earthTwin.value?.destroyWebGpuSandbox?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function applyCustomShader(opts) {
+  try {
+    return await earthTwin.value?.applyCustomShader?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
 function setSceneMode(mode) {
   try {
     return earthTwin.value?.setSceneMode?.(mode)
@@ -178,6 +234,13 @@ defineExpose({
   flyToLocation,
   enable3DTerrain,
   addCesium3DTiles,
+  enableSubsurfaceMode,
+  disableSubsurfaceMode,
+  addSubsurfaceModel,
+  addWaterPolygon,
+  executeDynamicWgsl,
+  destroyWebGpuSandbox,
+  applyCustomShader,
   setSceneMode,
   playCzmlAnimation,
   setGlobeTransparency,

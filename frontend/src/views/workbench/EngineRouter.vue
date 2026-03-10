@@ -933,6 +933,7 @@ const _RUNTIME_KEYS = Object.freeze({
   extruded: 'phase3-extruded',
   water: 'demo7-water',
   subsurfaceModel: 'demo12-subsurface-model',
+  deformation: 'demo8-deformation',
 })
 
 // Global Standby default: start from a deep-space view.
@@ -1054,6 +1055,13 @@ function _removeOverlayEntry(id) {
   try {
     if (entry.kind === 'entity' && entry.entity && viewer) {
       viewer.entities.remove(entry.entity)
+    }
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (entry.kind === 'shader' && typeof entry.cleanup === 'function') {
+      entry.cleanup()
     }
   } catch (_) {
     // ignore
@@ -1329,6 +1337,174 @@ async function addExtrudedPolygons(options = {}) {
 
     viewer.dataSources.add(ds)
     _setOverlayEntry(_RUNTIME_KEYS.extruded, { kind: 'geojson', dataSource: ds, sig: `extruded:${Date.now()}` })
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+async function applyCustomShader(options = {}) {
+  const viewer = _viewerAlive()
+  if (!viewer) return false
+
+  const kind = String(options?.kind || '').trim().toLowerCase() || 'custom'
+  const params = (options && typeof options === 'object') ? options.params : null
+  const roi = String(params?.roi || '').trim().toLowerCase()
+
+  _removeOverlayEntry(_RUNTIME_KEYS.deformation)
+
+  const roiCenters = {
+    mauna_loa: { lat: 19.48, lon: -155.61, height: 2600 },
+  }
+
+  let lat = Number(params?.lat)
+  let lon = Number(params?.lon)
+  let height = Number(params?.height)
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    const fromRoi = roi ? roiCenters[roi] : null
+    if (fromRoi) {
+      lat = fromRoi.lat
+      lon = fromRoi.lon
+      height = fromRoi.height
+    }
+  }
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    const cam = props.scenario?.camera
+    const camLat = Number(cam?.lat)
+    const camLon = Number(cam?.lon)
+    if (Number.isFinite(camLat) && Number.isFinite(camLon)) {
+      lat = camLat
+      lon = camLon
+      if (!Number.isFinite(height)) height = 2200
+    }
+  }
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false
+  if (!Number.isFinite(height)) height = 2200
+
+  const tilesetEntry = _overlayEntry(_RUNTIME_KEYS.tileset)
+  const tileset = tilesetEntry?.kind === 'tileset' ? tilesetEntry.tileset : null
+
+  if (tileset && Cesium?.CustomShader && Cesium?.UniformType && Cesium?.CustomShaderMode) {
+    try {
+      const shader = new Cesium.CustomShader({
+        mode: Cesium.CustomShaderMode.MODIFY_MATERIAL,
+        uniforms: {
+          u_time: {
+            type: Cesium.UniformType.FLOAT,
+            value: 0.0,
+          },
+        },
+        vertexShaderText: `
+void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
+  float t = u_time * 0.65;
+  vec3 n = normalize(vsInput.attributes.normalMC);
+  vec3 p = vsInput.attributes.positionMC;
+  float r = length(p.xy) * 0.00015;
+  float wave = sin(r * 10.0 - t) * 18.0;
+  vsOutput.positionMC += n * wave;
+}
+        `.trim(),
+        fragmentShaderText: `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  float h = clamp(fsInput.attributes.positionMC.z * 0.001, 0.0, 1.0);
+  vec3 cool = vec3(0.0, 0.95, 1.0);
+  vec3 heat = vec3(1.0, 0.35, 0.05);
+  material.diffuse = mix(cool, heat, h);
+  material.alpha = 0.92;
+}
+        `.trim(),
+      })
+
+      tileset.customShader = shader
+
+      const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+      const onPreRender = () => {
+        try {
+          const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+          shader.uniforms.u_time.value = (now - t0) / 1000.0
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      try {
+        viewer.scene?.preRender?.addEventListener?.(onPreRender)
+      } catch (_) {
+        // ignore
+      }
+
+      _setOverlayEntry(_RUNTIME_KEYS.deformation, {
+        kind: 'shader',
+        cleanup: () => {
+          try {
+            viewer.scene?.preRender?.removeEventListener?.(onPreRender)
+          } catch (_) {
+            // ignore
+          }
+          try {
+            if (tileset.customShader === shader) tileset.customShader = undefined
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+
+      try {
+        viewer.scene?.requestRender?.()
+      } catch (_) {
+        // ignore
+      }
+
+      return true
+    } catch (_) {
+      // Fall back to entity overlay.
+    }
+  }
+
+  // Resource-free fallback: pulsing deformation bulb + heat ring.
+  try {
+    const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height)
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    const base = (kind === 'insar_lst') ? Cesium.Color.fromCssColorString('#FF4D00') : Cesium.Color.fromCssColorString('#00F0FF')
+
+    const alphaProp = new Cesium.CallbackProperty(() => {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+      const t = (now - t0) / 1000.0
+      const pulse = 0.55 + 0.25 * Math.sin(t * 1.25)
+      return base.withAlpha(Math.max(0.08, Math.min(0.95, pulse)))
+    }, false)
+
+    const radiiProp = new Cesium.CallbackProperty(() => {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+      const t = (now - t0) / 1000.0
+      const k = 1.0 + 0.12 * Math.sin(t * 1.25)
+      return new Cesium.Cartesian3(9000.0 * k, 9000.0 * k, 5200.0 * (1.0 + 0.18 * Math.sin(t * 0.9)))
+    }, false)
+
+    const entity = viewer.entities.add({
+      position: pos,
+      ellipsoid: {
+        radii: radiiProp,
+        material: new Cesium.ColorMaterialProperty(alphaProp),
+        outline: true,
+        outlineColor: base.withAlpha(0.85),
+      },
+      label: {
+        text: roi ? `Demo 8 ${roi.toUpperCase()}  (${kind})` : `Demo 8 (${kind})`,
+        font: '13pt ui-monospace, monospace',
+        fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        pixelOffset: new Cesium.Cartesian2(0, -26),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    })
+
+    _setOverlayEntry(_RUNTIME_KEYS.deformation, { kind: 'entity', entity })
     return true
   } catch (_) {
     return false
@@ -2048,6 +2224,7 @@ defineExpose({
   setSceneMode,
   playCzmlAnimation,
   setGlobeTransparency,
+  applyCustomShader,
   addExtrudedPolygons,
   addWaterPolygon,
   enableSubsurfaceMode,

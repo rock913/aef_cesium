@@ -1097,8 +1097,34 @@ function applyCopilotEvents(events) {
   }
 
   for (const e of arr) {
-    if (e?.type !== 'tool_call') continue
+    const eventType = String(e?.type || '').trim()
     const tool = String(e?.tool || '').trim()
+
+    if (eventType === 'tool_result') {
+      if (tool === 'generate_cesium_custom_shader') {
+        const codeArg = String(e?.result?.code || '').trim()
+        if (codeArg) {
+          try {
+            code.value = codeArg
+          } catch (_) {
+            // ignore
+          }
+          try {
+            if (String(mode.value || '') === 'theater') setMode('lab')
+          } catch (_) {
+            // ignore
+          }
+          try {
+            ensureTabKind('twin')
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
+      continue
+    }
+
+    if (eventType !== 'tool_call') continue
     const args = (e && typeof e === 'object') ? e.args : null
 
     if (tool === 'switch_scale') {
@@ -1334,6 +1360,15 @@ function applyCopilotEvents(events) {
     if (tool === 'add_cesium_extruded_polygons') {
       try {
         void engineRouter.value?.addExtrudedPolygons?.(args || {})
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
+    if (tool === 'apply_custom_shader') {
+      try {
+        void engineRouter.value?.applyCustomShader?.(args || {})
       } catch (_) {
         // ignore
       }

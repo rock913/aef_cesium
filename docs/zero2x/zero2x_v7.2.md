@@ -11,13 +11,18 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 - ✅ v7.2 可逆/清理：`disable_subsurface_mode`、`destroy_webgpu_sandbox` 已打通（退出地下模式、销毁 overlay）。
 - ✅ Demo 13 进阶（最小 compute+render）：在 overlay 中增加了 demo-safe 的 compute+render 管线（若动态 WGSL 不兼容会自动回退到内置 WGSL/清屏）。
 - ✅ 回归测试已覆盖：后端 `/api/v7/tools` 工具清单包含 v7.2 新工具；前端契约测试锁定 WebGPU overlay 与 postRender 同步策略。
+- ✅ 0303 视觉表现力补强已落地：
+  - Demo 11：night 模式基础影像可逆调色（Brightness↓、Contrast↑、Hue 冷偏），让轨迹/AI 图层更醒目。
+  - Demo 13：stub 增加 `fly_to(~18,000km)`；粒子播种半径升级为 ~20,000km 全局分布；默认粒子颜色改为 Cyan。
+  - Demo 12：补齐 `add_subsurface_model` 地下锚点；`fly_to` 支持 `pitch_deg`，并固定顺序 `enable_subsurface_mode` → 下潜 → 锚点。
+- ✅ Demo 7（珠峰冰川湖溃决）：已具备“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
 
 下一步（🟡）
 - ✅ Demo 13 进阶：已固化“LLM 输出 WGSL 模板”（compute body 可自动 wrap 成完整 WGSL module），让模型生成代码更稳定可执行。
 - 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts）。
   - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
   - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
-  - Demo 7（珠峰冰川湖溃决）：先交付“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
+  - 🟡 Demo 8（火山形变×热异常）：按同样策略先做“无资源依赖”竖切片（stub 数据 + 可视化骨架 + 可逆清理），再补真实 InSAR/LST 资产与 shader 细节。
 
 - 🟡 视觉表现力补强（0303 patch）：对已跑通的 Demo 11/12/13 做“演示观感优先”的升级（不改变架构前提）。
   - Demo 11：night 模式不仅启用 `globe.enableLighting`，还要对基础影像做调色（Brightness↓、Contrast↑、Hue 冷偏），使 CZML 轨迹/AI 图层明显可见。
@@ -27,6 +32,8 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 分支与落地记录
 - 分支：`patch/0303-v72-phase4`
 - 已落地基础闭环提交：`e41fdcb`（v7.2 subsurface + WebGPU tools，TDD）
+- 0303 视觉补强：`8bf07fb`（Demo 11/12/13 visual impact）
+- Demo 7 竖切片：`bb63aec`（Everest water polygon slice）
 
 本文件作为 v7.2 主版本开发文档（source of truth）。以下规划会以当前仓库实现为基线：
 - Workbench 已具备 Copilot tool_call → 前端引擎执行链路（Cesium Twin + 部分 Three Twin）。
