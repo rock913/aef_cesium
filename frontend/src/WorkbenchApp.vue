@@ -1057,11 +1057,25 @@ function onCopilotSubmit(text) {
       const events = Array.isArray(resp?.events) ? resp.events : []
       copilotEvents.value = events
       applyCopilotEvents(events)
+
+      // Latest patch feedback: free chat should not run the demo stub script.
+      // Prefer backend-provided final text / events as the source of truth.
+      try {
+        const finalEv = events.find((e) => e && typeof e === 'object' && e.type === 'final')
+        const txt = String(finalEv?.text || finalEv?.content || '').trim()
+        if (txt) theaterReport.value = txt
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        agentText.value = ''
+      } catch (_) {
+        // ignore
+      }
     } catch (_) {
       copilotEvents.value = []
     }
-
-    runExecute()
   })()
 }
 

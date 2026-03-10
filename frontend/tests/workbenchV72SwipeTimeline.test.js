@@ -58,4 +58,27 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
     expect(sPanel).toMatch(/View Mode|VIEW MODE|Overlay|SWIPE MODE|Swipe Mode|Overlay Mode/)
     expect(sPanel).toMatch(/swipeEnabled|update:swipeEnabled|swipe-enabled/)
   })
+
+  it('decouples free chat from demo stub (latest patch 0303 feedback)', () => {
+    const sWorkbench = read('../src/WorkbenchApp.vue')
+
+    // Free input should apply backend events and NOT run the demo script.
+    expect(sWorkbench).toMatch(/function onCopilotSubmit\(text\)/)
+    expect(sWorkbench).not.toMatch(/function onCopilotSubmit\(text\)[\s\S]*runExecute\(\)/)
+
+    // Preset/demo path may still run a deterministic script.
+    expect(sWorkbench).toMatch(/function applyPreset\(preset\)[\s\S]*runStub\(\)/)
+  })
+
+  it('hardens Cesium interactions: disable LEFT_DOUBLE_CLICK tracking + vector swipe hook', () => {
+    const sEngine = read('../src/views/workbench/EngineRouter.vue')
+
+    // Avoid the "double-click boundary -> camera disaster" in demos.
+    expect(sEngine).toMatch(/LEFT_DOUBLE_CLICK/)
+    expect(sEngine).toMatch(/removeInputAction/)
+
+    // Vector overlays (GeoJSON/entities) must at least have a swipe-cut hook.
+    // Either true clipping planes (when supported) or a screen-space fallback.
+    expect(sEngine).toMatch(/ClippingPlaneCollection|wgs84ToWindowCoordinates|SceneTransforms/)
+  })
 })

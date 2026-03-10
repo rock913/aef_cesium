@@ -32,6 +32,164 @@ const swipePosition = ref(0.5)
 const swipeLeftId = ref('')
 const swipeRightId = ref('')
 
+let _vectorSwipeUnsub = null
+const _vectorSwipeSide = ref('right')
+
+function _disableDefaultDoubleClick(viewer) {
+  if (!viewer) return
+  try {
+    const h = viewer?.cesiumWidget?.screenSpaceEventHandler || viewer?.screenSpaceEventHandler
+    h?.removeInputAction?.(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _entityRepresentativeCartesian(ent, time) {
+  if (!ent) return null
+  try {
+    if (ent.position) {
+      const p = ent.position.getValue?.(time) ?? ent.position
+      if (p) return p
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Polygon centroid-ish: bounding sphere center of hierarchy positions.
+  try {
+    const h = ent?.polygon?.hierarchy
+    if (h && typeof h.getValue === 'function') {
+      const v = h.getValue(time)
+      const pts = Array.isArray(v?.positions) ? v.positions : null
+      if (pts && pts.length) {
+        const bs = Cesium.BoundingSphere.fromPoints(pts)
+        if (bs?.center) return bs.center
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Polyline centroid-ish.
+  try {
+    const posProp = ent?.polyline?.positions
+    if (posProp && typeof posProp.getValue === 'function') {
+      const pts = posProp.getValue(time)
+      if (Array.isArray(pts) && pts.length) {
+        const bs = Cesium.BoundingSphere.fromPoints(pts)
+        if (bs?.center) return bs.center
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  return null
+}
+
+function _stopVectorSwipeHook(viewer) {
+  try {
+    if (_vectorSwipeUnsub) {
+      _vectorSwipeUnsub()
+      _vectorSwipeUnsub = null
+    }
+  } catch (_) {
+    _vectorSwipeUnsub = null
+  }
+
+  // Restore entity.show so ds.show remains the single source of truth.
+  try {
+    const e = _overlayEntry('ai-vector')
+    if (e?.kind === 'geojson' && e.dataSource) {
+      for (const ent of e.dataSource.entities.values) {
+        ent.show = true
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    viewer?.scene?.requestRender?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _ensureVectorSwipeHook(viewer) {
+  if (!viewer) return
+  if (_vectorSwipeUnsub) return
+
+  const scene = viewer.scene
+  if (!scene) return
+
+  // Fallback for Entity/DataSource overlays: approximate a vertical "cut" by
+  // hiding entities based on their screen-space centroid relative to splitPosition.
+  const cb = () => {
+    const enabled = !!swipeEnabled.value
+    if (!enabled) return
+
+    const entry = _overlayEntry('ai-vector')
+    if (entry?.kind !== 'geojson' || !entry.dataSource) return
+    if (!entry.dataSource.show) return
+
+    const t = viewer.clock?.currentTime || Cesium.JulianDate.now()
+    const pos = Math.max(0, Math.min(1, Number(swipePosition.value) || 0.5))
+    const canvas = scene.canvas
+    const w = Number(canvas?.clientWidth || canvas?.width || 0)
+    if (!w) return
+    const splitX = pos * w
+    const onRight = String(_vectorSwipeSide.value || 'right') === 'right'
+
+    for (const ent of entry.dataSource.entities.values) {
+      const c = _entityRepresentativeCartesian(ent, t)
+      if (!c) continue
+      const win = Cesium.SceneTransforms.wgs84ToWindowCoordinates(scene, c)
+      if (!win) continue
+      const x = Number(win.x)
+      if (!Number.isFinite(x)) continue
+      ent.show = onRight ? x >= splitX : x < splitX
+    }
+  }
+
+  try {
+    scene.preRender.addEventListener(cb)
+    _vectorSwipeUnsub = () => {
+      try {
+        scene.preRender.removeEventListener(cb)
+      } catch (_) {
+        // ignore
+      }
+    }
+  } catch (_) {
+    _vectorSwipeUnsub = null
+  }
+}
+
+function _applyVectorSwipeState(viewer, enabled, leftId, rightId) {
+  if (!viewer) return
+
+  // AI vector overlay should typically live on the AI side.
+  const l = String(leftId || '').trim()
+  const r = String(rightId || '').trim()
+  const aiOnRight = r === 'ai-vector' || r === 'ai-imagery' || r.startsWith('ai-')
+  const vectorOnRight = l === 'ai-vector' ? false : aiOnRight
+  _vectorSwipeSide.value = vectorOnRight ? 'right' : 'left'
+
+  if (!enabled) {
+    _stopVectorSwipeHook(viewer)
+    return
+  }
+
+  // Only hook when the vector overlay exists and is visible.
+  const e = _overlayEntry('ai-vector')
+  if (e?.kind !== 'geojson' || !e.dataSource) return
+  if (!e.dataSource.show) return
+
+  _ensureVectorSwipeHook(viewer)
+}
+
 function _viewerAlive() {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return null
@@ -67,6 +225,7 @@ function flyToScenario() {
 
 function onViewerReady(viewer) {
   cesiumViewerInstance.value = viewer || null
+  _disableDefaultDoubleClick(viewer)
   emit('viewer-ready', viewer)
   try {
     void applyLayersAsync(props.layers)
@@ -843,10 +1002,17 @@ function _applySwipeState(viewer) {
   }
 
   _resetSwipeDirections(viewer)
-  if (!enabled) return
-
   const leftId = String(swipeLeftId.value || '').trim()
   const rightId = String(swipeRightId.value || '').trim()
+
+  // Apply vector swipe behavior (fallback for Entity/DataSource overlays).
+  try {
+    _applyVectorSwipeState(viewer, enabled, leftId, rightId)
+  } catch (_) {
+    // ignore
+  }
+
+  if (!enabled) return
   if (leftId) {
     const e = _overlayEntry(leftId)
     if (e?.kind === 'imagery' && e.layer) {

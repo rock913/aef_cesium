@@ -188,6 +188,39 @@ Slice C：Hybrid Router（后端为主，默认关闭）
 - Swipe 选择器进一步联动：补充“当前选中图层”概念（LayerTree 增加选中态），并支持一键“用当前两层作为 Left/Right”。
 - AI 图层可见性提示：当 Right=AI 但 `tile_url` 为空时，在面板提示“尚未生成 AI overlay（需要一次 add_cesium_imagery 事件）”。
 
+4.9 增量升级建议（来自 update_patch_0303.md 最新反馈，建议优先级高）
+
+说明：下列三项是对“空间态 + 演示稳定性 + 探索态真实感”的补齐。优先级高于纯功能扩展。
+
+4.9.1 Swipe 与 AI 矢量图层的结合（Vector/Entity 也需可被卷帘）
+
+- 痛点：Cesium 的 `splitDirection/splitPosition` 仅对 `ImageryLayer` 生效；GeoJSON/Entity（矢量）默认不会被卷帘裁剪。
+- 建议：引入“矢量侧裁剪”能力：
+	- 优先：对可用的 Primitive/Tileset（如 3D Tiles / Primitive-based overlay）挂载 `ClippingPlaneCollection`（做到几何级裁剪）。
+	- 退化：若 overlay 仍为 Entity/DataSource，则以“屏幕空间裁剪”做演示级近似（基于 entity centroid 的屏幕 x 与 `splitPosition` 决定 show/hide）。
+- 验收/门禁：前端合同测试锁定 EngineRouter 存在矢量裁剪/退化逻辑入口，并在 Swipe position 更新时同步更新裁剪状态。
+
+4.9.2 禁用 Cesium 默认双击追踪（避免 Boundary 双击导致视角灾难）
+
+- 痛点：Cesium 默认 `LEFT_DOUBLE_CLICK` 会触发 trackedEntity/飞行锁定，演示中常导致“平切/地下仰视”。
+- 建议：EngineRouter 初始化时移除默认双击 action；可选将双击接管为“优雅 flyTo（俯视 -45°）”。
+- 验收/门禁：前端合同测试锁定 `removeInputAction(LEFT_DOUBLE_CLICK)` 存在。
+
+4.9.3 Copilot 自由输入不再跑 Stub 剧本（探索态与演示态解耦）
+
+- 痛点：自由输入无论内容都会触发 `runExecute()`（硬编码剧本），覆盖真实 events/final text，形成“伪 AI 死循环”。
+- 建议：
+	- Preset（演示剧本）仍走 `runExecute()`，确保 100% 可控。
+	- Free Chat（自由输入）仅渲染后端 `events` 与 `final` 文案，不再启动 stub 打字机。
+- 验收/门禁：前端合同测试锁定 onCopilotSubmit 不再无条件调用 `runExecute()`；onCopilotSelectPreset 仍可触发剧本。
+
+As-built（已落地，截止 2026-03-10）
+
+- ✅ 矢量卷帘（退化实现）：`frontend/src/views/workbench/EngineRouter.vue` 在 Swipe 模式下对 `ai-vector` GeoJSON 以屏幕空间中心点做 show/hide（与 `scene.splitPosition` 同步）。
+- ✅ 禁用双击追踪：`frontend/src/views/workbench/EngineRouter.vue` 在 viewer-ready 时移除 `LEFT_DOUBLE_CLICK` 默认 action。
+- ✅ Free Chat 解耦 stub：`frontend/src/WorkbenchApp.vue` 的 onCopilotSubmit 仅应用后端 events/final，不再调用 `runExecute()`。
+- ✅ 门禁：`frontend/tests/workbenchV72SwipeTimeline.test.js` 断言三项合同均存在。
+
 一、 架构演进：全尺度万能底座 (Omni-Scale Foundation)
 
 为了全面兼容四大核心学科，工作台底层视窗不再绑定单一引擎，升级为受 021 模型自动调度的**“万能渲染容器”**。
