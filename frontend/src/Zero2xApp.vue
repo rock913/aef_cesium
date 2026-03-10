@@ -276,8 +276,8 @@ const workbenchHref = computed(() => {
   return `/workbench?context=${encodeURIComponent(ctx)}`
 })
 
-// Act 5 launch should enter the selected scenario (first step: jump into the correct context).
-const workbenchLaunchpadHref = computed(() => workbenchHref.value)
+// Act 5 launch should enter the Workbench in global mode (no scenario label/context).
+const workbenchLaunchpadHref = computed(() => '/workbench')
 
 const act2CinematicVideoOk = ref(true)
 const act3CinematicVideoOk = ref(true)

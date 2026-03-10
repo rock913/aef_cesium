@@ -40,7 +40,10 @@ describe('Zero2x landing wiring (TDD)', () => {
     // Act 5 scaling stability: center-aim must be physically centered.
     expect(s).toContain('hud-center-aim-container')
 
-    // Act 5 launch passes the selected scenario context into the heavy workbench route.
+    // Act 5 launch enters Workbench in global mode (no scenario label/context).
+    expect(s).toContain("computed(() => '/workbench')")
+
+    // Omni-Bar scenario selection still deep-links the heavy workbench with context.
     expect(s).toContain('/workbench?context=')
     expect(s).toContain("ref('poyang')")
   })
