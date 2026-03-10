@@ -38,15 +38,15 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
     expect(sEngine).toMatch(/setSwipeMode|set_swipe/i)
   })
 
-  it('exposes Swipe selector for Right overlay only (no Left compare)', () => {
+  it('makes Swipe right-only with no layer selectors (left basemap stays clean)', () => {
     const sPanel = read('../src/views/workbench/components/UnifiedArtifactsPanel.vue')
     // The legacy Left/Right compare UI must be removed.
     expect(sPanel).not.toContain('SWIPE COMPARE')
     expect(sPanel).not.toMatch(/\bLeft\b/)
 
-    // Swipe config only drives the Right overlay (AI-only).
-    expect(sPanel).toMatch(/\bRight\b/)
-    expect(sPanel).toMatch(/ai-imagery|startsWith\('ai-'\)/)
+    // Patch 0303: no per-side selectors; swipe is a spatial state.
+    expect(sPanel).not.toMatch(/\bRight\b/)
+    expect(sPanel).not.toMatch(/swipeRightLayerId|swipe-right-layer-id/i)
   })
 
   it('moves Swipe toggle out of top-nav into Layers panel (patch 0303)', () => {
@@ -81,5 +81,8 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
     // Vector overlays (GeoJSON/entities) must at least have a swipe-cut hook.
     // Either true clipping planes (when supported) or a screen-space fallback.
     expect(sEngine).toMatch(/ClippingPlaneCollection|wgs84ToWindowCoordinates|SceneTransforms/)
+
+    // Patch 0303: when swipe is enabled, overlays should be forced to the RIGHT.
+    expect(sEngine).toMatch(/splitDirection\s*=\s*SD\.RIGHT/)
   })
 })

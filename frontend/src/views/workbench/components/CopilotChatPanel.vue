@@ -10,47 +10,45 @@
 
     <!-- Middle: Chat history -->
     <div v-if="!collapsed" class="chat-history" aria-label="Chat History">
-      <div v-if="lastSubmitted" class="bubble user" aria-label="User Message">
-        {{ lastSubmitted }}
-      </div>
+      <template v-if="chatHistory && chatHistory.length">
+        <div v-for="(m, idx) in chatHistory" :key="m.id || idx" class="message-wrapper">
+          <div v-if="String(m.role || '') === 'user'" class="bubble user" aria-label="User Message">
+            {{ m.content }}
+          </div>
 
-      <div v-if="events && events.length" class="cot" aria-label="Tool Calling Accordion">
-        <details :open="cotOpen" @toggle="onToggleCot($event)">
-          <summary class="cot-summary">
-            <span v-if="busy">分析中…</span>
-            <span v-else>✓ 分析完成</span>
-            <span class="cot-time" v-if="elapsedLabel">({{ elapsedLabel }})</span>
-          </summary>
-          <div class="cot-body">
-            <div v-for="(e, idx) in events" :key="idx" class="event">
-              <div class="event-k">
-                <span v-if="e.type === 'thought'">[思考]</span>
-                <span v-else-if="e.type === 'tool_call'">[调用工具]</span>
-                <span v-else-if="e.type === 'tool_result'">[工具结果]</span>
-                <span v-else>[输出]</span>
-                <span v-if="e.tool" class="event-tool">{{ e.tool }}</span>
-              </div>
-              <div v-if="e.text" class="event-v">{{ e.text }}</div>
-              <pre v-else-if="e.args" class="event-pre">{{ formatJson(e.args) }}</pre>
-              <pre v-else-if="e.result !== undefined" class="event-pre">{{ formatJson(e.result) }}</pre>
+          <div v-else class="assistant-wrapper" aria-label="Assistant Message">
+            <div v-if="m.events && m.events.length" class="cot" aria-label="Tool Calling Accordion">
+              <details :open="cotOpen" @toggle="onToggleCot($event)">
+                <summary class="cot-summary">
+                  <span v-if="busy && idx === chatHistory.length - 1">分析中…</span>
+                  <span v-else>✓ 分析完成</span>
+                  <span class="cot-time" v-if="elapsedLabel && idx === chatHistory.length - 1">({{ elapsedLabel }})</span>
+                </summary>
+                <div class="cot-body">
+                  <div v-for="(e, j) in m.events" :key="j" class="event">
+                    <div class="event-k">
+                      <span v-if="e.type === 'thought'">[思考]</span>
+                      <span v-else-if="e.type === 'tool_call'">[调用工具]</span>
+                      <span v-else-if="e.type === 'tool_result'">[工具结果]</span>
+                      <span v-else>[输出]</span>
+                      <span v-if="e.tool" class="event-tool">{{ e.tool }}</span>
+                    </div>
+                    <div v-if="e.text" class="event-v">{{ e.text }}</div>
+                    <pre v-else-if="e.args" class="event-pre">{{ formatJson(e.args) }}</pre>
+                    <pre v-else-if="e.result !== undefined" class="event-pre">{{ formatJson(e.result) }}</pre>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div v-if="m.content" class="bubble ai" aria-label="AI Message">
+              {{ m.content }}
             </div>
           </div>
-        </details>
-      </div>
+        </div>
+      </template>
 
-      <div v-if="aiFinalText" class="bubble ai" aria-label="AI Message">
-        {{ aiFinalText }}
-      </div>
-
-      <div v-else-if="reportText" class="bubble ai" aria-label="AI Message">
-        {{ reportText }}
-      </div>
-
-      <div v-else-if="agentText" class="bubble ai" aria-label="AI Message">
-        {{ agentText }}
-      </div>
-
-      <div v-if="!lastSubmitted && !busy" class="hint" aria-label="Copilot Hint">
+      <div v-else-if="!busy" class="hint" aria-label="Copilot Hint">
         Pick a preset chip or type a prompt to execute.
       </div>
     </div>
@@ -118,15 +116,12 @@ import { computed, ref, watch } from 'vue'
 const props = defineProps({
   presets: { type: Array, default: () => [] },
   busy: { type: Boolean, default: false },
-  agentText: { type: String, default: '' },
-  reportText: { type: String, default: '' },
-  events: { type: Array, default: () => [] },
+  chatHistory: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['submit', 'select-preset'])
 
 const text = ref('')
-const lastSubmitted = ref('')
 const collapsed = ref(false)
 const composerExpanded = ref(false)
 const paletteOpen = ref(false)
@@ -136,12 +131,7 @@ const startedAtMs = ref(0)
 const finishedAtMs = ref(0)
 const cotOpen = ref(true)
 
-const aiFinalText = computed(() => {
-  const arr = Array.isArray(props.events) ? props.events : []
-  const lastFinal = arr.slice().reverse().find((e) => String(e?.type || '') === 'final')
-  const t = String(lastFinal?.text || '').trim()
-  return t
-})
+const chatHistory = computed(() => (Array.isArray(props.chatHistory) ? props.chatHistory : []))
 
 const elapsedLabel = computed(() => {
   const start = Number(startedAtMs.value)
@@ -156,8 +146,7 @@ watch(
   () => props.busy,
   (v) => {
     if (v) return
-    const arr = Array.isArray(props.events) ? props.events : []
-    if (!arr.length) return
+    if (!chatHistory.value.length) return
     finishedAtMs.value = Date.now()
     cotOpen.value = false
   }
@@ -191,7 +180,6 @@ function applyPreset(p) {
 function submit() {
   const v = String(text.value || '').trim()
   if (!v) return
-  lastSubmitted.value = v
   startedAtMs.value = Date.now()
   finishedAtMs.value = 0
   cotOpen.value = true

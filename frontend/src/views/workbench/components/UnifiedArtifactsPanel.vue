@@ -43,19 +43,8 @@
             </button>
           </div>
 
-          <div v-if="swipeEnabledModel" class="swipe-config" aria-label="Swipe Layer Selectors">
-            <div class="swipe-grid">
-              <label class="swipe-field">
-                <span class="swipe-k">Right</span>
-                <select class="swipe-sel" v-model="swipeRightModel" :disabled="!swipeRightCandidates.length">
-                  <option value="">Auto</option>
-                  <option v-for="l in swipeRightCandidates" :key="String(l.id)" :value="String(l.id)">
-                    {{ l.name || l.id }}
-                  </option>
-                </select>
-              </label>
-            </div>
-            <div class="swipe-hint">Swipe only affects the Right overlay (AI-only).</div>
+          <div v-if="swipeEnabledModel" class="swipe-config" aria-label="Swipe Settings">
+            <div class="swipe-hint">Swipe 模式下：左侧保持纯净底图；右侧叠加所有已启用的业务/AI 图层。</div>
           </div>
         </div>
         <LayerTree v-model:layers="layersModel" :current-scale="currentScale" />
@@ -94,10 +83,9 @@ const props = defineProps({
   reportText: { type: String, default: '' },
   charts: { type: Array, default: () => [] },
   swipeEnabled: { type: Boolean, default: false },
-  swipeRightLayerId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled', 'update:swipeRightLayerId'])
+const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled'])
 
 const tab = ref('layers')
 
@@ -125,42 +113,6 @@ const codeModel = computed({
   },
   set(v) {
     emit('update:code', String(v ?? ''))
-  },
-})
-
-const swipeCandidates = computed(() => {
-  const arr = Array.isArray(props.layers) ? props.layers : []
-
-  // Prefer "currently meaningful" Earth overlays:
-  // - anything that looks like an imagery overlay (has tile_url), OR
-  // - the built-in non-AI compare layers used by v7 demos.
-  const out = []
-  for (const l of arr) {
-    const id = String(l?.id || '').trim()
-    if (!id) continue
-    if (id === 'boundaries' || id === 'ai-vector' || id.endsWith('-vector')) continue
-    const tileUrl = String(l?.params?.tile_url || '').trim()
-    if (tileUrl || id === 'gee-heatmap' || id === 'anomaly-mask' || id === 'ai-imagery') out.push(l)
-  }
-
-  // Stable UX: enabled layers first so the dropdown is "what you see".
-  out.sort((a, b) => Number(!!b?.enabled) - Number(!!a?.enabled))
-  return out
-})
-
-function _isAiLayerId(id) {
-  const v = String(id || '').trim().toLowerCase()
-  return v === 'ai-imagery' || v.startsWith('ai-')
-}
-
-const swipeRightCandidates = computed(() => swipeCandidates.value.filter((l) => _isAiLayerId(l?.id)))
-
-const swipeRightModel = computed({
-  get() {
-    return String(props.swipeRightLayerId || '')
-  },
-  set(v) {
-    emit('update:swipeRightLayerId', String(v ?? ''))
   },
 })
 

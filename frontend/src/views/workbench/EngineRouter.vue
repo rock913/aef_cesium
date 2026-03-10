@@ -29,11 +29,8 @@ const applyToken = ref(0)
 
 const swipeEnabled = ref(false)
 const swipePosition = ref(0.5)
-const swipeLeftId = ref('')
-const swipeRightId = ref('')
 
 let _vectorSwipeUnsub = null
-const _vectorSwipeSide = ref('right')
 
 function _disableDefaultDoubleClick(viewer) {
   if (!viewer) return
@@ -112,11 +109,9 @@ function _stopVectorSwipeHook(viewer) {
 
   // Restore entity.show so ds.show remains the single source of truth.
   try {
-    const e = _overlayEntry('ai-vector')
-    if (e?.kind === 'geojson' && e.dataSource) {
-      for (const ent of e.dataSource.entities.values) {
-        ent.show = true
-      }
+    for (const [, entry] of overlayHandles.value.entries()) {
+      if (entry?.kind !== 'geojson' || !entry.dataSource) continue
+      for (const ent of entry.dataSource.entities.values) ent.show = true
     }
   } catch (_) {
     // ignore
@@ -143,26 +138,27 @@ function _ensureVectorSwipeHook(viewer) {
     const enabled = !!swipeEnabled.value
     if (!enabled) return
 
-    const entry = _overlayEntry('ai-vector')
-    if (entry?.kind !== 'geojson' || !entry.dataSource) return
-    if (!entry.dataSource.show) return
-
     const t = viewer.clock?.currentTime || Cesium.JulianDate.now()
     const pos = Math.max(0, Math.min(1, Number(swipePosition.value) || 0.5))
     const canvas = scene.canvas
     const w = Number(canvas?.clientWidth || canvas?.width || 0)
     if (!w) return
     const splitX = pos * w
-    const onRight = String(_vectorSwipeSide.value || 'right') === 'right'
 
-    for (const ent of entry.dataSource.entities.values) {
-      const c = _entityRepresentativeCartesian(ent, t)
-      if (!c) continue
-      const win = _sceneCartesianToWindow(scene, c, scratchWin)
-      if (!win) continue
-      const x = Number(win.x)
-      if (!Number.isFinite(x)) continue
-      ent.show = onRight ? x >= splitX : x < splitX
+    // Patch 0303: left stays as clean basemap; all GeoJSON overlays are treated
+    // as RIGHT-side overlays (hide anything left of split).
+    for (const [, entry] of overlayHandles.value.entries()) {
+      if (entry?.kind !== 'geojson' || !entry.dataSource) continue
+      if (!entry.dataSource.show) continue
+      for (const ent of entry.dataSource.entities.values) {
+        const c = _entityRepresentativeCartesian(ent, t)
+        if (!c) continue
+        const win = _sceneCartesianToWindow(scene, c, scratchWin)
+        if (!win) continue
+        const x = Number(win.x)
+        if (!Number.isFinite(x)) continue
+        ent.show = x >= splitX
+      }
     }
   }
 
@@ -180,26 +176,12 @@ function _ensureVectorSwipeHook(viewer) {
   }
 }
 
-function _applyVectorSwipeState(viewer, enabled, leftId, rightId) {
+function _applyVectorSwipeState(viewer, enabled) {
   if (!viewer) return
-
-  // AI vector overlay should typically live on the AI side.
-  const l = String(leftId || '').trim()
-  const r = String(rightId || '').trim()
-  const aiOnRight = r === 'ai-vector' || r === 'ai-imagery' || r.startsWith('ai-')
-  const vectorOnRight = l === 'ai-vector' ? false : aiOnRight
-  _vectorSwipeSide.value = vectorOnRight ? 'right' : 'left'
-
   if (!enabled) {
     _stopVectorSwipeHook(viewer)
     return
   }
-
-  // Only hook when the vector overlay exists and is visible.
-  const e = _overlayEntry('ai-vector')
-  if (e?.kind !== 'geojson' || !e.dataSource) return
-  if (!e.dataSource.show) return
-
   _ensureVectorSwipeHook(viewer)
 }
 
@@ -1017,26 +999,30 @@ function _applySwipeState(viewer) {
   }
 
   _resetSwipeDirections(viewer)
-  const rightId = String(swipeRightId.value || '').trim()
 
   // Apply vector swipe behavior (fallback for Entity/DataSource overlays).
   try {
-    _applyVectorSwipeState(viewer, enabled, '', rightId)
+    _applyVectorSwipeState(viewer, enabled)
   } catch (_) {
     // ignore
   }
 
   if (!enabled) return
-  if (rightId) {
-    const e = _overlayEntry(rightId)
-    if (e?.kind === 'imagery' && e.layer) {
-      const SD = Cesium.SplitDirection || Cesium.ImagerySplitDirection
+
+  // Patch 0303: left stays clean basemap; force all overlay imagery layers to RIGHT.
+  const SD = Cesium.SplitDirection || Cesium.ImagerySplitDirection
+  if (!SD) return
+  try {
+    for (const [, entry] of overlayHandles.value.entries()) {
+      if (entry?.kind !== 'imagery' || !entry?.layer) continue
       try {
-        if (SD) e.layer.splitDirection = SD.RIGHT
+        if (entry.layer.show !== false) entry.layer.splitDirection = SD.RIGHT
       } catch (_) {
         // ignore
       }
     }
+  } catch (_) {
+    // ignore
   }
 }
 
@@ -1044,11 +1030,6 @@ function setSwipeMode(opts = {}) {
   swipeEnabled.value = !!opts?.enabled
   const pos = Number(opts?.position)
   if (Number.isFinite(pos)) swipePosition.value = Math.max(0, Math.min(1, pos))
-
-  const rightId = String(opts?.right_layer_id || opts?.rightLayerId || '').trim()
-  // v7.2 (revised): Swipe affects the Right overlay only.
-  swipeLeftId.value = ''
-  if (rightId) swipeRightId.value = rightId
 
   const viewer = _viewerAlive()
   _applySwipeState(viewer)

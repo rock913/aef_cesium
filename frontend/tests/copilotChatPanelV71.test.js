@@ -50,6 +50,15 @@ describe('CopilotChatPanel v7.1 UI skeleton', () => {
     expect(s).toContain('<summary')
   })
 
+  it('uses chatHistory (no single-state overwrite)', () => {
+    const s = read('../src/views/workbench/components/CopilotChatPanel.vue')
+
+    // Patch 0303 feedback: do not overwrite a single lastSubmitted/events slot.
+    expect(s).toMatch(/chatHistory|chat-history/)
+    expect(s).toMatch(/v-for=\"\(m,\s*idx\)\s+in\s+chatHistory|v-for=\"m\s+in\s+chatHistory|v-for=\"\(m,\s*idx\)\s+in\s+props\.chatHistory/i)
+    expect(s).not.toMatch(/lastSubmitted\s*=\s*ref\(/)
+  })
+
   it('clears input after submit to avoid filtering presets', () => {
     const s = read('../src/views/workbench/components/CopilotChatPanel.vue')
     expect(s).toMatch(/function submit\(\)[\s\S]*text\.value\s*=\s*''/)

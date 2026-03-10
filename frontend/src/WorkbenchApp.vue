@@ -78,7 +78,6 @@
             v-model:layers="layers"
             v-model:code="code"
             v-model:swipe-enabled="swipeEnabled"
-            v-model:swipe-right-layer-id="swipeRightLayerId"
             :current-scale="currentScale"
             :report-text="theaterReport"
             :charts="charts"
@@ -103,9 +102,7 @@
             ref="copilotPanel"
             :busy="executeBusy"
             :presets="copilotPresets"
-            :agent-text="agentText"
-            :report-text="theaterReport"
-            :events="copilotEvents"
+            :chat-history="chatHistory"
             @select-preset="onCopilotSelectPreset"
             @submit="onCopilotSubmit"
           />
@@ -171,7 +168,6 @@ const isImmersive = computed(() => mode.value === 'theater')
 
 const swipeEnabled = ref(false)
 const swipePosition = ref(0.5)
-const swipeRightLayerId = ref('')
 
 const timelineProgress = ref(30)
 const timelineIsPlaying = ref(false)
@@ -214,25 +210,6 @@ function onTimelineTogglePlay() {
   }, 240)
 }
 
-function _isAiLayerId(id) {
-  const v = String(id || '').trim().toLowerCase()
-  return v === 'ai-imagery' || v.startsWith('ai-')
-}
-
-function _getNonAiSwipeCandidates() {
-  const arr = Array.isArray(layers.value) ? layers.value : []
-  return arr
-    .filter((l) => {
-      const id = String(l?.id || '').trim()
-      if (!id) return false
-      if (_isAiLayerId(id)) return false
-      if (id === 'boundaries' || id === 'ai-vector' || id.endsWith('-vector')) return false
-      const tileUrl = String(l?.params?.tile_url || '').trim()
-      return !!tileUrl || id === 'gee-heatmap' || id === 'anomaly-mask'
-    })
-    .sort((a, b) => Number(!!b?.enabled) - Number(!!a?.enabled))
-    .map((l) => String(l.id))
-}
 
 const contextId = ref('poyang')
 const scenario = computed(() => getScenario021ById(contextId.value) || getDefaultScenario021())
@@ -292,30 +269,11 @@ function _applySwipeToEngine() {
   try {
     engineRouter.value?.setSwipeMode?.({
       enabled: !!swipeEnabled.value,
-      right_layer_id: String(swipeRightLayerId.value || '').trim(),
       position: swipePosition.value,
     })
   } catch (_) {
     // ignore
   }
-}
-
-function _ensureSwipeLayersEnabled() {
-  try {
-    const ids = new Set([String(swipeRightLayerId.value || '').trim()].filter(Boolean))
-    if (!ids.size) return
-    layers.value = (layers.value || []).map((l) => (ids.has(String(l?.id || '')) ? { ...l, enabled: true } : l))
-  } catch (_) {
-    // ignore
-  }
-}
-
-function _normalizeSwipeIds() {
-  const right = String(swipeRightLayerId.value || '').trim()
-
-  // v7.2 (revised): Swipe only affects the Right overlay.
-  // Always prefer ai-imagery on the right.
-  if (!right || !_isAiLayerId(right)) swipeRightLayerId.value = 'ai-imagery'
 }
 
 // Patch 0303: Swipe toggle UI lives in the Layers panel (not the top nav).
@@ -525,6 +483,15 @@ const copilotPresets = ref([
 ])
 
 const copilotEvents = ref([])
+
+const chatHistory = ref([
+  {
+    id: 'init',
+    role: 'assistant',
+    content: 'System ready. 欢迎使用 021 Copilot。请选择预置剧本或直接输入指令。',
+    events: [],
+  },
+])
 
 const openTabs = ref([
   { id: 'twin', title: 'Twin View', kind: 'twin', closable: false },
@@ -1022,12 +989,28 @@ function openCommandPalette() {
 
 function onCopilotSubmit(text) {
   ;(async () => {
+    const q = String(text || '').trim()
+    if (!q) return
+    if (executeBusy.value) return
+
     try {
-      lastIntent.value = String(text || '').trim()
+      lastIntent.value = q
       window.sessionStorage?.setItem?.('z2x:lastIntent', lastIntent.value)
     } catch (_) {
       // ignore
     }
+
+    // Append user message (no single-state overwrite).
+    try {
+      chatHistory.value = [
+        ...(chatHistory.value || []),
+        { id: `u:${Date.now()}`, role: 'user', content: q },
+      ]
+    } catch (_) {
+      // ignore
+    }
+
+    executeBusy.value = true
 
     // Ask backend to produce a deterministic tool-calling plan (v7 stub).
     try {
@@ -1039,12 +1022,21 @@ function onCopilotSubmit(text) {
       copilotEvents.value = events
       applyCopilotEvents(events)
 
-      // Latest patch feedback: free chat should not run the demo stub script.
       // Prefer backend-provided final text / events as the source of truth.
+      let finalText = ''
       try {
         const finalEv = events.find((e) => e && typeof e === 'object' && e.type === 'final')
-        const txt = String(finalEv?.text || finalEv?.content || '').trim()
-        if (txt) theaterReport.value = txt
+        finalText = String(finalEv?.text || finalEv?.content || '').trim()
+      } catch (_) {
+        finalText = ''
+      }
+      if (finalText) theaterReport.value = finalText
+
+      try {
+        chatHistory.value = [
+          ...(chatHistory.value || []),
+          { id: `a:${Date.now()}`, role: 'assistant', content: finalText || theaterReport.value || '', events },
+        ]
       } catch (_) {
         // ignore
       }
@@ -1054,8 +1046,18 @@ function onCopilotSubmit(text) {
       } catch (_) {
         // ignore
       }
-    } catch (_) {
+    } catch (e) {
       copilotEvents.value = []
+      try {
+        chatHistory.value = [
+          ...(chatHistory.value || []),
+          { id: `a:${Date.now()}`, role: 'assistant', content: `Backend error: ${e?.message || String(e)}`, events: [] },
+        ]
+      } catch (_) {
+        // ignore
+      }
+    } finally {
+      executeBusy.value = false
     }
   })()
 }
@@ -1096,21 +1098,9 @@ function applyCopilotEvents(events) {
     }
 
     if (tool === 'enable_swipe_mode') {
-      const rightId = String(args?.right_layer_id || args?.rightLayerId || '').trim()
       const posArg = Number(args?.position)
       swipeEnabled.value = true
-      swipeRightLayerId.value = rightId || 'ai-imagery'
       swipePosition.value = Number.isFinite(posArg) ? Math.max(0, Math.min(1, posArg)) : 0.5
-
-      // v7.2 (revised): Swipe affects Right overlay only (AI-only).
-      _normalizeSwipeIds()
-
-      try {
-        const ids = new Set([swipeRightLayerId.value].filter(Boolean))
-        layers.value = (layers.value || []).map((l) => (ids.has(String(l?.id || '')) ? { ...l, enabled: true } : l))
-      } catch (_) {
-        // ignore
-      }
 
       _applySwipeToEngine()
       continue
@@ -1396,10 +1386,6 @@ watch(
   () => {
     // Enabling swipe should deterministically pick sane ids and ensure layers
     // are visible; disabling should reset split state.
-    if (swipeEnabled.value) {
-      _normalizeSwipeIds()
-      _ensureSwipeLayersEnabled()
-    }
     _applySwipeToEngine()
   }
 )
@@ -1455,16 +1441,6 @@ watch(
     } catch (_) {
       // ignore
     }
-  }
-)
-
-watch(
-  () => swipeRightLayerId.value,
-  () => {
-    if (!swipeEnabled.value) return
-    _normalizeSwipeIds()
-    _ensureSwipeLayersEnabled()
-    _applySwipeToEngine()
   }
 )
 

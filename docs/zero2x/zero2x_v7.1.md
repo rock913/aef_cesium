@@ -11,7 +11,7 @@ Zero2x 021 v7.2：Copilot 驱动的通用科研工作台与空间交互蓝图
 
 - v7.1+ 体验稳定化：Global Standby / Intent-Driven Dive / Command Palette / HUD 顶栏 / Lab-Theater 门控均已落地。
 - v7.2 Phase 4 已收口：Swipe 空间态 + 情境时间轴 HUD + Hybrid Router（默认关闭，flag+key 才触网，异常回退 stub）。
-- Phase 4 清债完成：移除遗留 EXECUTE 文案；Swipe 左右图层选择器已进面板；Hybrid Explore 离线门禁已补齐。
+- Phase 4 清债完成：移除遗留 EXECUTE 文案；Swipe 已面板化（无 Left/Right 选择器，左侧纯净底图、右侧叠加所有启用图层）；Hybrid Explore 离线门禁已补齐。
 - 回归门禁：前端 Vitest、后端 Pytest 保持全绿。
 
 已完成（明细保留，用于追溯）
@@ -94,7 +94,7 @@ Phase 4（v7.2 升级需求，来自 update_patch_0303.md，2026-03-03 版本）
 
 Cesium 底层支撑：
 
-- 使用 `imageryLayer.splitDirection = LEFT/RIGHT`。
+- 使用 `imageryLayer.splitDirection = RIGHT`（Swipe 开启时将业务/AI overlays 统一归入右侧）。
 - 使用 `viewer.scene.splitPosition = 0..1`。
 
 验收标准（含 TDD 门禁）：
@@ -160,7 +160,7 @@ Slice C：Hybrid Router（后端为主，默认关闭）
 | 需求条目（update_patch_0303） | 状态 | 工程落点（实现） | 门禁/验收落点 |
 |---|---|---|---|
 | Swipe 被提升为 Twin Canvas 的空间态（非一次性按钮） | ✅ Done | `swipeEnabled/swipePosition` 作为 Workbench 空间态，离开 Earth/切场景时自动退出 | 前端合同：`frontend/tests/workbenchV72SwipeTimeline.test.js` 锁定 plumbing；后端合同：`tests/test_v7_copilot_api.py` tools list | 
-| 手动触发（交互层级纠偏）：Swipe 不在顶栏常驻 | ✅ Done | Swipe 模式开关收敛到面板（Layers 区的 View Mode: Overlay/Swipe），并与 Left/Right 选择器同域 | 前端合同：Vitest 锁定“顶栏无 Swipe 按钮”+ 面板含 View Mode；运行验收：在面板一处完成开关+配置 |
+| 手动触发（交互层级纠偏）：Swipe 不在顶栏常驻 | ✅ Done | Swipe 模式开关收敛到面板（Layers 区的 View Mode: Overlay/Swipe），不再提供 Left/Right 选择器 | 前端合同：Vitest 锁定“顶栏无 Swipe 按钮”+ 面板含 View Mode；运行验收：在面板一处完成开关+配置 |
 | Copilot 触发：识别“对比/差异/两年”意图可自动开启 | ✅ Done（通过工具事件） | 后端 stub / Hybrid explore 均可发 `enable_swipe_mode`；前端映射 `enable_swipe_mode`/`set_swipe_position`/`disable_swipe_mode` | 后端验收：Demo 1 事件序列包含 `enable_swipe_mode`；工具列表包含三件套 |
 | 视觉表现：中央 absolute 分割线 + 把手，拖动实时更新位置 | ✅ Done | `frontend/src/views/workbench/components/SwipeHUD.vue`（pointer drag + keyboard） | 运行验收：拖拽更新；工具 `set_swipe_position` 可编程更新 |
 | Cesium 底层：`ImagerySplitDirection` + `scene.splitPosition` | ✅ Done | `frontend/src/views/workbench/EngineRouter.vue`：`_applySwipeState` / `setSwipeMode` / `setSwipePosition01`，并在图层重建后重应用 | 前端合同：测试锁定关键字符串与 expose |
@@ -174,19 +174,19 @@ Slice C：Hybrid Router（后端为主，默认关闭）
 4.6 Phase 4 收口清单（As-built，截止 2026-03-10）
 
 - ✅ 清债：全仓库不再出现 `EXECUTE ON TWIN`（含遗留面板组件）。
-- ✅ Swipe 面板化（完成交互层级纠偏）：Unified Artifacts / Layers 区提供 View Mode（Overlay/Swipe）+ Left/Right 选择器，并与引擎空间态联动。
+- ✅ Swipe 面板化（完成交互层级纠偏）：Unified Artifacts / Layers 区提供 View Mode（Overlay/Swipe），并与引擎空间态联动（左纯净底图、右侧叠加启用图层）。
 - ✅ Hybrid Explore 门禁补齐：后端回归测试通过 mock/monkeypatch 固定 tool_calls，验证 allowlist + args schema 过滤，且保持离线不触网。
 
 4.7 延展项（As-built，截止 2026-03-10）
 
 - ✅ Swipe 图层候选扩展：面板候选从“硬编码白名单”改为基于当前 Layers 列表动态推导（并优先展示 enabled 图层）。
-- ✅ 文档与门禁同步：前端 Vitest 新增合同断言，锁定 Swipe Left/Right 选择器存在与 Right=AI-only 约束。
+- ✅ 文档与门禁同步：前端 Vitest 新增合同断言，锁定“无选择器 + overlays 统一右侧”的空间态合同。
 - ✅ Hybrid Explore 渐进上线：后端探索态新增软速率限制 + 硬超时包裹 + tool_calls 数量上限 + args size cap（仍保持默认关闭 + 无 key 不触网 + 异常回退 stub）。
 
 4.8 下一步建议（可选）
 
-- Swipe 选择器进一步联动：补充“当前选中图层”概念（LayerTree 增加选中态），并支持一键“用当前两层作为 Left/Right”。
-- AI 图层可见性提示：当 Right=AI 但 `tile_url` 为空时，在面板提示“尚未生成 AI overlay（需要一次 add_cesium_imagery 事件）”。
+- Swipe 进一步增强（非必需）：当 overlays 很多时，可提供“右侧 overlays 分组/折叠”与“一键只看 AI overlays”的便捷开关（但仍保持无 Left/Right 选择器）。
+- AI 图层可见性提示：当 `ai-imagery` 的 `tile_url` 为空但用户已启用时，在面板提示“尚未生成 AI overlay（需要一次 add_cesium_imagery 事件）”。
 
 4.9 增量升级建议（来自 update_patch_0303.md 最新反馈，建议优先级高）
 
@@ -302,7 +302,7 @@ As-built（已落地，截止 2026-03-10）
 4.3 统一资产面板（Layers/Artifacts）
 
 - 面板与 Tabs：`frontend/src/views/workbench/components/UnifiedArtifactsPanel.vue`。
-- Swipe 左右图层选择器：位于 Layers 区（与 Workbench swipe 空间态双向绑定）。
+- Swipe 模式开关：位于 Layers 区（与 Workbench swipe 空间态双向绑定；不再提供 Left/Right 选择器）。
 
 4.4 后端 Hybrid Router 与离线门禁
 
