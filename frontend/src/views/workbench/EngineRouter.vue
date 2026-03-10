@@ -1017,28 +1017,16 @@ function _applySwipeState(viewer) {
   }
 
   _resetSwipeDirections(viewer)
-  const leftId = String(swipeLeftId.value || '').trim()
   const rightId = String(swipeRightId.value || '').trim()
 
   // Apply vector swipe behavior (fallback for Entity/DataSource overlays).
   try {
-    _applyVectorSwipeState(viewer, enabled, leftId, rightId)
+    _applyVectorSwipeState(viewer, enabled, '', rightId)
   } catch (_) {
     // ignore
   }
 
   if (!enabled) return
-  if (leftId) {
-    const e = _overlayEntry(leftId)
-    if (e?.kind === 'imagery' && e.layer) {
-      const SD = Cesium.SplitDirection || Cesium.ImagerySplitDirection
-      try {
-        if (SD) e.layer.splitDirection = SD.LEFT
-      } catch (_) {
-        // ignore
-      }
-    }
-  }
   if (rightId) {
     const e = _overlayEntry(rightId)
     if (e?.kind === 'imagery' && e.layer) {
@@ -1057,12 +1045,10 @@ function setSwipeMode(opts = {}) {
   const pos = Number(opts?.position)
   if (Number.isFinite(pos)) swipePosition.value = Math.max(0, Math.min(1, pos))
 
-  const leftId = String(opts?.left_layer_id || opts?.leftLayerId || '').trim()
   const rightId = String(opts?.right_layer_id || opts?.rightLayerId || '').trim()
-  if (leftId || rightId) {
-    swipeLeftId.value = leftId
-    swipeRightId.value = rightId
-  }
+  // v7.2 (revised): Swipe affects the Right overlay only.
+  swipeLeftId.value = ''
+  if (rightId) swipeRightId.value = rightId
 
   const viewer = _viewerAlive()
   _applySwipeState(viewer)

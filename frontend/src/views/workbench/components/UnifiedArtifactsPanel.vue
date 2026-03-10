@@ -20,7 +20,7 @@
 
     <div class="artifacts-body" data-testid="artifacts-body">
       <section v-if="tab === 'layers'" class="panel" aria-label="Layer & Data">
-        <div v-if="currentScale === 'earth'" class="swipe-box" aria-label="Swipe Compare Settings">
+        <div v-if="currentScale === 'earth'" class="swipe-box" aria-label="Swipe Settings">
           <div class="swipe-title">VIEW MODE</div>
           <div class="mode-toggle" role="group" aria-label="View Mode">
             <button
@@ -44,18 +44,7 @@
           </div>
 
           <div v-if="swipeEnabledModel" class="swipe-config" aria-label="Swipe Layer Selectors">
-            <div class="swipe-subtitle">SWIPE COMPARE</div>
             <div class="swipe-grid">
-              <label class="swipe-field">
-                <span class="swipe-k">Left</span>
-                <select class="swipe-sel" v-model="swipeLeftModel" :disabled="!swipeLeftCandidates.length">
-                  <option value="">Auto</option>
-                  <option v-for="l in swipeLeftCandidates" :key="String(l.id)" :value="String(l.id)">
-                    {{ l.name || l.id }}
-                  </option>
-                </select>
-              </label>
-
               <label class="swipe-field">
                 <span class="swipe-k">Right</span>
                 <select class="swipe-sel" v-model="swipeRightModel" :disabled="!swipeRightCandidates.length">
@@ -66,7 +55,7 @@
                 </select>
               </label>
             </div>
-            <div class="swipe-hint">Left excludes AI layers; Right is AI-only (used when Swipe mode is active).</div>
+            <div class="swipe-hint">Swipe only affects the Right overlay (AI-only).</div>
           </div>
         </div>
         <LayerTree v-model:layers="layersModel" :current-scale="currentScale" />
@@ -105,11 +94,10 @@ const props = defineProps({
   reportText: { type: String, default: '' },
   charts: { type: Array, default: () => [] },
   swipeEnabled: { type: Boolean, default: false },
-  swipeLeftLayerId: { type: String, default: '' },
   swipeRightLayerId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled', 'update:swipeLeftLayerId', 'update:swipeRightLayerId'])
+const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled', 'update:swipeRightLayerId'])
 
 const tab = ref('layers')
 
@@ -165,17 +153,7 @@ function _isAiLayerId(id) {
   return v === 'ai-imagery' || v.startsWith('ai-')
 }
 
-const swipeLeftCandidates = computed(() => swipeCandidates.value.filter((l) => !_isAiLayerId(l?.id)))
 const swipeRightCandidates = computed(() => swipeCandidates.value.filter((l) => _isAiLayerId(l?.id)))
-
-const swipeLeftModel = computed({
-  get() {
-    return String(props.swipeLeftLayerId || '')
-  },
-  set(v) {
-    emit('update:swipeLeftLayerId', String(v ?? ''))
-  },
-})
 
 const swipeRightModel = computed({
   get() {

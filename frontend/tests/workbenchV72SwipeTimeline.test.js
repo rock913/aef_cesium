@@ -38,13 +38,14 @@ describe('Workbench v7.2: Swipe + contextual timeline contracts', () => {
     expect(sEngine).toMatch(/setSwipeMode|set_swipe/i)
   })
 
-  it('exposes Swipe left/right layer selectors (Left non-AI, Right AI-only)', () => {
+  it('exposes Swipe selector for Right overlay only (no Left compare)', () => {
     const sPanel = read('../src/views/workbench/components/UnifiedArtifactsPanel.vue')
-    expect(sPanel).toContain('SWIPE COMPARE')
-    expect(sPanel).toMatch(/Left/)
-    expect(sPanel).toMatch(/Right/)
+    // The legacy Left/Right compare UI must be removed.
+    expect(sPanel).not.toContain('SWIPE COMPARE')
+    expect(sPanel).not.toMatch(/\bLeft\b/)
 
-    // Contract: right side is AI-only (ai-imagery or ai-*).
+    // Swipe config only drives the Right overlay (AI-only).
+    expect(sPanel).toMatch(/\bRight\b/)
     expect(sPanel).toMatch(/ai-imagery|startsWith\('ai-'\)/)
   })
 

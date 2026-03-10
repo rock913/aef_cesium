@@ -78,7 +78,6 @@
             v-model:layers="layers"
             v-model:code="code"
             v-model:swipe-enabled="swipeEnabled"
-            v-model:swipe-left-layer-id="swipeLeftLayerId"
             v-model:swipe-right-layer-id="swipeRightLayerId"
             :current-scale="currentScale"
             :report-text="theaterReport"
@@ -172,7 +171,6 @@ const isImmersive = computed(() => mode.value === 'theater')
 
 const swipeEnabled = ref(false)
 const swipePosition = ref(0.5)
-const swipeLeftLayerId = ref('')
 const swipeRightLayerId = ref('')
 
 const timelineProgress = ref(30)
@@ -294,7 +292,6 @@ function _applySwipeToEngine() {
   try {
     engineRouter.value?.setSwipeMode?.({
       enabled: !!swipeEnabled.value,
-      left_layer_id: String(swipeLeftLayerId.value || '').trim(),
       right_layer_id: String(swipeRightLayerId.value || '').trim(),
       position: swipePosition.value,
     })
@@ -305,7 +302,7 @@ function _applySwipeToEngine() {
 
 function _ensureSwipeLayersEnabled() {
   try {
-    const ids = new Set([String(swipeLeftLayerId.value || '').trim(), String(swipeRightLayerId.value || '').trim()].filter(Boolean))
+    const ids = new Set([String(swipeRightLayerId.value || '').trim()].filter(Boolean))
     if (!ids.size) return
     layers.value = (layers.value || []).map((l) => (ids.has(String(l?.id || '')) ? { ...l, enabled: true } : l))
   } catch (_) {
@@ -314,27 +311,11 @@ function _ensureSwipeLayersEnabled() {
 }
 
 function _normalizeSwipeIds() {
-  const left = String(swipeLeftLayerId.value || '').trim()
   const right = String(swipeRightLayerId.value || '').trim()
 
-  // v7.2 contract: Left is non-AI, Right is AI imagery.
-  // Defaults are "best effort" but deterministic.
-  const nonAi = _getNonAiSwipeCandidates()
-  if (!left) swipeLeftLayerId.value = nonAi[0] || 'gee-heatmap'
-
+  // v7.2 (revised): Swipe only affects the Right overlay.
   // Always prefer ai-imagery on the right.
   if (!right || !_isAiLayerId(right)) swipeRightLayerId.value = 'ai-imagery'
-
-  // If left accidentally becomes AI, force a non-AI fallback.
-  if (_isAiLayerId(String(swipeLeftLayerId.value || '').trim())) {
-    swipeLeftLayerId.value = nonAi[0] || 'gee-heatmap'
-  }
-
-  // Avoid a no-op compare.
-  if (String(swipeLeftLayerId.value || '').trim() && String(swipeLeftLayerId.value || '').trim() === String(swipeRightLayerId.value || '').trim()) {
-    const fallback = nonAi.find((id) => id && id !== String(swipeRightLayerId.value || '').trim())
-    swipeLeftLayerId.value = fallback || 'gee-heatmap'
-  }
 }
 
 // Patch 0303: Swipe toggle UI lives in the Layers panel (not the top nav).
@@ -1115,19 +1096,17 @@ function applyCopilotEvents(events) {
     }
 
     if (tool === 'enable_swipe_mode') {
-      const leftId = String(args?.left_layer_id || args?.leftLayerId || '').trim()
       const rightId = String(args?.right_layer_id || args?.rightLayerId || '').trim()
       const posArg = Number(args?.position)
       swipeEnabled.value = true
-      swipeLeftLayerId.value = leftId || 'gee-heatmap'
       swipeRightLayerId.value = rightId || 'ai-imagery'
       swipePosition.value = Number.isFinite(posArg) ? Math.max(0, Math.min(1, posArg)) : 0.5
 
-      // Enforce Left=non-AI, Right=AI.
+      // v7.2 (revised): Swipe affects Right overlay only (AI-only).
       _normalizeSwipeIds()
 
       try {
-        const ids = new Set([swipeLeftLayerId.value, swipeRightLayerId.value].filter(Boolean))
+        const ids = new Set([swipeRightLayerId.value].filter(Boolean))
         layers.value = (layers.value || []).map((l) => (ids.has(String(l?.id || '')) ? { ...l, enabled: true } : l))
       } catch (_) {
         // ignore
@@ -1480,7 +1459,7 @@ watch(
 )
 
 watch(
-  () => [swipeLeftLayerId.value, swipeRightLayerId.value],
+  () => swipeRightLayerId.value,
   () => {
     if (!swipeEnabled.value) return
     _normalizeSwipeIds()

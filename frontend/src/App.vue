@@ -203,7 +203,7 @@
         </div>
       </transition>
 
-      <!-- Swipe Compare slider overlay (drag ONLY on handle; does not block AI panel clicks) -->
+      <!-- Swipe slider overlay (drag ONLY on handle; does not block AI panel clicks) -->
       <div v-if="appState === 'analyzing' && splitCompareEnabled" class="split-compare">
         <div class="split-line" :style="{ left: (splitPosition * 100) + '%' }">
           <div
@@ -378,7 +378,7 @@ export default {
     const aiLayerVisible = ref(true)
     const holdingCompare = ref(false)
 
-    // Split / swipe compare
+    // Split / swipe
     const splitCompareEnabled = ref(false)
     const splitPosition = ref(0.5)
     const draggingSplit = ref(false)
