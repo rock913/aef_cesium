@@ -27,7 +27,7 @@ describe('Golden Path wiring (TDD gate)', () => {
 
   it('Workbench auto-plays a demo and avoids placeholder UI copy', () => {
     const s = read('../src/WorkbenchApp.vue')
-    expect(s).toContain("setTimeout(() => runStub(),")
+    expect(s).toContain("setTimeout(() => _focusScenario(")
     expect(s).toContain("sessionStorage?.getItem?.('z2x:lastContext'")
     expect(s).not.toMatch(/Placeholder/i)
   })

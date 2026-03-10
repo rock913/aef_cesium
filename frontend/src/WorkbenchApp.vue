@@ -634,6 +634,10 @@ const code = ref(buildCodeStub(scenario.value))
 const agentText = ref('System ready. Press Run to simulate an agent flow…')
 const lastIntent = ref('')
 
+// Landing deep-links (/?context=...) should feel like picking a scenario inside workbench.
+// We keep Global Standby as the default, but if a context is explicitly provided we auto-fly once.
+const pendingAutoFly = ref(false)
+
 let _timer = null
 
 function _stop() {
@@ -670,6 +674,35 @@ function runStub() {
   ].join('\n')
 
   _type(plan)
+}
+
+function _focusScenario({ fly = false } = {}) {
+  // Sync Copilot narration first so the right panel matches the selected context.
+  runStub()
+
+  if (!fly) return
+  const scale = String(researchStore.currentScale.value || '').trim().toLowerCase()
+  if (scale !== 'earth') return
+
+  // If Cesium isn't ready yet, defer until viewer-ready.
+  if (!viewerReady.value) {
+    pendingAutoFly.value = true
+    return
+  }
+
+  pendingAutoFly.value = false
+
+  try {
+    engineRouter.value?.stopGlobalStandby?.()
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    engineRouter.value?.flyToScenario?.()
+  } catch (_) {
+    // ignore
+  }
 }
 
 async function runExecute() {
@@ -826,6 +859,23 @@ function _flyToScenario() {
 
 function onViewerReady() {
   viewerReady.value = true
+
+  // If arriving with an explicit context (landing deep-link), fly once instead of orbit standby.
+  if (pendingAutoFly.value && String(researchStore.currentScale.value || '').trim().toLowerCase() === 'earth') {
+    pendingAutoFly.value = false
+    try {
+      engineRouter.value?.stopGlobalStandby?.()
+    } catch (_) {
+      // ignore
+    }
+    try {
+      engineRouter.value?.flyToScenario?.()
+    } catch (_) {
+      // ignore
+    }
+    return
+  }
+
   try {
     engineRouter.value?.startGlobalStandby?.()
   } catch (_) {
@@ -1115,6 +1165,15 @@ function onCopilotSelectPreset(preset) {
   else if (id.includes('terminator') || id.includes('magnet') || id.includes('shield')) setContextScale('terminator_shield', 'macro')
   else if (id.includes('wormhole') || id.includes('micro')) setContextScale(contextId.value || 'poyang', 'micro')
 
+  // Keep Copilot panel consistent with the selected scenario.
+  // If user picked an earth-scale preset, also fly to the scenario to match landing deep-link behavior.
+  try {
+    const scale = String(researchStore.currentScale.value || '').trim().toLowerCase()
+    _focusScenario({ fly: scale === 'earth' })
+  } catch (_) {
+    runStub()
+  }
+
   try {
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)
   } catch (_) { }
@@ -1278,7 +1337,8 @@ onMounted(() => {
   // Golden path: auto-play a short demo when arriving from Act2.
   // Keep workbench quiet by default; only auto-run when explicitly requested.
   if (_autoplayFromUrl || _contextFromUrl) {
-    setTimeout(() => runStub(), 220)
+    if (_contextFromUrl) pendingAutoFly.value = true
+    setTimeout(() => _focusScenario({ fly: !!_contextFromUrl }), 220)
   }
 })
 

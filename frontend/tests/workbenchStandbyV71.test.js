@@ -8,12 +8,15 @@ function read(file) {
 }
 
 describe('Workbench v7.1 Global Standby + Lab persistence', () => {
-  it('does not auto-fly to scenario on viewer-ready', () => {
+  it('defaults to Global Standby, but supports one-shot auto-fly for deep-links', () => {
     const s = read('../src/WorkbenchApp.vue')
 
-    // viewer-ready should enter standby, not jump to local camera
+    // viewer-ready should still support standby
     expect(s).toMatch(/function onViewerReady\(\)[\s\S]*startGlobalStandby/)
-    expect(s).not.toMatch(/function onViewerReady\(\)[\s\S]*_flyToScenario\(\)/)
+
+    // but also allow conditional fly when a deep-link requested it
+    expect(s).toMatch(/pendingAutoFly/)
+    expect(s).toMatch(/function onViewerReady\(\)[\s\S]*flyToScenario/)
   })
 
   it('does not force Theater mode after execute', () => {
@@ -26,7 +29,7 @@ describe('Workbench v7.1 Global Standby + Lab persistence', () => {
   it('keeps workbench quiet unless autoplay is requested', () => {
     const s = read('../src/WorkbenchApp.vue')
     expect(s).toContain('const _autoplayFromUrl')
-    expect(s).toMatch(/if\s*\(_autoplayFromUrl\s*\|\|\s*_contextFromUrl\)[\s\S]*setTimeout\(\(\)\s*=>\s*runStub\(\),\s*220\)/)
+    expect(s).toMatch(/if\s*\(_autoplayFromUrl\s*\|\|\s*_contextFromUrl\)[\s\S]*setTimeout\(\(\)\s*=>\s*_focusScenario\(/)
   })
 
   it('uses backend-provided height/duration for fly_to', () => {
