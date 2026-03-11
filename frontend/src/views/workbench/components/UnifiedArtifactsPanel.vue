@@ -150,20 +150,48 @@ let r = length(p.xyz);
 if (r < 1.0) { return; }
 
 let up = normalize(p.xyz);
+let PI = 3.14159265;
+let TAU = 6.2831853;
+
 // NOTE: 'ref' is a reserved keyword in newer WGSL parsers.
 var axisRef = vec3<f32>(0.0, 0.0, 1.0);
 if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
 let east = normalize(cross(axisRef, up));
 let north = normalize(cross(up, east));
 
-let a = t * 0.55 + f32(i) * 0.00003;
-let u = sin(a * 1.30 + up.x * 3.0 + up.y * 2.0);
-let v = cos(a * 1.70 + up.y * 3.0 - up.z * 2.0);
+// Build a cyclone-rich tangent flow in lon/lat space.
+let lat = asin(clamp(up.z, -1.0, 1.0));
+let lon = atan2(up.y, up.x);
+
+// Zonal jet bands + meanders.
+let jet = cos(lat * 6.0) * 1.25;
+let meander = sin(lon * 3.0 + t * 0.9 + lat * 2.0) * 0.65;
+
+// Two moving vortex centers (in lon/lat).
+let c1 = vec2<f32>(0.85 * sin(t * 0.35), 0.45 * sin(t * 0.27));
+let c2 = vec2<f32>(1.70 * cos(t * 0.23 + 1.0), -0.55 * cos(t * 0.19));
+
+var d1 = vec2<f32>(lon - c1.x, lat - c1.y);
+var d2 = vec2<f32>(lon - c2.x, lat - c2.y);
+
+// Wrap lon deltas to [-PI, PI] for continuity across the date line.
+d1.x = d1.x - select(0.0, TAU, d1.x > PI);
+d1.x = d1.x + select(0.0, TAU, d1.x < -PI);
+d2.x = d2.x - select(0.0, TAU, d2.x > PI);
+d2.x = d2.x + select(0.0, TAU, d2.x < -PI);
+
+let inv1 = 1.0 / (dot(d1, d1) + 0.07);
+let inv2 = 1.0 / (dot(d2, d2) + 0.06);
+let swirl1 = vec2<f32>(-d1.y, d1.x) * inv1 * 2.6;
+let swirl2 = vec2<f32>(-d2.y, d2.x) * inv2 * 2.2;
+
+let u = (jet + meander) + swirl1.x + swirl2.x;
+let v = (swirl1.y + swirl2.y) - sin(lat * 3.0) * 0.55;
 let vel = east * u + north * v;
 
-// Advect along tangent and re-project to a stable radius (surface-like).
-let adv = vel * (s * 40.0);
-p.xyz = normalize(p.xyz + adv) * 6700000.0;
+// Advect along tangent and re-project to a stable radius (cinematic shell).
+let adv = vel * (s * 80000.0);
+p.xyz = normalize(p.xyz + adv) * 20000000.0;
 particles.data[i] = p;`;
 
   try {
