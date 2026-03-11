@@ -150,7 +150,7 @@ let r = length(p.xyz);
 if (r < 1.0) { return; }
 
 let up = normalize(p.xyz);
-// NOTE: `ref` is a reserved keyword in newer WGSL parsers.
+// NOTE: 'ref' is a reserved keyword in newer WGSL parsers.
 var axisRef = vec3<f32>(0.0, 0.0, 1.0);
 if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
 let east = normalize(cross(axisRef, up));
