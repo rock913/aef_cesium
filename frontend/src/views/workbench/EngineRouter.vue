@@ -1251,67 +1251,50 @@ async function addSubsurfaceModel(options = {}) {
   const depth0 = Number.isFinite(depth) ? depth : -3800.0
 
   try {
-    const position = Cesium.Cartesian3.fromDegrees(lon0, lat0, depth0)
+    const points = viewer.scene?.primitives?.add?.(new Cesium.PointPrimitiveCollection())
+    if (!points) return false
 
-    const veinColor = Cesium.Color.fromCssColorString('#FF4D6D').withAlpha(0.9)
-    const label = {
-      text: 'Subsurface Veins (stub)',
-      font: '14pt ui-monospace, monospace',
-      fillColor: Cesium.Color.WHITE,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 2,
-      pixelOffset: new Cesium.Cartesian2(0, -30),
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    const origin = Cesium.Cartesian3.fromDegrees(lon0, lat0, depth0)
+    const enu = Cesium.Transforms.eastNorthUpToFixedFrame(origin)
+
+    const baseColor = Cesium.Color.fromCssColorString('#FF4D6D')
+    const countRaw = Number(options?.count)
+    const count = Number.isFinite(countRaw) ? Math.max(500, Math.min(20000, Math.floor(countRaw))) : 6500
+
+    const spanXYRaw = Number(options?.span_xy_m)
+    const spanZRaw = Number(options?.span_z_m)
+    const pixelSizeRaw = Number(options?.pixel_size)
+
+    const spanXY = Number.isFinite(spanXYRaw) ? Math.max(200.0, Math.min(20000.0, spanXYRaw)) : 3200.0
+    const spanZ = Number.isFinite(spanZRaw) ? Math.max(200.0, Math.min(20000.0, spanZRaw)) : 1500.0
+    const basePixelSize = Number.isFinite(pixelSizeRaw) ? Math.max(1.0, Math.min(18.0, pixelSizeRaw)) : 4.0
+
+    for (let i = 0; i < count; i += 1) {
+      const rx = (Math.random() - 0.5) * spanXY
+      const ry = (Math.random() - 0.5) * spanXY
+      const rz = -Math.random() * spanZ
+
+      const local = new Cesium.Cartesian3(rx, ry, rz)
+      const world = Cesium.Matrix4.multiplyByPoint(enu, local, new Cesium.Cartesian3())
+
+      const a = 0.35 + Math.random() * 0.55
+      const c = baseColor.withAlpha(a)
+      const px = basePixelSize + Math.random() * 2.0
+
+      points.add({
+        position: world,
+        color: c,
+        pixelSize: px,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      })
     }
 
-    // Prefer a “root-like” polyline volume for visual impact; fall back to ellipsoid.
-    let entity = null
+    _setOverlayEntry(_RUNTIME_KEYS.subsurfaceModel, { kind: 'primitive', primitive: points })
     try {
-      const shape = []
-      const seg = 14
-      const radius = 380.0
-      for (let i = 0; i < seg; i += 1) {
-        const a = (i / seg) * Math.PI * 2
-        shape.push(new Cesium.Cartesian2(Math.cos(a) * radius, Math.sin(a) * radius))
-      }
-
-      const positions = Cesium.Cartesian3.fromDegreesArrayHeights([
-        lon0, lat0, depth0,
-        lon0 + 0.02, lat0 + 0.02, depth0 - 500.0,
-        lon0 + 0.05, lat0 - 0.03, depth0 - 1200.0,
-      ])
-
-      entity = viewer.entities.add({
-        position,
-        polylineVolume: {
-          positions,
-          shape,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.85,
-            color: veinColor,
-          }),
-        },
-        label,
-      })
+      viewer.scene?.requestRender?.()
     } catch (_) {
-      entity = null
+      // ignore
     }
-
-    if (!entity) {
-      entity = viewer.entities.add({
-        position,
-        ellipsoid: {
-          radii: new Cesium.Cartesian3(1200.0, 2500.0, 600.0),
-          material: veinColor.withAlpha(0.55),
-          outline: true,
-          outlineColor: veinColor,
-        },
-        label,
-      })
-    }
-
-    _setOverlayEntry(_RUNTIME_KEYS.subsurfaceModel, { kind: 'entity', entity })
     return true
   } catch (_) {
     return false
@@ -1573,6 +1556,13 @@ function _removeOverlayEntry(id) {
   try {
     if (entry.kind === 'imagery' && entry.layer && viewer) {
       viewer.imageryLayers.remove(entry.layer, true)
+    }
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (entry.kind === 'primitive' && entry.primitive && viewer) {
+      viewer.scene?.primitives?.remove?.(entry.primitive)
     }
   } catch (_) {
     // ignore

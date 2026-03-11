@@ -52,8 +52,6 @@ Demo 7: 珠峰冰原溃决预警
 
 地形：调用 Cesium Ion 的 Cesium World Terrain (Asset ID: 1)。
 
-网络/环境兜底：若现场网络无法访问 `assets.ion.cesium.com`（常见报错：`net::ERR_CONNECTION_RESET`），前端会自动回退到椭球地形（Ellipsoid）。此时仍可继续演示“淹没 Polygon + 动态水体”，但不会有真实山体起伏。解决：放通外网/配置代理与 Ion Token；或直接关闭 World Terrain 依赖做离线演示。
-
 淹没范围：基于 SRTM 30m DEM，在 ArcGIS/QGIS 中使用水文分析工具（Hydrology）提取珠峰北坡汇水盆地，生成淹没 Polygon。
 
 演示兜底生成方案： 直接手绘一个沿山谷走向的多边形。
@@ -211,106 +209,146 @@ for feature in geojson['features']:
 
 背景与意义： 打破传统 GIS 只能看“地表”的限制，让空间计算向下延伸到地下三维空间。
 
-数据源与处理工程 📦：
-
-真实获取路径： 深层地质 3D Voxel 数据极其昂贵且保密（如 Leapfrog 生成的数据）。
-
 💡 概念核心：什么是 Stub (存根) 与如何利用它？
 
-释义： Stub 是高规格路演中的“智能替身”。因为真实的高光谱体积解混（Hyperspectral Voxel Unmixing）需要消耗巨大的算力和数十分钟的时间，无法在 3 分钟的 Demo 中实时跑完。因此，当系统识别到用户的意图后，会“模拟”执行完毕，并直接下发一个预先准备好的、极具视觉冲击力的模型（这就是 Stub）。它既能保障演示绝对不翻车，也能传达最核心的产品理念。
+释义： 什么是 Stub？在极高规格的 ToB 路演中，Stub 是一种“合法的智能替身”。例如，真实的高光谱体积解混（Hyperspectral Voxel Unmixing）在后端 PyTorch 集群上可能需要跑 30 分钟。在 3 分钟的汇报现场，这是不允许的。因此，系统会“佯装”执行完毕，并由 Copilot 直接调度一个预先生成好的、极具视觉冲击力的渲染结果（即 Stub）。它既能保障演示 100% 成功，也能完美传达产品的业务逻辑与技术远景。
 
-高阶视觉演进： 目前使用简单的椭球体会显得有些廉价。为了强化“矿脉”的质感，建议在底层引擎将实体替换为具有分支结构的 PolylineVolumeGraphics（三维树段）或直接加载一个赛博朋克风格的发光 GLTF 模型。
+高阶视觉演进 (Voxel Cloud)：
+目前使用椭球体显得有些廉价。为了强化“深层数据体素”的质感，前端应渲染密集的**“发光体素点云”**作为 Stub。
 
-前端 Stub 高阶渲染伪代码（基于 Cesium Entity）：
+前端 Stub 高阶渲染伪代码（基于 PointPrimitiveCollection）：
 
-// 引擎层高阶地下锚点渲染：使用发光折线体模拟“矿脉根须”
-viewer.entities.add({
-  polylineVolume: {
-    positions: Cesium.Cartesian3.fromDegreesArrayHeights([
-      118.7, -22.3, -3500.0,
-      118.72, -22.28, -4200.0,
-      118.75, -22.35, -5000.0
-    ]),
-    shape: computeCircle(500.0), // 横截面半径500米
-    material: new Cesium.PolylineGlowMaterialProperty({
-      glowPower: 0.8,
-      color: Cesium.Color.fromCssColorString('#FF4D6D')
-    })
-  }
-});
+// 引擎层高阶地下锚点：生成赛博朋克风的高光谱体素点云
+const points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+for(let i=0; i<5000; i++) {
+    const lat = -22.3 + (Math.random() - 0.5) * 0.05;
+    const lon = 118.7 + (Math.random() - 0.5) * 0.05;
+    const depth = -3800.0 - Math.random() * 1000.0;
+    points.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, depth),
+        color: Cesium.Color.fromCssColorString('#FF4D6D').withAlpha(0.8),
+        pixelSize: 4.0, // 形成致密的点云矿脉
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+    });
+}
 
 
 总结演示说明（导演台本）：
 
-🗣️ 话术： “对我们而言，地表已无秘密可言。剥离澳洲地壳，解译地下4000米的隐伏锂矿层。”
+🗣️ 话术： “对我们而言，地表已无秘密可言。剥离澳洲地壳，调用高光谱解混算子，直接透视地下4000米的隐伏锂矿分布层。”
 
-🎬 视觉预期： 地球瞬间变成半透明玻璃态，镜头如钻探机般直降地下 -4500m。抬头仰望，漆黑深渊中悬浮着闪耀着粉红光芒的网状矿脉虚影（Stub）。极少有竞品能做到地下渲染，这是大杀器。
+🎬 视觉预期： 地球瞬间变成半透明玻璃态，镜头如钻探机般直降地下 -4500m。抬头仰望，漆黑深渊中悬浮着由数千个闪耀红光的高光谱数据点构成的庞大矿脉网络（高阶 Stub）。全场惊艳，秒杀传统平面 GIS。
 
 🚀 第三阵列：极客炫技 (系统级架构张力)
 
-🌟🌟🌟 Demo 13: 全球流体与 WebGPU 代码热生成
+🌟🌟🌟 Demo 13: 全球流体与 WebGPU 代码热生成 (架构巅峰)
 
-背景与意义： 完美诠释“Code as Compute”。大模型不是在调用 API，而是在实时写出具备真实流体力学特征的 GPU 算力代码并直接运行。
+背景与意义： 完美诠释“Code as Compute”。摒弃枯燥的噪点聚集，这次大模型将实时写出兼具“粒子生命周期 (Lifecycle)”与“无散度流函数 (Curl of Stream Function)”的工业级全管线 Shader，并在显卡上直接编译运行。
 
-数据源与处理工程 📦：
+💡 究极演示方案：全管线接管 (Full Pipeline Override WGSL)
+注：由于该脚本提供了完整的 @vertex 和 @fragment，引擎不再将其当作残缺片段，而是完全交出显卡控制权。
+请将下方脚本置入 v7_copilot.py 中用于下发给编辑器：
 
-真实获取路径： 从 NOAA GFS 下载气象数据，解析 U/V 风速分量，转成二进制 Buffer 传给 WebGPU。
+// WGSL Full Pipeline: 宏观流体力学与生命周期管理
+struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }
+struct Particles { data: array<vec4<f32>> }
+@group(0) @binding(0) var<storage, read_write> particles: Particles;
+@group(0) @binding(3) var<storage, read> particles_ro: Particles;
+@group(0) @binding(1) var<uniform> uCamera: Camera;
+@group(0) @binding(2) var<uniform> uParams: vec4<f32>;
 
-💡 高阶演示方案：物理气象级 WebGPU 代码注入 (Procedural Flow)
-之前的随机波浪代码缺乏流体感。以下是最新的“全球大气环流”程序化生成代码，它利用球坐标切线空间模拟了宏观的行星风带（Zonal Winds）与动态的气旋（Cyclones），视觉拉丝感极强。这正是您需要让大模型“实时生成”并写入编辑器的代码：
+// 伪随机哈希，用于打散生命周期
+fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
 
-// WGSL compute body: 全球大气环流与气旋物理模拟 (Demo-Safe)
-// 约定: group(0) bindings: 0=particles(RW compute), 3=particles_ro(RO vertex), 1=camera, 2=uParams(t, stepScale, _, _)
-let i = gid.x;
-let n = arrayLength(&particles.data);
-if (i >= n) { return; }
+// 三维流函数 (Stream Function) 叠加，导数即为无散度流场 (Divergence-Free)
+fn stream(p: vec3<f32>, t: f32) -> f32 {
+    var f = 0.0;
+    f += sin(p.x * 4.0 + t) * cos(p.y * 4.0 - t) * 1.0;
+    f += sin(p.y * 7.0 - t * 1.2) * cos(p.z * 7.0 + t * 0.8) * 0.5;
+    f += sin(p.z * 12.0 + t * 1.5) * cos(p.x * 12.0 - t * 1.1) * 0.25;
+    return f;
+}
 
-let t = uParams.x * 0.2; // 时间流速控制
-let s = max(0.0, uParams.y);
-var p = particles.data[i];
-let r = length(p.xyz);
-if (r < 1.0) { return; }
+@compute @workgroup_size(256)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i >= arrayLength(&particles.data)) { return; }
 
-// 1. 归一化计算经纬度特征
-let up = normalize(p.xyz);
-let lat = asin(up.z);
-let lon = atan2(up.y, up.x);
+    let t = uParams.x * 0.15; // 全局时钟
+    let dt = max(0.001, uParams.y * 0.016);
+    var p = particles.data[i];
 
-// 2. 构建球面切线空间 (East / North) 保证流体贴合地表
-// NOTE: `ref` is a reserved keyword in newer WGSL parsers.
-var axisRef = vec3<f32>(0.0, 0.0, 1.0);
-if (abs(up.z) > 0.99) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
-let east = normalize(cross(axisRef, up));
-let north = normalize(cross(up, east));
+    // 核心进化 1：粒子寿命衰减 (p.w 从 1.0 降至 0.0)
+    p.w -= dt * (0.1 + hash(f32(i)) * 0.2);
 
-// 3. 物理流体学方程融合：
-// a. 行星风带 (Zonal Winds) - 形成赤道与中纬度的水平对流带
-let zonal_wind = cos(lat * 6.0) * 1.5;
+    // 核心进化 2：生死轮回 (Respawn)，产生源源不断的流线感
+    if (p.w <= 0.0 || length(p.xyz) < 1.0) {
+        p.w = 1.0;
+        let seed = f32(i) + t;
+        let phi = hash(seed) * 6.2831853;
+        let costheta = hash(seed * 1.5) * 2.0 - 1.0;
+        let theta = acos(costheta);
+        p.x = sin(theta) * cos(phi);
+        p.y = sin(theta) * sin(phi);
+        p.z = cos(theta);
+        p.xyz = normalize(p.xyz) * 20000000.0;
+    }
 
-// b. 动态气旋 (Cyclonic Vortices) - 形成跨越经纬度的螺旋眼
-let vortex1 = sin(lon * 5.0 + t * 0.8) * cos(lat * 4.0 - t * 0.4);
-let vortex2 = cos(lon * 8.0 - t * 1.2) * sin(lat * 7.0);
+    let pos = normalize(p.xyz);
 
-// 合并切线向速度
-let u = zonal_wind + vortex1 * 2.0;
-let v = vortex2 * 1.8 - sin(lat * 3.0); 
-let vel = east * u + north * v;
+    // 数值求偏导获取旋度 (Curl)，确保粒子绝对顺滑流动，不扎堆
+    let eps = 0.02;
+    let dx = stream(pos + vec3(eps,0.,0.), t) - stream(pos - vec3(eps,0.,0.), t);
+    let dy = stream(pos + vec3(0.,eps,0.), t) - stream(pos - vec3(0.,eps,0.), t);
+    let dz = stream(pos + vec3(0.,0.,eps), t) - stream(pos - vec3(0.,0.,eps), t);
+    var vel = cross(pos, vec3<f32>(dx, dy, dz) / (2.0 * eps)); 
 
-// 4. 粒子平流更新与高度约束 (锁定在距地表20000km的高度以适配深空视角)
-let adv = vel * (s * 80000.0);
-p.xyz = normalize(p.xyz + adv) * 20000000.0;
-particles.data[i] = p;
+    // 叠加纬向急流 (Zonal Jet Stream)
+    let jet = cross(vec3<f32>(0.,0.,1.), pos) * cos(pos.z * 6.0) * 1.5;
+    vel = vel + jet;
+
+    // 切线平流并固化在球壳表面
+    p.xyz = normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0;
+    particles.data[i] = p;
+}
+
+struct VSOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) color: vec4<f32>
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+    // NOTE: Vertex stage must not read RW storage buffers.
+    // Use the engine-provided read-only alias at binding(3).
+    let p = particles_ro.data[vid];
+    var out: VSOut;
+    out.pos = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+
+    // 核心进化 3：基于寿命的淡入淡出，消除屏幕闪烁噪点
+    let alpha = smoothstep(0.0, 0.2, p.w) * smoothstep(1.0, 0.8, p.w);
+
+    // 核心进化 4：空间色彩映射 (赤道青色，极地紫红)
+    let lat = abs(normalize(p.xyz).z);
+    let cWarm = vec3<f32>(0.0, 0.95, 1.0);
+    let cCool = vec3<f32>(0.6, 0.1, 0.9);
+    out.color = vec4<f32>(mix(cWarm, cCool, lat), alpha * 0.8);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> { return in.color; }
 
 
 总结演示说明（导演台本）：
 
-🗣️ 话术： “Copilot，请利用 WebGPU 计算着色器，在当前空间沙盒中生成并渲染十万级带有气旋特征的全球流体场。”
+🗣️ 话术： “Copilot，请通过 WebGPU 计算着色器，构建具备无散度流函数与生命周期管理算法的全球气象流场。”
 
-🎬 视觉预期 (分两步走，拉满逼格)：
+🎬 视觉预期 (极其震撼)：
 
-镜头拉远至深空全景。左侧编辑器瞬间被极其专业的 WGSL 代码填满。此时暂停，向客户解释：“看，这不是特效录像，这是大模型实时推演出的 GPU 底层物理流体方程”。
+镜头拉远。编辑器瞬间被极其专业的 WGSL 全管线代码 填满。此时暂停，指着代码解释：“看，这不是调用动画 API，这是大模型实时推演出的 GPU 底层物理矩阵”。
 
-按下代码面板上的 ▶ RUN SCRIPT。全球瞬间被十万个荧光青色的粒子流体包裹，风带交织、气旋涌动，丝滑的流体力学拉丝效果填满屏幕。
+按下 ▶ RUN SCRIPT。整个屏幕瞬间安静，紧接着，十万级带有彗星拖尾的荧光粒子流从无到有逐渐涌现。赤道区域呈现明亮的青色急流，高纬度区域盘绕着紫色的庞大涡旋。粒子生生灭灭，形成令人窒息的流体力学之美。
 
 Demo 14: 宏微观虫洞跃迁 (Macro-Micro)
 

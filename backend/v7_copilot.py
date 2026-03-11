@@ -53,6 +53,10 @@ class CopilotExecuteResponse(BaseModel):
 _STUB_FALLBACK_FINAL = "已收到指令（stub）。请尝试点击 Prompt Gallery 的预置场景。"
 
 
+# In-memory, per-process call timestamps for hybrid-explore rate limiting.
+_HYBRID_EXPLORE_CALLS: deque[float] = deque()
+
+
 def _is_stub_fallback(events: List[CopilotEvent]) -> bool:
     if not events:
         return True
@@ -357,7 +361,8 @@ _PRESETS: List[CopilotPreset] = [
         prompt=(
             "Demo 13：请生成一段可执行的 WGSL（或仅 compute body 片段），用于更新 particles 缓冲区。\n"
             "要求：使用 tool execute_dynamic_wgsl 下发 wgsl_compute_shader，并指定 particle_count。\n"
-            "约定：引擎会提供 group(0) bindings：0=particles(storage read_write, compute), 3=particles_ro(storage read, vertex), 1=camera(mat4x4 view+proj), 2=params(vec4: t, stepScale, _, _)。"
+            "约定：引擎会提供 group(0) bindings：0=particles(storage read_write, compute), 3=particles_ro(storage read, vertex), 1=camera(view+proj), 2=params(vec4: t, stepScale, _, _)。\n"
+            "注意：Vertex 阶段不要读取 RW storage（会编译失败）；如提供完整 module，请在 vs_main 使用 particles_ro(binding(3))。"
         ),
     ),
     CopilotPreset(
@@ -1487,19 +1492,69 @@ async def _execute_stub(
 
     if "webgpu" in lc or "wgsl" in lc or ("demo 13" in lc and ("粒子" in p or "sandbox" in lc)):
         code = (
-            "// WGSL compute body snippet (template-wrapped by EngineRouter)\n"
-            "// You can reference: particles (storage vec4 array), uParams (vec4: t, stepScale, _, _)\n"
-            "// Example: tiny swirl motion\n"
-            "let i = gid.x;\n"
-            "let n = arrayLength(&particles.data);\n"
-            "if (i >= n) { return; }\n"
-            "let t = uParams.x;\n"
-            "let s = max(0.0, uParams.y);\n"
-            "var p = particles.data[i];\n"
-            "let a = f32(i) * 0.0001 + t * 0.6;\n"
-            "p.x = p.x + sin(a) * (2.0 * s);\n"
-            "p.y = p.y + cos(a) * (2.0 * s);\n"
-            "particles.data[i] = p;\n"
+            "// WGSL Full Module (raw): compute + vertex + fragment\n"
+            "// Contract: group(0) bindings: 0=particles(rw, compute), 3=particles_ro(read, vertex), 1=camera(view+proj), 2=params(t, stepScale, _, _)\n\n"
+            "struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }\n"
+            "struct Particles { data: array<vec4<f32>> }\n"
+            "@group(0) @binding(0) var<storage, read_write> particles: Particles;\n"
+            "@group(0) @binding(3) var<storage, read> particles_ro: Particles;\n"
+            "@group(0) @binding(1) var<uniform> uCamera: Camera;\n"
+            "@group(0) @binding(2) var<uniform> uParams: vec4<f32>;\n\n"
+            "fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }\n\n"
+            "@compute @workgroup_size(256)\n"
+            "fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n"
+            "  let i = gid.x;\n"
+            "  let n = arrayLength(&particles.data);\n"
+            "  if (i >= n) { return; }\n"
+            "  let t = uParams.x * 0.12;\n"
+            "  let s = max(0.0, uParams.y);\n"
+            "  var p = particles.data[i];\n"
+            "  p.w = p.w - (0.01 * s) * (0.5 + hash(f32(i)) * 0.9);\n"
+            "  if (p.w <= 0.0 || length(p.xyz) < 1.0) {\n"
+            "    p.w = 1.0;\n"
+            "    let seed = f32(i) + t * 100.0;\n"
+            "    let phi = hash(seed) * 6.2831853;\n"
+            "    let costheta = hash(seed * 1.7) * 2.0 - 1.0;\n"
+            "    let theta = acos(costheta);\n"
+            "    p.x = sin(theta) * cos(phi);\n"
+            "    p.y = sin(theta) * sin(phi);\n"
+            "    p.z = cos(theta);\n"
+            "    p.xyz = normalize(p.xyz) * 20000000.0;\n"
+            "  }\n"
+            "  let pos = normalize(p.xyz);\n"
+            "  let a = sin(pos.y * 6.0 + t) + cos(pos.z * 5.0 - t * 1.3);\n"
+            "  let b = sin(pos.z * 7.0 - t * 0.8) + cos(pos.x * 4.0 + t * 1.1);\n"
+            "  var vel = cross(pos, vec3<f32>(a, b, sin(t + f32(i) * 0.00001))) ;\n"
+            "  vel = normalize(vel + 0.00001) * 35000.0;\n"
+            "  p.xyz = normalize(p.xyz + vel * (0.016 * s)) * 20000000.0;\n"
+            "  particles.data[i] = p;\n"
+            "}\n\n"
+            "struct VSOut {\n"
+            "  @builtin(position) pos: vec4<f32>,\n"
+            "  @builtin(point_size) psize: f32,\n"
+            "  @location(0) color: vec4<f32>,\n"
+            "}\n\n"
+            "@vertex\n"
+            "fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {\n"
+            "  let p = particles_ro.data[vid];\n"
+            "  let clipFix = mat4x4<f32>(\n"
+            "    1.0, 0.0, 0.0, 0.0,\n"
+            "    0.0, 1.0, 0.0, 0.0,\n"
+            "    0.0, 0.0, 0.5, 0.0,\n"
+            "    0.0, 0.0, 0.5, 1.0\n"
+            "  );\n"
+            "  var out: VSOut;\n"
+            "  out.pos = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);\n"
+            "  out.psize = 5.0;\n"
+            "  let lat = abs(normalize(p.xyz).z);\n"
+            "  let cWarm = vec3<f32>(0.0, 0.95, 1.0);\n"
+            "  let cCool = vec3<f32>(0.6, 0.1, 0.9);\n"
+            "  let alpha = 0.15 + 0.75 * smoothstep(0.0, 0.25, p.w);\n"
+            "  out.color = vec4<f32>(mix(cWarm, cCool, lat), alpha);\n"
+            "  return out;\n"
+            "}\n\n"
+            "@fragment\n"
+            "fn fs_main(in: VSOut) -> @location(0) vec4<f32> { return in.color; }\n"
         ).strip()
         events.extend(
             [

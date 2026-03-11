@@ -149,8 +149,8 @@ Demo 13（WebGPU 全局粒子宏大感）
 - 实现建议：后端 stub 在 `write_to_editor/execute_dynamic_wgsl` 前下发一次 `fly_to`；前端 `_seedParticles()` 改为基于球面随机方向的全局播种（半径约 20,000km），默认 shader 颜色改为 Cyan。
 
 Demo 12（地下模式“下潜 + 锚点”）
-- 验收：触发“皮尔巴拉/地下/矿脉”类指令后，先进入地下模式（透明地球 + 关闭碰撞），相机以可控仰俯角下潜到负高程，并在地下看到明显的发光锚点实体。
-- 实现建议：后端 stub 工具序列固定为 `enable_subsurface_mode` → `fly_to(height<0, pitch_deg=...)` → `add_subsurface_model`；前端 Workbench 放行 `add_subsurface_model`，EngineRouter 以可清理的 entity stub 实现锚点。
+- 验收：触发“皮尔巴拉/地下/矿脉”类指令后，先进入地下模式（透明地球 + 关闭碰撞），相机以可控仰俯角下潜到负高程，并在地下看到明显的“发光体素点云”（Voxel Cloud）锚点。
+- 实现建议：后端 stub 工具序列固定为 `enable_subsurface_mode` → `fly_to(height<0, pitch_deg=...)` → `add_subsurface_model`；前端 Workbench 放行 `add_subsurface_model`，EngineRouter 用 `Cesium.PointPrimitiveCollection` 生成密集点云（资源无依赖、可清理，优先替代椭球/单实体）。
 
 ---
 
@@ -201,13 +201,15 @@ Demo 11（暗夜油污与船舶溯源）
 Demo 12（极深地下矿脉解译）
 - 概念：Stub = 智能替身（路演稳定优先）。
 - 导演台词："剥离澳洲地壳，解译地下4000米的隐伏锂矿层。"
-- 视觉预期：半透明玻璃地球 + 相机下潜到负高程 + 地下发光“矿脉根须”锚点（可清理）。
+- 视觉预期：半透明玻璃地球 + 相机下潜到负高程 + 地下发光“体素点云矿脉”（Voxel Cloud，PointPrimitiveCollection）（可清理）。
 
 Demo 13（全球流体 WebGPU 热生成）
 - 数据源（真实）：NOAA GFS U/V 风速。
 - 兜底（MVP）：procedural compute-body + 引擎模板 wrap；失败自动回退 demo-safe WGSL。
+- 进阶（Full Pipeline Override WGSL）：支持下发“完整 WGSL module”（含 `@compute cs_main` + `@vertex vs_main` + `@fragment fs_main`）并由引擎直接使用（mode=raw）。
 - 重要约定（与仓库实现一致）：
   - Vertex 阶段读取 `particles_ro`（group(0) binding(3)）以避免 RW storage 在 Vertex 阶段非法。
+  - Full module（raw）默认 `topology=point-list`，建议在 `VSOut` 增加 `@builtin(point_size)` 并赋值（例如 3~6），避免高 DPI 下点太小“看不见”。
   - Debug 可用 `?wgpu_debug=tint|tri|all`，用来验证 overlay 可见性。
 - 导演台词："利用 WebGPU 计算着色器，在当前沙盒生成并渲染十万级带气旋特征的全球流体场。"
 - 视觉预期：深空全景 + 青色粒子风带/气旋拉丝。
