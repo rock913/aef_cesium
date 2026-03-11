@@ -247,97 +247,117 @@ for(let i=0; i<5000; i++) {
 
 💡 究极演示方案：全管线接管 (Full Pipeline Override WGSL)
 注：由于该脚本提供了完整的 @vertex 和 @fragment，引擎不再将其当作残缺片段，而是完全交出显卡控制权。
-请将下方脚本置入 v7_copilot.py 中用于下发给编辑器：
+建议做法：将其作为 `/api/v7/prompts` 的导演台本/预置参考；真正“下发给编辑器并执行”的工具调用，以后端 `backend/v7_copilot.py` 为唯一真源。
 
-// WGSL Full Pipeline: 宏观流体力学与生命周期管理
-struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }
-struct Particles { data: array<vec4<f32>> }
+重要：下面 WGSL 代码块按 v7.2 实装约束编写，便于复制即跑：
+- 不使用 `arrayLength(&particles.data)`，边界改用 `uParams.z = particleCount`
+- 不使用 `p.xyz = ...` 这类 swizzle 赋值
+- 代码与注释保持 ASCII-only（避免部分实现报 `invalid character`）
+
+```wgsl
+// WGSL Full Pipeline: macro flow + lifecycle (v7.2-safe)
+struct Camera {
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+};
+
+struct Particles {
+    data: array<vec4<f32>>,
+};
+
 @group(0) @binding(0) var<storage, read_write> particles: Particles;
 @group(0) @binding(3) var<storage, read> particles_ro: Particles;
 @group(0) @binding(1) var<uniform> uCamera: Camera;
+// uParams = vec4(t, stepScale, particleCount, _)
 @group(0) @binding(2) var<uniform> uParams: vec4<f32>;
 
-// 伪随机哈希，用于打散生命周期
-fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
+fn hash(n: f32) -> f32 {
+    return fract(sin(n) * 43758.5453123);
+}
 
-// 三维流函数 (Stream Function) 叠加，导数即为无散度流场 (Divergence-Free)
 fn stream(p: vec3<f32>, t: f32) -> f32 {
-    var f = 0.0;
-    f += sin(p.x * 4.0 + t) * cos(p.y * 4.0 - t) * 1.0;
-    f += sin(p.y * 7.0 - t * 1.2) * cos(p.z * 7.0 + t * 0.8) * 0.5;
-    f += sin(p.z * 12.0 + t * 1.5) * cos(p.x * 12.0 - t * 1.1) * 0.25;
+    var f: f32 = 0.0;
+    f = f + sin(p.x * 4.0 + t) * cos(p.y * 4.0 - t) * 1.0;
+    f = f + sin(p.y * 7.0 - t * 1.2) * cos(p.z * 7.0 + t * 0.8) * 0.5;
+    f = f + sin(p.z * 12.0 + t * 1.5) * cos(p.x * 12.0 - t * 1.1) * 0.25;
     return f;
 }
 
 @compute @workgroup_size(256)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= arrayLength(&particles.data)) { return; }
-
-    let t = uParams.x * 0.15; // 全局时钟
-    let dt = max(0.001, uParams.y * 0.016);
-    var p = particles.data[i];
-
-    // 核心进化 1：粒子寿命衰减 (p.w 从 1.0 降至 0.0)
-    p.w -= dt * (0.1 + hash(f32(i)) * 0.2);
-
-    // 核心进化 2：生死轮回 (Respawn)，产生源源不断的流线感
-    if (p.w <= 0.0 || length(p.xyz) < 1.0) {
-        p.w = 1.0;
-        let seed = f32(i) + t;
-        let phi = hash(seed) * 6.2831853;
-        let costheta = hash(seed * 1.5) * 2.0 - 1.0;
-        let theta = acos(costheta);
-        p.x = sin(theta) * cos(phi);
-        p.y = sin(theta) * sin(phi);
-        p.z = cos(theta);
-        p.xyz = normalize(p.xyz) * 20000000.0;
+    let i: u32 = gid.x;
+    let n: u32 = u32(max(0.0, uParams.z));
+    if (i >= n) {
+        return;
     }
 
-    let pos = normalize(p.xyz);
+    let t: f32 = uParams.x * 0.15;
+    let dt: f32 = max(0.001, uParams.y * 0.016);
+    var p: vec4<f32> = particles.data[i];
 
-    // 数值求偏导获取旋度 (Curl)，确保粒子绝对顺滑流动，不扎堆
-    let eps = 0.02;
-    let dx = stream(pos + vec3(eps,0.,0.), t) - stream(pos - vec3(eps,0.,0.), t);
-    let dy = stream(pos + vec3(0.,eps,0.), t) - stream(pos - vec3(0.,eps,0.), t);
-    let dz = stream(pos + vec3(0.,0.,eps), t) - stream(pos - vec3(0.,0.,eps), t);
-    var vel = cross(pos, vec3<f32>(dx, dy, dz) / (2.0 * eps)); 
+    // lifetime decay
+    p.w = p.w - dt * (0.1 + hash(f32(i)) * 0.2);
 
-    // 叠加纬向急流 (Zonal Jet Stream)
-    let jet = cross(vec3<f32>(0.,0.,1.), pos) * cos(pos.z * 6.0) * 1.5;
+    // respawn
+    if (p.w <= 0.0 || length(p.xyz) < 1.0) {
+        p.w = 1.0;
+        let seed: f32 = f32(i) + t;
+        let phi: f32 = hash(seed) * 6.2831853;
+        let costheta: f32 = hash(seed * 1.5) * 2.0 - 1.0;
+        let theta: f32 = acos(costheta);
+        let dir: vec3<f32> = vec3<f32>(
+            sin(theta) * cos(phi),
+            sin(theta) * sin(phi),
+            cos(theta)
+        );
+        p = vec4<f32>(normalize(dir) * 20000000.0, p.w);
+    }
+
+    let pos: vec3<f32> = normalize(p.xyz);
+
+    // numeric curl
+    let eps: f32 = 0.02;
+    let dx: f32 = stream(pos + vec3<f32>(eps, 0.0, 0.0), t) - stream(pos - vec3<f32>(eps, 0.0, 0.0), t);
+    let dy: f32 = stream(pos + vec3<f32>(0.0, eps, 0.0), t) - stream(pos - vec3<f32>(0.0, eps, 0.0), t);
+    let dz: f32 = stream(pos + vec3<f32>(0.0, 0.0, eps), t) - stream(pos - vec3<f32>(0.0, 0.0, eps), t);
+    var vel: vec3<f32> = cross(pos, vec3<f32>(dx, dy, dz) / (2.0 * eps));
+
+    // zonal jet
+    let jet: vec3<f32> = cross(vec3<f32>(0.0, 0.0, 1.0), pos) * cos(pos.z * 6.0) * 1.5;
     vel = vel + jet;
 
-    // 切线平流并固化在球壳表面
-    p.xyz = normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0;
+    // tangential advection on the shell
+    let adv: vec3<f32> = vel * (dt * 15.0);
+    p = vec4<f32>(normalize(p.xyz + adv) * 20000000.0, p.w);
     particles.data[i] = p;
 }
 
 struct VSOut {
     @builtin(position) pos: vec4<f32>,
-    @location(0) color: vec4<f32>
-}
+    @builtin(point_size) pointSize: f32,
+    @location(0) color: vec4<f32>,
+};
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
-    // NOTE: Vertex stage must not read RW storage buffers.
-    // Use the engine-provided read-only alias at binding(3).
-    let p = particles_ro.data[vid];
+    let p: vec4<f32> = particles_ro.data[vid];
     var out: VSOut;
     out.pos = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+    out.pointSize = 4.0;
 
-    // 核心进化 3：基于寿命的淡入淡出，消除屏幕闪烁噪点
-    let alpha = smoothstep(0.0, 0.2, p.w) * smoothstep(1.0, 0.8, p.w);
-
-    // 核心进化 4：空间色彩映射 (赤道青色，极地紫红)
-    let lat = abs(normalize(p.xyz).z);
-    let cWarm = vec3<f32>(0.0, 0.95, 1.0);
-    let cCool = vec3<f32>(0.6, 0.1, 0.9);
+    let alpha: f32 = smoothstep(0.0, 0.2, p.w) * smoothstep(1.0, 0.8, p.w);
+    let lat: f32 = abs(normalize(p.xyz).z);
+    let cWarm: vec3<f32> = vec3<f32>(0.0, 0.95, 1.0);
+    let cCool: vec3<f32> = vec3<f32>(0.6, 0.1, 0.9);
     out.color = vec4<f32>(mix(cWarm, cCool, lat), alpha * 0.8);
     return out;
 }
 
 @fragment
-fn fs_main(in: VSOut) -> @location(0) vec4<f32> { return in.color; }
+fn fs_main(v: VSOut) -> @location(0) vec4<f32> {
+    return v.color;
+}
+```
 
 
 总结演示说明（导演台本）：
