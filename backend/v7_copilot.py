@@ -575,6 +575,7 @@ _TOOLS: List[ToolDef] = [
         args_schema={
             "wgsl_compute_shader": {"type": "string"},
             "particle_count": {"type": "number"},
+            "topology": {"type": "string"},
             "preset": {"type": "string"},
             "step_scale": {"type": "number"},
             "seed": {"type": "string"},

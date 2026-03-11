@@ -481,12 +481,17 @@ v7.2 的工具定义以“后端为唯一真源”为准：
 v7.2 核心工具（与仓库落地一致）：
 - `enable_subsurface_mode(transparency, target_depth_meters)`：Demo 12
 - `disable_subsurface_mode()`：Demo 12（退出地下模式）
-- `execute_dynamic_wgsl(wgsl_compute_shader, particle_count, preset?, step_scale?, seed?)`：Demo 13
+- `execute_dynamic_wgsl(wgsl_compute_shader, particle_count, topology?, preset?, step_scale?, seed?)`：Demo 13
 - `destroy_webgpu_sandbox()`：Demo 13（销毁 overlay + 解绑 postRender）
 
 Demo 13 收敛入口（推荐）：
 - `/api/v7/prompts` 中使用 `demo:webgpu_particles_wgsl` 作为“风场/流体/气象/GFS”统一入口。
 - 追求稳定与可见优先时，推荐使用 compute-only snippet（让引擎 wrap 成稳定模板），并附带 `preset=wind`（更贴近地表播种 + 更容易看到明显流动）。
+
+`topology` 约定（Demo 13）：
+- 默认 `point-list`（一粒子一顶点）。
+- `triangle-list`：引擎内置的“可见优先”模板会把粒子渲染为小三角精灵（每粒子 6 顶点），在远景/高 DPI 下更不容易“看不见”。
+- `line-list`：适用于“每粒子两顶点”的拉丝/彗星尾流写法（例如 `p_idx = vid / 2u`）；引擎会自动把 `vertex_count` 视作 `particle_count * 2`。
 
 开发落地建议路径：
 - 优先攻坚 Demo 11 与 Demo 12：这两个场景极具视觉表现力，且完全依赖 Cesium 原生 API（光照、透明度、深度测试），开发成本可控。

@@ -416,6 +416,11 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   const hasVS = _hasVertexEntrypoint(wgslInput)
   const hasFS = _hasFragmentEntrypoint(wgslInput)
 
+  const topologyOpt = String(options?.topology || '').trim()
+  const topologyReq = topologyOpt && ['point-list', 'line-list', 'triangle-list'].includes(topologyOpt)
+    ? topologyOpt
+    : ''
+
   const shaderCandidates = []
   if (wrapped) {
     shaderCandidates.push({
@@ -428,7 +433,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     if (hasCS && !hasVS && !hasFS) {
       shaderCandidates.push({ code: _augmentComputeOnlyModuleWithDefaultRender(wgslInput), mode: 'augmented_render', topology: 'triangle-list' })
     }
-    shaderCandidates.push({ code: wgslInput, mode: 'raw', topology: 'point-list' })
+    shaderCandidates.push({ code: wgslInput, mode: 'raw', topology: topologyReq || 'point-list' })
   }
 
   // Ensure a clean slate.
@@ -1525,7 +1530,9 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       } else {
         rpass.setPipeline(renderPipeline)
         rpass.setBindGroup(0, renderBindGroup)
-        const vertexCount = selectedTopology === 'triangle-list' ? (particleCount * 6) : particleCount
+        const vertexCount = selectedTopology === 'triangle-list'
+          ? (particleCount * 6)
+          : (selectedTopology === 'line-list' ? (particleCount * 2) : particleCount)
         rpass.draw(vertexCount, 1, 0, 0)
       }
       rpass.end()
@@ -1555,7 +1562,11 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   })
   _postRenderUnsub = unsub
 
-  const vertexCount = (pipelineReady && selectedTopology === 'triangle-list') ? (particleCount * 6) : (pipelineReady ? particleCount : 0)
+  const vertexCount = (pipelineReady && selectedTopology === 'triangle-list')
+    ? (particleCount * 6)
+    : (pipelineReady
+      ? (selectedTopology === 'line-list' ? (particleCount * 2) : particleCount)
+      : 0)
   const canvas_backing_px = {
     w: Number(canvas?.width) || 0,
     h: Number(canvas?.height) || 0,
