@@ -29,6 +29,6 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     const s = read('../src/views/workbench/engines/ThreeTwin.vue')
 
     expect(s).toContain('100000')
-    expect(s).toContain('8000')
+    expect(s).toContain('2400')
   })
 })

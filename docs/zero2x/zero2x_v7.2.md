@@ -16,16 +16,23 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
   - Demo 13：stub 增加 `fly_to(~18,000km)`；粒子播种半径升级为 ~20,000km 全局分布；默认粒子颜色改为 Cyan。
   - Demo 12：补齐 `add_subsurface_model` 地下锚点；`fly_to` 支持 `pitch_deg`，并固定顺序 `enable_subsurface_mode` → 下潜 → 锚点。
 - ✅ Demo 7（珠峰冰川湖溃决）：已具备“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
+- ✅ Demo 6（塔拉滩光伏蓝海）：已具备“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → `add_cesium_vector` 面元轮廓 + `add_cesium_extruded_polygons(height_property='panel_area')` 拉伸柱，同时下发 `show_chart` 作为统计占位。
 - ✅ Demo 8（火山形变×热异常）：已具备“无资源依赖”闭环：后端 stub 发出 `fetch_insar_displacement` + `fetch_lst_anomaly` + `apply_custom_shader` + `generate_cesium_custom_shader`；前端提供 `applyCustomShader()`（优先 Cesium CustomShader，失败则 entity fallback），并会把 shader code 写入编辑区。
 - ✅ Demo 9（全球碳汇三维估算）：已具备“无资源依赖”闭环：后端 stub 输出 inline GeoJSON（含 `carbon` 属性）→ 前端 `add_cesium_extruded_polygons(height_property='carbon')` 拉伸体素柱，同时下发 `show_chart` 做指标联动占位。
+- ✅ Demo 10（纽约热岛×脆弱性）：已具备“无资源依赖”闭环：后端 stub 下发非空 bivariate grid（bounds/dims/palette/grid）；前端消费 `render_bivariate_map` 并在 Cesium 端绘制矩形网格 overlay（CustomDataSource + Rectangle.fromDegrees），同时 artifacts 侧仍保留 bivariate 占位。
 - ✅ 0303 稳定性补强已落地：night 模式不启用物理光照（避免纯黑背光面）；场景切换会触发 resetSceneState（销毁 WebGPU/退出地下/移除 overlays/恢复默认时钟与碰撞），避免“卡顿/黑屏/状态串扰”。
+- ✅ Cesium 初始化可靠性补强：修复 `DeveloperError: container is required`（组件在异步初始化途中被卸载/尺度切换导致容器 ref 变空）。策略：`nextTick()` 重试 + `disposed/container` 二次校验，未挂载时直接 abort 不再调用 `new Cesium.Viewer(...)`。
+- ✅ 0303“扳机”补齐已落地：Unified Artifacts 的 CODE 面板提供 ▶ RUN SCRIPT 按钮；Workbench 会自动切到 Twin/Earth，并把编辑器内容按特征路由：WGSL → `execute_dynamic_wgsl`，GLSL → `apply_custom_shader`（best-effort），同时会把“未就绪/WebGPU 不可用/未挂载 earth twin”等原因写入报告区，避免无反馈。
+  - WGSL 执行采用 WGSL-first：即使脚本只包含 compute（仅 `cs_main`，没有 `vs_main/fs_main`），引擎也会 best-effort 自动补齐最小渲染入口，若仍失败则回退到内置 demo-safe WGSL，避免“执行了但看不到”的假死。
+  - 风场/粒子类脚本会走 `preset=wind`：粒子播种更贴近地表半径（surface-like），并提高默认 stepScale，让效果更容易被肉眼捕捉。
+  - WebGPU overlay 与 Cesium 相机矩阵对齐：内置模板会自动把 WebGL-style clip space（z ∈ [-1,1]）转换到 WebGPU（z ∈ [0,1]），避免“管线 OK 但全被裁剪看不到”。
+  - overlay canvas 默认启用 DPR 尺寸同步与窗口 resize 重配；报告区会显示 `mode/topology/pipeline/particles/verts`，便于定位是否真的在 draw。
 
 下一步（🟡）
 - ✅ Demo 13 进阶：已固化“LLM 输出 WGSL 模板”（compute body 可自动 wrap 成完整 WGSL module），让模型生成代码更稳定可执行。
-- 🟡 M3：推进 Demo 6-10 场景组装（优先 Demo 6：vector/extruded + charts）。
-  - 已可跑通 Demo 6 的“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → 前端拉伸面元 + 柱状图。
-  - 下一步：替换为真实数据源（GeoJSON/Tile），并补齐样式与统计口径。
-  - 🟡 Demo 10（纽约热岛×脆弱性）：继续补齐“地图侧可视化骨架”（可选：把 bivariate grid 映射成 Cesium entity 网格/热力小方块），并确保与 `render_bivariate_map` artifacts 一致。
+- 🟡 M3：推进 Demo 6-10 场景组装（后续重点：把 stub 替换为真实数据源，并补齐样式与统计口径）。
+  - Demo 6：优先接入真实 GeoJSON/Tile，并补齐面积/容量口径与图例。
+  - ✅ Demo 10（纽约热岛×脆弱性）：已补齐“地图侧可视化骨架”，`render_bivariate_map` 同步驱动 Cesium overlay + artifacts。
 
 分支与落地记录
 - 分支：`patch/0303-v72-phase4`
@@ -86,9 +93,44 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 - ② 仅 compute body 片段（不包含 `@compute` / `fn cs_main`），引擎会自动 wrap 成稳定模板
 
 稳定绑定布局（group(0)）：
-- binding(0)：`particles`，`var<storage, read_write>`，`array<vec4<f32>>`
+- binding(0)：`particles`，`var<storage, read_write>`（Compute 用），`array<vec4<f32>>`
+- binding(3)：`particles_ro`，`var<storage, read>`（Vertex 用，避免 RW storage 在 Vertex 阶段非法）
 - binding(1)：`uCamera`，`var<uniform>`，`view`/`proj` 两个 `mat4x4<f32>`
 - binding(2)：`uParams`，`var<uniform>`，`vec4<f32>`：`(t, stepScale, _, _)`
+
+#### 风场 RUN SCRIPT：推荐 compute-only WGSL（可见优先）
+
+说明：下面是一段“仅 compute body”的风场示例（不含 `vs_main/fs_main`）。在 v7.2 中它依然能直接运行：引擎会自动补齐最小渲染入口；若你的脚本不兼容会回退到内置 demo-safe WGSL，并在报告区显示 mode/fallback。
+
+```wgsl
+// WGSL compute body snippet: procedural wind on a sphere (demo-safe)
+let i = gid.x;
+let n = arrayLength(&particles.data);
+if (i >= n) { return; }
+
+let t = uParams.x;
+let s = max(0.0, uParams.y);
+
+var p = particles.data[i];
+let r = length(p.xyz);
+if (r < 1.0) { return; }
+
+let up = normalize(p.xyz);
+// NOTE: `ref` is a reserved keyword in newer WGSL parsers.
+var axisRef = vec3<f32>(0.0, 0.0, 1.0);
+if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
+let east = normalize(cross(axisRef, up));
+let north = normalize(cross(up, east));
+
+let a = t * 0.55 + f32(i) * 0.00003;
+let u = sin(a * 1.30 + up.x * 3.0 + up.y * 2.0);
+let v = cos(a * 1.70 + up.y * 3.0 - up.z * 2.0);
+let vel = east * u + north * v;
+
+let adv = vel * (s * 40.0);
+p.xyz = normalize(p.xyz + adv) * 6700000.0;
+particles.data[i] = p;
+```
 
 实现约束（稳定优先）
 - WebGPU 沙盒必须与 Cesium 渲染解耦（不侵入 Cesium 内部 WebGPU API）。
@@ -107,6 +149,81 @@ Demo 13（WebGPU 全局粒子宏大感）
 Demo 12（地下模式“下潜 + 锚点”）
 - 验收：触发“皮尔巴拉/地下/矿脉”类指令后，先进入地下模式（透明地球 + 关闭碰撞），相机以可控仰俯角下潜到负高程，并在地下看到明显的发光锚点实体。
 - 实现建议：后端 stub 工具序列固定为 `enable_subsurface_mode` → `fly_to(height<0, pitch_deg=...)` → `add_subsurface_model`；前端 Workbench 放行 `add_subsurface_model`，EngineRouter 以可清理的 entity stub 实现锚点。
+
+---
+
+### 0303 Data-Driven Edition：导演台本与成功指南（合并自 update_patch_0303.md）
+
+本节用于“路演导演台本”，强调：**视窗即现场**、**代码即算力**。
+
+#### Demo 6–10：前沿开拓（空天视界进阶）
+
+Demo 6（塔拉滩光伏治沙与空间统计）
+- 数据源（真实）：GEE Sentinel-2 镶嵌；SAM 分割导出 GeoJSON；历年产能统计（财报）。
+- 兜底（Mock）：可用网格化多边形 + 随机 `capacity_mw` 的 GeoJSON。
+- 导演台词："Copilot，请评估塔拉滩光伏治沙的实际工程量与历年发展趋势。"
+- 视觉预期：飞至青海，蓝色面元/拉伸柱拔起；CHARTS 出现历年曲线。
+
+Demo 7（珠峰冰原溃决预警）
+- 数据源（真实）：Cesium World Terrain；基于 DEM 水文分析得到淹没 Polygon。
+- 兜底（Mock）：手绘山谷走向 polygon。
+- 导演台词："基于当前气象参数，模拟珠峰地区高危冰碛湖溃决的潜在淹没范围。"
+- 视觉预期：雪山峡谷上出现动态水体多边形，贴地不穿模。
+
+Demo 8（火山形变 × 热异常）
+- 数据源（真实）：Sentinel-1 InSAR 位移（GeoTIFF/纹理）；LST 异常栅格。
+- 兜底（Mock）：高斯纹理模拟形变。
+- 导演台词："叠加 InSAR 形变数据，放大莫纳罗亚火山的‘呼吸’活动。"
+- 视觉预期：地表模型出现可辨识的脉动起伏（CustomShader 或 entity fallback）。
+
+Demo 9（全球碳汇三维估算）
+- 数据源（真实）：GEDI biomass。
+- 兜底（Mock）：H3 k_ring + 随机 `carbon_stock` 输出 GeoJSON。
+- 导演台词："对刚果盆地进行 H3 网格化，估算该区域的立体碳汇储量。"
+- 视觉预期：六边形柱体拔起，高度代表碳储量。
+
+Demo 10（纽约热岛 × 社会折叠：双变量地图）
+- 数据源（真实）：Landsat LST + NYC OpenData Census Tracts。
+- 兜底（Mock）：注入负相关的 `income`/`heat` 百分位。
+- 导演台词："透视纽约热岛分布与人均收入的折叠关系。"
+- 视觉预期：Cesium 端矩形网格 overlay 出现清晰的双色矩阵分布。
+
+#### Demo 11–14：极客炫技（系统级架构张力）
+
+Demo 11（暗夜油污与船舶溯源）
+- 数据源（真实）：Sentinel-1 SAR 暗斑；AIS 轨迹（GFW）。
+- 兜底（Mock）：最小 CZML 结构（非空）驱动 path。
+- 导演台词："马六甲海峡发现可疑油污，调取过去24小时 AIS 轨迹进行碰撞溯源。"
+- 视觉预期：夜景压黑 + 橙色油污 + 青色轨迹 + 时间轴播放。
+
+Demo 12（极深地下矿脉解译）
+- 概念：Stub = 智能替身（路演稳定优先）。
+- 导演台词："剥离澳洲地壳，解译地下4000米的隐伏锂矿层。"
+- 视觉预期：半透明玻璃地球 + 相机下潜到负高程 + 地下发光“矿脉根须”锚点（可清理）。
+
+Demo 13（全球流体 WebGPU 热生成）
+- 数据源（真实）：NOAA GFS U/V 风速。
+- 兜底（MVP）：procedural compute-body + 引擎模板 wrap；失败自动回退 demo-safe WGSL。
+- 重要约定（与仓库实现一致）：
+  - Vertex 阶段读取 `particles_ro`（group(0) binding(3)）以避免 RW storage 在 Vertex 阶段非法。
+  - Debug 可用 `?wgpu_debug=tint|tri|all`，用来验证 overlay 可见性。
+- 导演台词："利用 WebGPU 计算着色器，在当前沙盒生成并渲染十万级带气旋特征的全球流体场。"
+- 视觉预期：深空全景 + 青色粒子风带/气旋拉丝。
+
+Demo 14（宏微观虫洞跃迁：Macro-Micro）
+- 目标：从 Earth → Macro → Micro 的尺度跃迁，强调“系统级架构张力”。
+- 推荐工具序列（后端 stub / LLM 都可按此输出）：
+  - `trigger_gsap_wormhole(target='micro')`（前端负责动画/过渡层）
+  - `switch_scale(target='micro')`（挂载 ThreeTwin micro 场景）
+  - `generate_molecular_lattice(type='sio2', count=...)`（触发 micro 场景重建/抖动，作为晶格演示兜底）
+- 导演台词："跨越物理尺度，从地质矿脉穿透到二氧化硅分子的微观晶格。"
+- 视觉预期：虫洞过渡后进入 micro，出现精密旋转的“分子晶格”风格结构。
+
+#### 成功指南（Success Criteria / 演示 Check-list）
+
+- 真实数据背书：客户追问数据来源时，能对应说明每个 demo 的“真实获取路径”。
+- 缓存与沙盒净化（极重要）：演示完 Demo 12/13 后，切换到常规场景（如“亚马逊”）触发 `resetSceneState()`，避免状态串扰（透明地球/WebGPU overlay/碰撞等残留）。
+- 高潮节奏控制：Demo 13 强调“看代码”和“运行结果”两段式高潮（生成与执行解耦）。
 
 ---
 
@@ -200,9 +317,9 @@ Demo 11: 暗夜油污与船舶溯源 (马六甲)
 
 实现细节:
 
-调用 viewer.scene.globe.enableLighting = true 开启晨昏线与夜景。
+调用 `set_scene_mode('night')` 进入赛博暗夜模式：通过 `imageryLayers` 做可逆调参（brightness/contrast/hue/saturation/gamma），并保持 `viewer.scene.globe.enableLighting = false`（避免“背光面纯黑”）。
 
-加载包含船舶 AIS 数据的 .czml 文件。
+加载包含船舶 AIS 数据的 CZML（演示可直接用 stub CZML 数组，确保非空）。
 
 唤起 v7.2 的底部动态时间轴 (TimelineWidget)，驱动 CZML 动画播放。
 

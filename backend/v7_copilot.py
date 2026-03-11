@@ -348,8 +348,8 @@ _PRESETS: List[CopilotPreset] = [
     ),
     CopilotPreset(
         id="demo:global_wind_glsl",
-        label="[演示] 全球风场流体 (GLSL)",
-        prompt="用 GLSL 为我写一段基于 GFS 数据的全球风场流体渲染代码，并直接在地图上运行。",
+        label="[演示] 全球风场流体 (WGSL-first)",
+        prompt="用 WGSL（或 compute body 片段）为我写一段资源无依赖的全球风场粒子/流体演示，并直接在地图上运行。",
     ),
     CopilotPreset(
         id="demo:webgpu_particles_wgsl",
@@ -357,7 +357,7 @@ _PRESETS: List[CopilotPreset] = [
         prompt=(
             "Demo 13：请生成一段可执行的 WGSL（或仅 compute body 片段），用于更新 particles 缓冲区。\n"
             "要求：使用 tool execute_dynamic_wgsl 下发 wgsl_compute_shader，并指定 particle_count。\n"
-            "约定：引擎会提供 group(0) bindings：0=particles(storage vec4 array), 1=camera(mat4x4 view+proj), 2=params(vec4: t, stepScale, _, _)。"
+            "约定：引擎会提供 group(0) bindings：0=particles(storage read_write, compute), 3=particles_ro(storage read, vertex), 1=camera(mat4x4 view+proj), 2=params(vec4: t, stepScale, _, _)。"
         ),
     ),
     CopilotPreset(
@@ -569,11 +569,14 @@ _TOOLS: List[ToolDef] = [
             "Execute WebGPU WGSL code in an overlay sandbox (Demo 13). "
             "Accepts either a full WGSL module with entryPoints cs_main/vs_main/fs_main, "
             "or a compute-body snippet that will be wrapped into a stable template. "
-            "Template bindings: group(0) binding(0)=particles storage(vec4[]), binding(1)=camera uniform(view+proj), binding(2)=params uniform(vec4: t, stepScale, _, _)."
+            "Template bindings: group(0) binding(0)=particles storage(read_write, compute), binding(3)=particles_ro storage(read, vertex), binding(1)=camera uniform(view+proj), binding(2)=params uniform(vec4: t, stepScale, _, _)."
         ),
         args_schema={
             "wgsl_compute_shader": {"type": "string"},
             "particle_count": {"type": "number"},
+            "preset": {"type": "string"},
+            "step_scale": {"type": "number"},
+            "seed": {"type": "string"},
         },
     ),
     ToolDef(
@@ -1123,6 +1126,16 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="aef_spatial_co_occurrence", result={"status": "stub", "matrix": ""}),
                 CopilotEvent(
                     type="tool_call",
+                    tool="add_cesium_vector",
+                    args={
+                        "geojson": geojson,
+                        "opacity": 0.75,
+                        "color": "#00F0FF",
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="add_cesium_vector", result="ok"),
+                CopilotEvent(
+                    type="tool_call",
                     tool="add_cesium_extruded_polygons",
                     args={
                         "geojson": geojson,
@@ -1149,7 +1162,7 @@ async def _execute_stub(
                     },
                 ),
                 CopilotEvent(type="tool_result", tool="show_chart", result="ok"),
-                CopilotEvent(type="final", text="已生成光伏×生物量共现性指令（stub），并挂载了 Demo 6 的拉伸面元 + 图表用于端到端验收。"),
+                CopilotEvent(type="final", text="已生成光伏×生物量共现性指令（stub），并挂载了 Demo 6 的矢量面元 + 拉伸柱 + 图表用于端到端验收。"),
             ]
         )
         return events
@@ -1308,6 +1321,30 @@ async def _execute_stub(
         return events
 
     if "纽约" in p or "热岛" in p or "income" in lc or "pearson" in lc:
+        nyc_bounds = {"west": -74.30, "east": -73.65, "south": 40.48, "north": 40.93}
+        # Demo 10 (resource-free): deterministic bivariate grid for Cesium overlay + artifact panel.
+        dims = {"cols": 10, "rows": 10}
+        palette_4x4 = [
+            ["#E8E8E8", "#B5CDE3", "#7AAED6", "#2E83BA"],
+            ["#E4B5B5", "#B89BBF", "#8A82C7", "#5B66C9"],
+            ["#D97D7D", "#AD6590", "#7D4DA3", "#4C33B5"],
+            ["#C0392B", "#9B2C61", "#6E1F97", "#3D149C"],
+        ]
+        grid = []
+        for j in range(dims["rows"]):
+            for i in range(dims["cols"]):
+                # 4x4 bins: low..high for each variable.
+                lst_bin = int((i / max(1, dims["cols"] - 1)) * 3)
+                inc_bin = int(((dims["rows"] - 1 - j) / max(1, dims["rows"] - 1)) * 3)
+                grid.append(
+                    {
+                        "i": i,
+                        "j": j,
+                        "x_bin": lst_bin,
+                        "y_bin": inc_bin,
+                        "color": palette_4x4[inc_bin][lst_bin],
+                    }
+                )
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 40.71, "lon": -74.00, "height": 180000, "duration_s": 4.0}),
@@ -1316,7 +1353,21 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="spatial_pearson_correlation", result={"status": "stub", "r": 0.0}),
                 CopilotEvent(type="tool_call", tool="show_chart", args={"kind": "scatter", "title": "Income vs LST (stub)", "data": {"r": 0.0, "points": []}}),
                 CopilotEvent(type="tool_result", tool="show_chart", result="ok"),
-                CopilotEvent(type="tool_call", tool="render_bivariate_map", args={"title": "Bivariate Grid (stub)", "data": {"grid": []}}),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="render_bivariate_map",
+                    args={
+                        "title": "NYC LST × Income (stub bivariate)",
+                        "data": {
+                            "bounds": nyc_bounds,
+                            "dims": dims,
+                            "vars": {"x": "LST", "y": "Income"},
+                            "bins": {"x": 4, "y": 4},
+                            "palette": palette_4x4,
+                            "grid": grid,
+                        },
+                    },
+                ),
                 CopilotEvent(type="tool_result", tool="render_bivariate_map", result="ok"),
                 CopilotEvent(type="final", text="已生成 LST×收入相关性计算指令（stub）。"),
             ]
@@ -1324,6 +1375,73 @@ async def _execute_stub(
         return events
 
     if "马六甲" in p or "油污" in p or "ais" in lc:
+        oil_spill_geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"kind": "oil_spill", "source": "stub"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [100.80, 2.30],
+                                [101.10, 2.35],
+                                [101.05, 2.55],
+                                [100.90, 2.50],
+                                [100.80, 2.30],
+                            ]
+                        ],
+                    },
+                }
+            ],
+        }
+        czml_stub = [
+            {
+                "id": "document",
+                "name": "AIS Track",
+                "version": "1.0",
+                "clock": {
+                    "interval": "2024-01-01T00:00:00Z/2024-01-01T01:00:00Z",
+                    "currentTime": "2024-01-01T00:00:00Z",
+                    "multiplier": 60,
+                },
+            },
+            {
+                "id": "ship1",
+                "name": "Target Vessel (stub)",
+                "position": {
+                    "epoch": "2024-01-01T00:00:00Z",
+                    "cartographicDegrees": [
+                        0,
+                        100.70,
+                        2.20,
+                        0,
+                        1800,
+                        101.00,
+                        2.50,
+                        0,
+                        3600,
+                        101.20,
+                        2.60,
+                        0,
+                    ],
+                },
+                "path": {
+                    "material": {
+                        "polylineOutline": {
+                            "color": {"rgba": [0, 240, 255, 255]},
+                            "outlineColor": {"rgba": [0, 0, 0, 255]},
+                            "outlineWidth": 2,
+                        }
+                    },
+                    "width": 4,
+                    "leadTime": 3600,
+                    "trailTime": 3600,
+                },
+                "point": {"color": {"rgba": [255, 255, 255, 255]}, "pixelSize": 6},
+            },
+        ]
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 2.50, "lon": 101.00, "height": 420000, "duration_s": 4.8}),
@@ -1334,9 +1452,11 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="detect_sar_oil_spill", result={"status": "stub", "polygon": None}),
                 CopilotEvent(type="tool_call", tool="intersect_ais_tracks", args={"time_window": "-24h"}),
                 CopilotEvent(type="tool_result", tool="intersect_ais_tracks", result={"status": "stub", "czml": None}),
-                CopilotEvent(type="tool_call", tool="play_czml_animation", args={"czml": [], "speed": 1.0}),
-                CopilotEvent(type="tool_result", tool="play_czml_animation", result={"status": "stub"}),
-                CopilotEvent(type="final", text="已生成 SAR 油污检测 + AIS 溯源指令（stub）。"),
+                CopilotEvent(type="tool_call", tool="add_cesium_vector", args={"geojson": oil_spill_geojson, "color": "#FF4D00", "opacity": 0.65}),
+                CopilotEvent(type="tool_result", tool="add_cesium_vector", result="ok"),
+                CopilotEvent(type="tool_call", tool="play_czml_animation", args={"czml": czml_stub, "speed": 120.0}),
+                CopilotEvent(type="tool_result", tool="play_czml_animation", result="ok"),
+                CopilotEvent(type="final", text="已开启赛博暗夜模式，挂载 SAR 油污多边形，并播放 AIS 时空轨迹（resource-free stub）。"),
             ]
         )
         return events
@@ -1395,7 +1515,33 @@ async def _execute_stub(
         return events
 
     if "风场" in p or "gfs" in lc or "glsl" in lc or "wind" in lc:
-        code = """// Cesium CustomShader (stub)\n// Goal: render wind particles from a UV texture.\n\n// TODO: bind GFS UV texture + integrate a particle system in a post-process stage.\n""".strip()
+        # WGSL-first wind demo: procedural tangent advection on a sphere.
+        # Resource-free and guaranteed visible via WebGPU overlay (Demo 13 pipeline).
+        code = (
+            "// WGSL compute body snippet: procedural wind on a sphere (demo-safe)\n"
+            "// Requires bindings: particles (storage vec4 array), uParams (vec4: t, stepScale, _, _)\n"
+            "let i = gid.x;\n"
+            "let n = arrayLength(&particles.data);\n"
+            "if (i >= n) { return; }\n\n"
+            "let t = uParams.x;\n"
+            "let s = max(0.0, uParams.y);\n\n"
+            "var p = particles.data[i];\n"
+            "let r = length(p.xyz);\n"
+            "if (r < 1.0) { return; }\n\n"
+            "let up = normalize(p.xyz);\n"
+            "// NOTE: `ref` is a reserved keyword in newer WGSL parsers.\n"
+            "var axisRef = vec3<f32>(0.0, 0.0, 1.0);\n"
+            "if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }\n"
+            "let east = normalize(cross(axisRef, up));\n"
+            "let north = normalize(cross(up, east));\n\n"
+            "let a = t * 0.55 + f32(i) * 0.00003;\n"
+            "let u = sin(a * 1.30 + up.x * 3.0 + up.y * 2.0);\n"
+            "let v = cos(a * 1.70 + up.y * 3.0 - up.z * 2.0);\n"
+            "let vel = east * u + north * v;\n\n"
+            "let adv = vel * (s * 40.0);\n"
+            "p.xyz = normalize(p.xyz + adv) * 6700000.0;\n"
+            "particles.data[i] = p;\n"
+        ).strip()
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 0.0, "lon": 0.0, "height": 12000000, "duration_s": 4.2}),
@@ -1404,9 +1550,19 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="get_gfs_uv_wind_data", result={"status": "stub", "url": ""}),
                 CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
                 CopilotEvent(type="tool_result", tool="write_to_editor", result="ok"),
-                CopilotEvent(type="tool_call", tool="execute_editor_code", args={}),
-                CopilotEvent(type="tool_result", tool="execute_editor_code", result={"status": "stub"}),
-                CopilotEvent(type="final", text="已生成风场渲染代码骨架（stub），可在 CODE & SCRIPT 里继续完善。"),
+                CopilotEvent(
+                    type="tool_call",
+                    tool="execute_dynamic_wgsl",
+                    args={
+                        "wgsl_compute_shader": code,
+                        "particle_count": 200000,
+                        "preset": "wind",
+                        "step_scale": 18.0,
+                        "seed": "surface",
+                    },
+                ),
+                CopilotEvent(type="tool_result", tool="execute_dynamic_wgsl", result="ok"),
+                CopilotEvent(type="final", text="已下发风场（WGSL-first, procedural）并在 WebGPU overlay 中运行：可在 CODE & SCRIPT 内继续迭代风场物理/采样。"),
             ]
         )
         return events

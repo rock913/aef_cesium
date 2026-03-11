@@ -50,8 +50,17 @@
         <LayerTree v-model:layers="layersModel" :current-scale="currentScale" />
       </section>
 
-      <section v-else-if="tab === 'code'" class="panel" aria-label="Code & Script">
-        <MonacoLazyEditor v-model="codeModel" language="python" />
+      <section v-else-if="tab === 'code'" class="panel code-panel" aria-label="Code & Script">
+        <div class="code-head">
+          <span class="code-title">EDITOR (WGSL/GLSL)</span>
+          <div class="code-actions">
+            <button class="preset-btn" type="button" @click="onInsertWindPreset">WIND PRESET</button>
+            <button class="run-btn" type="button" @click="onRunCode">▶ RUN SCRIPT</button>
+          </div>
+        </div>
+        <div class="code-editor">
+          <MonacoLazyEditor v-model="codeModel" language="wgsl" />
+        </div>
       </section>
 
       <section v-else-if="tab === 'charts'" class="panel" aria-label="Charts & Stats">
@@ -85,7 +94,7 @@ const props = defineProps({
   swipeEnabled: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled'])
+const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled', 'run-code'])
 
 const tab = ref('layers')
 
@@ -115,6 +124,53 @@ const codeModel = computed({
     emit('update:code', String(v ?? ''))
   },
 })
+
+function onRunCode() {
+  try {
+    emit('run-code', String(codeModel.value || ''))
+  } catch (_) {
+    // ignore
+  }
+}
+
+function onInsertWindPreset() {
+  // Compute-only WGSL snippet (EngineRouter will wrap/augment render entrypoints).
+  // Designed to be visually obvious with preset=wind (surface-like seeding + higher stepScale).
+  const code = `// WGSL compute body snippet: procedural wind on a sphere (demo-safe)
+// Requires bindings: particles (storage vec4 array), uParams (vec4: t, stepScale, _, _)
+let i = gid.x;
+let n = arrayLength(&particles.data);
+if (i >= n) { return; }
+
+let t = uParams.x;
+let s = max(0.0, uParams.y);
+
+var p = particles.data[i];
+let r = length(p.xyz);
+if (r < 1.0) { return; }
+
+let up = normalize(p.xyz);
+var ref = vec3<f32>(0.0, 0.0, 1.0);
+if (abs(up.z) > 0.9) { ref = vec3<f32>(0.0, 1.0, 0.0); }
+let east = normalize(cross(ref, up));
+let north = normalize(cross(up, east));
+
+let a = t * 0.55 + f32(i) * 0.00003;
+let u = sin(a * 1.30 + up.x * 3.0 + up.y * 2.0);
+let v = cos(a * 1.70 + up.y * 3.0 - up.z * 2.0);
+let vel = east * u + north * v;
+
+// Advect along tangent and re-project to a stable radius (surface-like).
+let adv = vel * (s * 40.0);
+p.xyz = normalize(p.xyz + adv) * 6700000.0;
+particles.data[i] = p;`;
+
+  try {
+    codeModel.value = code
+  } catch (_) {
+    // ignore
+  }
+}
 
 function stringify(v) {
   try {
@@ -182,6 +238,73 @@ function stringify(v) {
   height: 100%;
   padding: 10px;
   overflow: auto;
+}
+
+.code-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.code-title {
+  font-size: 10px;
+  opacity: 0.72;
+  letter-spacing: 0.15em;
+  font-weight: 900;
+}
+
+.code-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preset-btn {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.preset-btn:hover {
+  border-color: rgba(0, 240, 255, 0.28);
+  background: rgba(0, 240, 255, 0.08);
+}
+
+.run-btn {
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.30);
+  color: rgba(0, 240, 255, 0.95);
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.run-btn:hover {
+  background: rgba(0, 240, 255, 0.22);
+}
+
+.code-editor {
+  flex: 1;
+  min-height: 240px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.10);
 }
 
 .swipe-box {

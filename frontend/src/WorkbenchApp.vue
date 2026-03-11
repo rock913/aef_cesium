@@ -81,6 +81,7 @@
             :current-scale="currentScale"
             :report-text="theaterReport"
             :charts="charts"
+            @run-code="handleRunCode"
           />
         </aside>
 
@@ -139,7 +140,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getDefaultScenario021, getScenario021ById, parseWorkbenchContextFromSearch } from './utils/scenarios021.js'
 import { applyCopilotArtifacts } from './utils/copilotArtifacts.js'
 import { apiService } from './services/api.js'
@@ -173,6 +174,113 @@ const timelineProgress = ref(30)
 const timelineIsPlaying = ref(false)
 const timelineIsLoading = ref(false)
 let _timelineTimer = null
+
+async function _ensureEarthTwinReady() {
+  // RUN SCRIPT is Cesium/WebGPU oriented in v7.2, so force earth+twin view.
+  try {
+    ensureTabKind('twin')
+  } catch (_) {
+    // ignore
+  }
+  try {
+    const cur = String(researchStore.currentScale.value || '').trim().toLowerCase()
+    if (cur !== 'earth') setScale('earth')
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    await nextTick()
+  } catch (_) {
+    // ignore
+  }
+
+  // Wait a moment for CesiumViewer mount + viewer-ready event.
+  for (let i = 0; i < 30; i += 1) {
+    if (viewerReady.value) return true
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return !!viewerReady.value
+}
+
+async function handleRunCode(codeContent) {
+  const src = String(codeContent || '')
+  if (!src.trim()) return
+  const lc = src.toLowerCase()
+
+  const looksWind =
+    lc.includes('wind') ||
+    lc.includes('windfield') ||
+    lc.includes('风场') ||
+    lc.includes('advection') ||
+    lc.includes('curl noise')
+
+  const looksWgsl =
+    lc.includes('@compute') ||
+    lc.includes('cs_main') ||
+    lc.includes('var<storage') ||
+    lc.includes('vec4<f32>') ||
+    lc.includes('binding(') ||
+    lc.includes('workgroup')
+
+  const looksGlsl =
+    lc.includes('fragmentmain') ||
+    lc.includes('void main') ||
+    lc.includes('gl_fragcolor') ||
+    lc.includes('precision mediump') ||
+    lc.includes('#version')
+
+  const ready = await _ensureEarthTwinReady()
+  if (!ready) {
+    theaterReport.value = '⚠️ Cesium 未就绪：请切到 Twin/Earth 后重试 RUN SCRIPT。'
+    return
+  }
+
+  // Prefer WGSL for Demo 13 + wind-field compute overlays.
+  if (looksWgsl || (!looksGlsl && src.length > 0)) {
+    try {
+      const res = await engineRouter.value?.executeDynamicWgsl?.({
+        wgsl_compute_shader: src,
+        particle_count: looksWind ? 220000 : 150000,
+        preset: looksWind ? 'wind' : undefined,
+      })
+
+      if (!res) {
+        theaterReport.value = '⚠️ RUN SCRIPT 未生效：当前未挂载 Earth Twin（可能在 macro/micro）。'
+      } else if (res?.ok === false) {
+        theaterReport.value = `❌ WebGPU WGSL 执行失败: ${String(res?.reason || 'unknown')}`
+      } else {
+        const mode = String(res?.mode || '').trim()
+        const fallback = res?.fallback_used ? '（已回退到内置 WGSL）' : ''
+        const topo = String(res?.topology || '').trim()
+        const pc = Number(res?.particle_count)
+        const vc = Number(res?.vertex_count)
+        const dbg = String(res?.debug_mode || '').trim()
+        const pr = typeof res?.pipeline_ready === 'boolean' ? ` pipeline=${res.pipeline_ready ? 'ok' : 'no'}` : ''
+        const extraMode = mode ? ` mode=${mode}` : ''
+        const extraTopo = topo ? ` topo=${topo}` : ''
+        const extraDbg = dbg ? ` debug=${dbg}` : ''
+        const extraPc = Number.isFinite(pc) ? ` particles=${pc}` : ''
+        const extraVc = Number.isFinite(vc) ? ` verts=${vc}` : ''
+        theaterReport.value = `✅ WebGPU WGSL 已执行（best-effort）${fallback}${extraMode}${extraTopo}${extraDbg}${pr}${extraPc}${extraVc}`
+      }
+    } catch (e) {
+      theaterReport.value = `❌ WebGPU 执行异常: ${String(e?.message || e)}`
+    }
+    return
+  }
+
+  // GLSL is routed to a demo-safe shader pathway (may fall back to entity effects).
+  try {
+    const ok = await engineRouter.value?.applyCustomShader?.({
+      kind: 'editor_glsl',
+      params: { code: src },
+    })
+    theaterReport.value = ok ? '✅ GLSL 已尝试应用（best-effort）。' : '⚠️ GLSL 应用失败：已保持场景不变。'
+  } catch (e) {
+    theaterReport.value = `❌ GLSL 注入异常: ${String(e?.message || e)}`
+  }
+}
 
 function _stopTimeline() {
   timelineIsPlaying.value = false
@@ -818,7 +926,7 @@ async function runExecute() {
         ].join('\n')
         _type(intro)
 
-        await engineRouter.value?.rebuildMicroLattice?.()
+        await engineRouter.value?.rebuildMicroLattice?.({ type: 'sio2', count: 2400 })
         theaterReport.value = [
           'Micro brief:',
           '- 已触发晶格扰动与回稳。',
@@ -1133,6 +1241,15 @@ function applyCopilotEvents(events) {
       continue
     }
 
+    if (tool === 'render_bivariate_map') {
+      try {
+        void engineRouter.value?.renderBivariateGridOverlay?.(args)
+      } catch (_) {
+        // ignore
+      }
+      continue
+    }
+
     if (tool === 'enable_swipe_mode') {
       const posArg = Number(args?.position)
       swipeEnabled.value = true
@@ -1321,6 +1438,8 @@ function applyCopilotEvents(events) {
         } catch (_) {
           // ignore
         }
+        // Ensure the Cesium Earth Twin is actually mounted.
+        // (In macro/micro scales, Earth Twin is not mounted and WebGPU overlay won't render.)
         try {
           ensureTabKind('twin')
         } catch (_) {
@@ -1328,14 +1447,47 @@ function applyCopilotEvents(events) {
         }
       }
 
-      try {
-        void engineRouter.value?.executeDynamicWgsl?.({
-          wgsl_compute_shader: wgsl,
-          particle_count: args?.particle_count,
-        })
-      } catch (_) {
-        // ignore
-      }
+      // Run asynchronously so the main event loop remains synchronous.
+      ;(async () => {
+        const ready = await _ensureEarthTwinReady()
+        if (!ready) {
+          theaterReport.value = '⚠️ WebGPU/WGSL 未执行：Cesium Earth Twin 未就绪（已尝试切到 Twin/Earth）。'
+          return
+        }
+
+        try {
+          const res = await engineRouter.value?.executeDynamicWgsl?.({
+            wgsl_compute_shader: wgsl,
+            particle_count: args?.particle_count,
+            preset: args?.preset,
+            step_scale: args?.step_scale,
+            seed: args?.seed,
+          })
+
+          if (!res) {
+            theaterReport.value = '⚠️ WebGPU/WGSL 未生效：当前未挂载 Earth Twin（可能仍在 macro/micro）。'
+          } else if (res?.ok === false) {
+            const mode = String(res?.mode || '').trim()
+            theaterReport.value = `❌ WebGPU WGSL 执行失败: ${String(res?.reason || 'unknown')}${mode ? ` (mode=${mode})` : ''}`
+          } else {
+            const mode = String(res?.mode || '').trim()
+            const fallback = res?.fallback_used ? '（已回退到内置 WGSL）' : ''
+            const topo = String(res?.topology || '').trim()
+            const pc = Number(res?.particle_count)
+            const vc = Number(res?.vertex_count)
+            const dbg = String(res?.debug_mode || '').trim()
+            const pr = typeof res?.pipeline_ready === 'boolean' ? ` pipeline=${res.pipeline_ready ? 'ok' : 'no'}` : ''
+            const extraPc = Number.isFinite(pc) ? ` particles=${pc}` : ''
+            const extraVc = Number.isFinite(vc) ? ` verts=${vc}` : ''
+            const extraMode = mode ? ` mode=${mode}` : ''
+            const extraTopo = topo ? ` topo=${topo}` : ''
+            const extraDbg = dbg ? ` debug=${dbg}` : ''
+            theaterReport.value = `✅ WebGPU WGSL 已执行（best-effort）${fallback}${extraMode}${extraTopo}${extraDbg}${pr}${extraPc}${extraVc}`
+          }
+        } catch (e) {
+          theaterReport.value = `❌ WebGPU 执行异常: ${String(e?.message || e)}`
+        }
+      })()
       continue
     }
 
@@ -1403,7 +1555,9 @@ function applyCopilotEvents(events) {
 
     if (tool === 'generate_molecular_lattice') {
       try {
-        void engineRouter.value?.rebuildMicroLattice?.()
+        const type = String(args?.type || 'sio2').trim() || 'sio2'
+        const count = Number.isFinite(Number(args?.count)) ? Number(args?.count) : 2400
+        void engineRouter.value?.rebuildMicroLattice?.({ type, count })
       } catch (_) {
         // ignore
       }

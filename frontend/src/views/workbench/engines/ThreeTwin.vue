@@ -38,8 +38,33 @@ let animationId = null
 let onResize = null
 
 let macroMesh = null
-let microMesh = null
+let microRoot = null
+let microSiMesh = null
+let microOMesh = null
+let microBondLines = null
 let microMaterial = null
+let microMaterialO = null
+
+function _hashSeed(s) {
+  const t = String(s || 'sio2')
+  let h = 2166136261
+  for (let i = 0; i < t.length; i += 1) {
+    h ^= t.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0) || 1
+}
+
+function _mulberry32(seed) {
+  let a = (Number(seed) >>> 0) || 1
+  return () => {
+    a |= 0
+    a = (a + 0x6D2B79F5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
 
 let _macroSpinTween = null
 
@@ -65,37 +90,50 @@ function _buildMacroScene(scene) {
 }
 
 function _buildMicroScene(scene) {
-  const count = 8000
-  const geometry = new THREE.IcosahedronGeometry(0.08, 0)
-  const material = new THREE.MeshPhysicalMaterial({
-    color: 0x7dd3fc,
+  microRoot = markRaw(new THREE.Group())
+  scene.add(microRoot)
+
+  const siGeo = new THREE.SphereGeometry(0.11, 10, 10)
+  const oGeo = new THREE.SphereGeometry(0.075, 10, 10)
+  const siMat = new THREE.MeshPhysicalMaterial({
+    color: 0x2563eb,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.88,
     roughness: 0.12,
     metalness: 0.0,
-    transmission: 0.85,
-    ior: 1.4,
-    thickness: 0.5,
+    transmission: 0.82,
+    ior: 1.45,
+    thickness: 0.6,
   })
-  const mesh = markRaw(new THREE.InstancedMesh(geometry, material, count))
-  microMaterial = material
+  const oMat = new THREE.MeshPhysicalMaterial({
+    color: 0xef4444,
+    transparent: true,
+    opacity: 0.86,
+    roughness: 0.16,
+    metalness: 0.0,
+    transmission: 0.78,
+    ior: 1.35,
+    thickness: 0.55,
+  })
+  microMaterial = siMat
+  microMaterialO = oMat
 
-  const tmp = new THREE.Object3D()
-  const grid = Math.ceil(Math.cbrt(count))
-  let idx = 0
-  for (let x = 0; x < grid && idx < count; x += 1) {
-    for (let y = 0; y < grid && idx < count; y += 1) {
-      for (let z = 0; z < grid && idx < count; z += 1) {
-        tmp.position.set((x - grid / 2) * 0.25, (y - grid / 2) * 0.25, (z - grid / 2) * 0.25)
-        tmp.updateMatrix()
-        mesh.setMatrixAt(idx, tmp.matrix)
-        idx += 1
-      }
-    }
+  microSiMesh = markRaw(new THREE.InstancedMesh(siGeo, siMat, 1))
+  microOMesh = markRaw(new THREE.InstancedMesh(oGeo, oMat, 1))
+  microRoot.add(microSiMesh)
+  microRoot.add(microOMesh)
+
+  const bondsGeo = new THREE.BufferGeometry()
+  const bondsMat = new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.55 })
+  microBondLines = markRaw(new THREE.LineSegments(bondsGeo, bondsMat))
+  microRoot.add(microBondLines)
+
+  // Default lattice so micro scale is never empty.
+  try {
+    void rebuildMicroLattice({ type: 'sio2', count: 2400 })
+  } catch (_) {
+    // ignore
   }
-
-  scene.add(mesh)
-  microMesh = mesh
 }
 
 function _applyThreeLayerMapping(layers) {
@@ -109,9 +147,30 @@ function _applyThreeLayerMapping(layers) {
     }
   }
 
-  if (microMesh) {
+  if (microSiMesh) {
     try {
-      microMesh.visible = !!mapped.microAtomsVisible
+      microSiMesh.visible = !!mapped.microAtomsVisible
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (microOMesh) {
+    try {
+      microOMesh.visible = !!mapped.microAtomsVisible
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (microBondLines) {
+    try {
+      microBondLines.visible = !!mapped.microAtomsVisible
+      if (microBondLines.material) {
+        microBondLines.material.transparent = true
+        microBondLines.material.opacity = Math.min(0.9, Math.max(0.08, mapped.microMaterial.opacity * 0.75))
+        microBondLines.material.needsUpdate = true
+      }
     } catch (_) {
       // ignore
     }
@@ -124,6 +183,18 @@ function _applyThreeLayerMapping(layers) {
       microMaterial.transmission = mapped.microMaterial.transmission
       microMaterial.ior = mapped.microMaterial.ior
       microMaterial.needsUpdate = true
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (microMaterialO) {
+    try {
+      microMaterialO.transparent = true
+      microMaterialO.opacity = mapped.microMaterial.opacity
+      microMaterialO.transmission = mapped.microMaterial.transmission
+      microMaterialO.ior = mapped.microMaterial.ior
+      microMaterialO.needsUpdate = true
     } catch (_) {
       // ignore
     }
@@ -222,42 +293,128 @@ async function spinMacroCamera({ duration = 3.0, revolutions = 1.0 } = {}) {
   })
 }
 
-async function rebuildMicroLattice() {
-  if (!microMesh) return
-  // Quick "bond break/reform" vibe: jitter positions then settle.
-  const count = microMesh.count || 0
-  if (!count) return
+async function rebuildMicroLattice(options = {}) {
+  if (!microRoot || !microSiMesh || !microOMesh || !microBondLines) return
 
+  const type = String(options?.type || 'sio2').trim().toLowerCase() || 'sio2'
+  const countRaw = Number(options?.count)
+  const count = Number.isFinite(countRaw) ? Math.max(64, Math.min(12000, Math.floor(countRaw))) : 2400
+
+  // A stable procedural lattice (demo-safe): two species + simple neighbor bonds.
+  // Not a physically accurate quartz crystal; optimized for visual clarity + performance.
+  const ratioO = type === 'sio2' ? 2 : 1
+  const siCount = Math.max(1, Math.floor(count / (1 + ratioO)))
+  const oCount = Math.max(1, count - siCount)
+
+  microSiMesh.count = siCount
+  microOMesh.count = oCount
+  microSiMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  microOMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+
+  const rng = _mulberry32(_hashSeed(`${type}:${count}`))
   const tmp = new THREE.Object3D()
-  const base = []
-  for (let i = 0; i < Math.min(count, 600); i += 1) {
-    const m = new THREE.Matrix4()
-    microMesh.getMatrixAt(i, m)
-    base.push(m)
-  }
 
-  function jitter(scale) {
-    for (let i = 0; i < base.length; i += 1) {
-      tmp.matrix.copy(base[i])
-      tmp.position.setFromMatrixPosition(tmp.matrix)
-      tmp.position.x += (Math.random() - 0.5) * scale
-      tmp.position.y += (Math.random() - 0.5) * scale
-      tmp.position.z += (Math.random() - 0.5) * scale
-      tmp.updateMatrix()
-      microMesh.setMatrixAt(i, tmp.matrix)
+  // Build a compact cubic lattice with slight jitter (prevents a "cheap grid" look).
+  const grid = Math.ceil(Math.cbrt(Math.max(siCount, oCount)))
+  const spacing = 0.32
+  const half = (grid - 1) / 2
+
+  const siPos = []
+  const oPos = []
+  let siIdx = 0
+  let oIdx = 0
+
+  for (let x = 0; x < grid && (siIdx < siCount || oIdx < oCount); x += 1) {
+    for (let y = 0; y < grid && (siIdx < siCount || oIdx < oCount); y += 1) {
+      for (let z = 0; z < grid && (siIdx < siCount || oIdx < oCount); z += 1) {
+        // Alternate species placement to create visible structure.
+        const parity = (x + y + z) % 2
+        const jx = (rng() - 0.5) * 0.06
+        const jy = (rng() - 0.5) * 0.06
+        const jz = (rng() - 0.5) * 0.06
+        const px = (x - half) * spacing + jx
+        const py = (y - half) * spacing + jy
+        const pz = (z - half) * spacing + jz
+
+        if (parity === 0 && siIdx < siCount) {
+          siPos.push(px, py, pz)
+          tmp.position.set(px, py, pz)
+          tmp.updateMatrix()
+          microSiMesh.setMatrixAt(siIdx, tmp.matrix)
+          siIdx += 1
+        } else if (oIdx < oCount) {
+          oPos.push(px, py, pz)
+          tmp.position.set(px, py, pz)
+          tmp.updateMatrix()
+          microOMesh.setMatrixAt(oIdx, tmp.matrix)
+          oIdx += 1
+        }
+      }
     }
-    microMesh.instanceMatrix.needsUpdate = true
   }
 
-  jitter(0.8)
-  await new Promise((r) => setTimeout(r, 220))
-  jitter(0.25)
-  await new Promise((r) => setTimeout(r, 180))
-  // restore
-  for (let i = 0; i < base.length; i += 1) {
-    microMesh.setMatrixAt(i, base[i])
+  microSiMesh.instanceMatrix.needsUpdate = true
+  microOMesh.instanceMatrix.needsUpdate = true
+
+  // Bonds: connect each Si to its nearest O neighbors within a threshold.
+  const bondThreshold = 0.55
+  const maxBondsPerSi = 4
+  const bonds = []
+
+  function dist2(ax, ay, az, bx, by, bz) {
+    const dx = ax - bx
+    const dy = ay - by
+    const dz = az - bz
+    return dx * dx + dy * dy + dz * dz
   }
-  microMesh.instanceMatrix.needsUpdate = true
+
+  const thr2 = bondThreshold * bondThreshold
+  for (let i = 0; i < siPos.length; i += 3) {
+    const ax = siPos[i]
+    const ay = siPos[i + 1]
+    const az = siPos[i + 2]
+    // Find a few nearest O atoms (brute force but bounded by count caps; ok for demo sizes).
+    const nearest = []
+    for (let j = 0; j < oPos.length; j += 3) {
+      const bx = oPos[j]
+      const by = oPos[j + 1]
+      const bz = oPos[j + 2]
+      const d2 = dist2(ax, ay, az, bx, by, bz)
+      if (d2 > thr2) continue
+      nearest.push({ d2, bx, by, bz })
+    }
+    nearest.sort((u, v) => u.d2 - v.d2)
+    for (let k = 0; k < Math.min(maxBondsPerSi, nearest.length); k += 1) {
+      const n = nearest[k]
+      bonds.push(ax, ay, az, n.bx, n.by, n.bz)
+    }
+  }
+
+  // Cap total bonds to avoid huge line buffers.
+  const maxFloats = 120000
+  const clipped = bonds.length > maxFloats ? bonds.slice(0, maxFloats) : bonds
+  const posAttr = new THREE.Float32BufferAttribute(clipped, 3)
+  microBondLines.geometry.setAttribute('position', posAttr)
+  microBondLines.geometry.computeBoundingSphere()
+
+  // Quick "bond break/reform" vibe: jitter then settle (keeps the old feel, but on real lattice).
+  const settle = { t: 0 }
+  await new Promise((resolve) => {
+    gsap.to(settle, {
+      t: 1,
+      duration: 0.55,
+      ease: 'power2.out',
+      onUpdate: () => {
+        try {
+          microRoot.rotation.y = settle.t * 0.85
+          microRoot.rotation.x = settle.t * 0.25
+        } catch (_) {
+          // ignore
+        }
+      },
+      onComplete: resolve,
+    })
+  })
 }
 
 function initEngine() {
@@ -429,8 +586,12 @@ onBeforeUnmount(() => {
   bloomPass = null
   animationId = null
   macroMesh = null
-  microMesh = null
+  microRoot = null
+  microSiMesh = null
+  microOMesh = null
+  microBondLines = null
   microMaterial = null
+  microMaterialO = null
 })
 </script>
 

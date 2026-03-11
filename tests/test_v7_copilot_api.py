@@ -101,6 +101,8 @@ def test_v7_execute_code_gen_demo_writes_editor() -> None:
     events = (r.json() or {}).get("events")
     assert isinstance(events, list)
     assert any(e.get("type") == "tool_call" and e.get("tool") == "write_to_editor" for e in events)
+    # WGSL-first wind demo should also attempt to execute via WebGPU overlay.
+    assert any(e.get("type") == "tool_call" and e.get("tool") == "execute_dynamic_wgsl" for e in events)
 
 
 def test_v7_execute_webgpu_demo_emits_wgsl_tool_calls() -> None:
@@ -347,6 +349,46 @@ def test_v7_nyc_emits_charts_tools() -> None:
     assert "show_chart" in tools
     assert "render_bivariate_map" in tools
 
+    calls = [e for e in events if e.get("type") == "tool_call" and e.get("tool") == "render_bivariate_map"]
+    assert calls, "expected render_bivariate_map tool_call"
+    args = calls[0].get("args")
+    assert isinstance(args, dict)
+    data = args.get("data")
+    assert isinstance(data, dict)
+    grid = data.get("grid")
+    assert isinstance(grid, list)
+    assert len(grid) > 0
+    bounds = data.get("bounds")
+    assert isinstance(bounds, dict)
+    for k in ["west", "east", "south", "north"]:
+        assert k in bounds
+    dims = data.get("dims")
+    assert isinstance(dims, dict)
+    assert int(dims.get("cols")) > 0
+    assert int(dims.get("rows")) > 0
+
+
+def test_v7_demo6_talatan_emits_vector_extruded_and_chart() -> None:
+    client = _client()
+    r = client.post("/api/v7/copilot/execute", json={"prompt": "塔拉滩 光伏 共现"})
+    assert r.status_code == 200
+    events = (r.json() or {}).get("events")
+    assert isinstance(events, list)
+    tools = _event_tools(events)
+    assert "add_cesium_vector" in tools
+    assert "add_cesium_extruded_polygons" in tools
+    assert "show_chart" in tools
+
+    extruded_calls = [e for e in events if e.get("type") == "tool_call" and e.get("tool") == "add_cesium_extruded_polygons"]
+    assert extruded_calls
+    args = extruded_calls[0].get("args")
+    assert isinstance(args, dict)
+    geojson = args.get("geojson")
+    assert isinstance(geojson, dict)
+    feats = geojson.get("features")
+    assert isinstance(feats, list)
+    assert len(feats) >= 1
+
 
 def test_v7_demo7_everest_emits_terrain_and_3dtiles() -> None:
     client = _client()
@@ -368,6 +410,15 @@ def test_v7_demo11_malacca_emits_night_and_czml() -> None:
     tools = _event_tools(events)
     assert "set_scene_mode" in tools
     assert "play_czml_animation" in tools
+    assert "add_cesium_vector" in tools
+
+    czml_calls = [e for e in events if e.get("type") == "tool_call" and e.get("tool") == "play_czml_animation"]
+    assert czml_calls
+    args = czml_calls[0].get("args")
+    assert isinstance(args, dict)
+    czml = args.get("czml")
+    assert isinstance(czml, list)
+    assert len(czml) >= 2
 
 
 def test_v7_demo14_wormhole_emits_transition_and_micro() -> None:

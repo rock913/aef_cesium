@@ -29,6 +29,11 @@ describe('v7.2 WebGPU sandbox contracts', () => {
     expect(sEngine).toMatch(/createComputePipeline/)
     expect(sEngine).toMatch(/createRenderPipeline/)
 
+    // Wind-demo safety: compute-only WGSL modules should be augmented with default render entrypoints
+    // and/or retried with a fallback module to avoid "runs but invisible" behavior.
+    expect(sEngine).toMatch(/augmented_render/)
+    expect(sEngine).toMatch(/pipeline_failed|fallback\b/i)
+
     // Demo 11 visual-impact patch: night mode should tune base imagery layers.
     expect(sEngine).toMatch(/imageryLayers/)
     expect(sEngine).toMatch(/brightness/)
@@ -50,5 +55,11 @@ describe('v7.2 WebGPU sandbox contracts', () => {
 
     // execute_dynamic_wgsl must write into the editor/code artifact.
     expect(sWorkbench).toMatch(/code\.value\s*=|write_to_editor/i)
+
+    // Reliability: tool_call execute_dynamic_wgsl should force Twin/Earth readiness
+    // so it doesn't silently no-op in macro/micro scales.
+    expect(sWorkbench).toMatch(/_ensureEarthTwinReady\(\)/)
+    expect(sWorkbench).toMatch(/setScale\('earth'\)/)
+    expect(sWorkbench).toMatch(/ensureTabKind\('twin'\)/)
   })
 })

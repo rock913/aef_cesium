@@ -15,7 +15,7 @@
 
 <script>
 import * as Cesium from 'cesium'
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 export default {
   name: 'CesiumViewer',
@@ -207,9 +207,15 @@ export default {
 
       if (!cesiumContainer.value) {
         // Can happen if the component unmounts quickly (e.g., scale switch) while
-        // initViewer is scheduled in a microtask.
+        // initViewer is scheduled in a microtask, or if DOM is not yet flushed.
         if (disposed) return
-        throw new Error('Cesium container element not found')
+        try {
+          await nextTick()
+        } catch (_) {
+          // ignore
+        }
+        if (disposed) return
+        if (!cesiumContainer.value) throw new Error('Cesium container element not found')
       }
 
       async function _createOfficialGoogle2DSatelliteProvider() {
@@ -373,7 +379,14 @@ export default {
           }
         }
 
-        viewer = new Cesium.Viewer(cesiumContainer.value, {
+        // IMPORTANT: initViewer awaits async setup (terrain/basemap/session fetch).
+        // If the component unmounts during those awaits, the container ref becomes null
+        // and Cesium throws "container is required". Abort cleanly.
+        if (disposed) return
+        const containerEl = cesiumContainer.value
+        if (!containerEl) return
+
+        viewer = new Cesium.Viewer(containerEl, {
           creditContainer: creditContainer.value,
           terrainProvider,
 

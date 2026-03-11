@@ -105,7 +105,49 @@ async function executeDynamicWgsl(options = {}) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return { ok: false, reason: 'viewer_not_ready' }
 
-  const wgslInput = String(options?.wgsl_compute_shader || options?.wgsl || '').trim()
+  function _getUrlParam(key) {
+    try {
+      if (typeof window === 'undefined') return ''
+      const sp = window?.location?.search || ''
+      if (!sp) return ''
+      const params = new URLSearchParams(sp)
+      return String(params.get(key) || '')
+    } catch (_) {
+      return ''
+    }
+  }
+
+  function _getWgpuDebugMode() {
+    const v = String(_getUrlParam('wgpu_debug') || _getUrlParam('webgpu_debug') || '').trim().toLowerCase()
+    if (!v) return ''
+    if (v === '1' || v === 'true' || v === 'on') return 'all'
+    if (v === 'tint' || v === 'tri' || v === 'all') return v
+    return ''
+  }
+
+  const urlDebugMode = _getWgpuDebugMode()
+  const debugMode = String(options?.debug_mode || options?.wgpu_debug || options?.webgpu_debug || urlDebugMode || '').trim().toLowerCase()
+  const debugEnabled = debugMode === 'tint' || debugMode === 'tri' || debugMode === 'all'
+
+  function _extractFirstWgslCodeBlock(s) {
+    const t = String(s || '').trim()
+    if (!t) return ''
+    // If the user pasted markdown, extract the first ```wgsl ... ``` block.
+    if (t.includes('```')) {
+      const re = /```\s*(wgsl)?\s*\n([\s\S]*?)\n```/gi
+      let m = null
+      while ((m = re.exec(t))) {
+        const lang = String(m[1] || '').trim().toLowerCase()
+        const body = String(m[2] || '').trim()
+        if (!body) continue
+        if (!lang || lang === 'wgsl') return body
+      }
+    }
+    return t
+  }
+
+  const wgslRaw = String(options?.wgsl_compute_shader || options?.wgsl || '')
+  const wgslInput = _extractFirstWgslCodeBlock(wgslRaw)
   if (!wgslInput) return { ok: false, reason: 'missing_wgsl' }
 
   function _indentLines(s, pad = '  ') {
@@ -124,6 +166,21 @@ async function executeDynamicWgsl(options = {}) {
     return /@compute\b/.test(t) || /fn\s+cs_main\s*\(/.test(t) || /@vertex\b/.test(t) || /@fragment\b/.test(t)
   }
 
+  function _hasComputeEntrypoint(s) {
+    const t = String(s || '')
+    return /@compute\b/.test(t) || /fn\s+cs_main\s*\(/.test(t)
+  }
+
+  function _hasVertexEntrypoint(s) {
+    const t = String(s || '')
+    return /@vertex\b/.test(t) || /fn\s+vs_main\s*\(/.test(t)
+  }
+
+  function _hasFragmentEntrypoint(s) {
+    const t = String(s || '')
+    return /@fragment\b/.test(t) || /fn\s+fs_main\s*\(/.test(t)
+  }
+
   function _wrapComputeBodyIntoTemplate(body) {
     const computeBody = _indentLines(String(body || '').trim(), '  ')
     return `
@@ -137,6 +194,7 @@ struct Particles {
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : Particles;
+@group(0) @binding(3) var<storage, read> particles_ro : Particles;
 @group(0) @binding(1) var<uniform> uCamera : Camera;
 @group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, _, _
 
@@ -153,9 +211,32 @@ struct VSOut {
 @vertex
 fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
   var out : VSOut;
-  let p = particles.data[vid];
-  out.Position = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
-  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.85);
+  // Sprite rendering for visibility on high-DPI displays.
+  // Each particle expands to 2 triangles (6 vertices).
+  let pid = vid / 6u;
+  let corner = vid % 6u;
+  let p = particles_ro.data[pid];
+  // Cesium's projection matrix is WebGL-style clip space (z in [-1, 1]);
+  // WebGPU expects z in [0, 1]. Convert so geometry isn't clipped away.
+  let clipFix = mat4x4<f32>(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0
+  );
+  let base = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+
+  var ofs = vec2<f32>(0.0, 0.0);
+  if (corner == 0u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 1u) { ofs = vec2<f32>( 1.0, -1.0); }
+  else if (corner == 2u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else if (corner == 3u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 4u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else { ofs = vec2<f32>(-1.0,  1.0); }
+
+  let size = 0.003;
+  out.Position = vec4<f32>(base.x + (ofs.x * size * base.w), base.y + (ofs.y * size * base.w), base.z, base.w);
+  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.75);
   return out;
 }
 
@@ -166,8 +247,70 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 `.trim()
   }
 
+  // Some wind-field demos output a compute-only WGSL module (cs_main only).
+  // If we treat it as a full module, render pipeline creation fails and the overlay
+  // appears to do nothing. Best-effort: append default vs_main/fs_main when missing.
+  const DEFAULT_RENDER_APPENDIX = `
+
+@group(0) @binding(3) var<storage, read> particles_ro : Particles;
+
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+  @location(0) color : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  let pid = vid / 6u;
+  let corner = vid % 6u;
+  let p = particles_ro.data[pid];
+  let clipFix = mat4x4<f32>(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0
+  );
+  let base = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+
+  var ofs = vec2<f32>(0.0, 0.0);
+  if (corner == 0u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 1u) { ofs = vec2<f32>( 1.0, -1.0); }
+  else if (corner == 2u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else if (corner == 3u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 4u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else { ofs = vec2<f32>(-1.0,  1.0); }
+
+  let size = 0.003;
+  out.Position = vec4<f32>(base.x + (ofs.x * size * base.w), base.y + (ofs.y * size * base.w), base.z, base.w);
+  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.75);
+  return out;
+}
+
+@fragment
+fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+  return in.color;
+}
+`.trim()
+
+  function _augmentComputeOnlyModuleWithDefaultRender(moduleText) {
+    return `${String(moduleText || '').trim()}\n\n${DEFAULT_RENDER_APPENDIX}`
+  }
+
   const wrapped = !_looksLikeFullModule(wgslInput)
-  const wgsl = wrapped ? _wrapComputeBodyIntoTemplate(wgslInput) : wgslInput
+  const hasCS = _hasComputeEntrypoint(wgslInput)
+  const hasVS = _hasVertexEntrypoint(wgslInput)
+  const hasFS = _hasFragmentEntrypoint(wgslInput)
+
+  const shaderCandidates = []
+  if (wrapped) {
+    shaderCandidates.push({ code: _wrapComputeBodyIntoTemplate(wgslInput), mode: 'wrapped', topology: 'triangle-list' })
+  } else {
+    if (hasCS && !hasVS && !hasFS) {
+      shaderCandidates.push({ code: _augmentComputeOnlyModuleWithDefaultRender(wgslInput), mode: 'augmented_render', topology: 'triangle-list' })
+    }
+    shaderCandidates.push({ code: wgslInput, mode: 'raw', topology: 'point-list' })
+  }
 
   // Ensure a clean slate.
   _stopWebGpuOverlay()
@@ -177,6 +320,29 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   const canvas = gpuCanvas.value
   if (!canvas) return { ok: false, reason: 'canvas_not_ready' }
+
+  function _measureCanvasPixels() {
+    try {
+      const dpr = (typeof window !== 'undefined' && Number.isFinite(Number(window.devicePixelRatio)))
+        ? Math.max(1, Number(window.devicePixelRatio))
+        : 1
+      const rect = canvas.getBoundingClientRect?.() || { width: canvas.clientWidth || 0, height: canvas.clientHeight || 0 }
+      const w = Math.max(1, Math.floor(Number(rect.width || 0) * dpr))
+      const h = Math.max(1, Math.floor(Number(rect.height || 0) * dpr))
+      return { w, h }
+    } catch (_) {
+      return { w: 1, h: 1 }
+    }
+  }
+
+  // Canvas backing store must match CSS size for WebGPU.
+  try {
+    const { w, h } = _measureCanvasPixels()
+    canvas.width = w
+    canvas.height = h
+  } catch (_) {
+    // ignore
+  }
 
   const nav = typeof navigator !== 'undefined' ? navigator : null
   const gpu = nav?.gpu || null
@@ -232,6 +398,37 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     return { ok: false, reason: 'configure_failed' }
   }
 
+  let _lastCanvasW = Number(canvas.width) || 0
+  let _lastCanvasH = Number(canvas.height) || 0
+  function _syncCanvasSize() {
+    try {
+      const { w, h } = _measureCanvasPixels()
+      if (w === _lastCanvasW && h === _lastCanvasH) return
+      _lastCanvasW = w
+      _lastCanvasH = h
+      canvas.width = w
+      canvas.height = h
+      ctx.configure({ device, format, alphaMode: 'premultiplied' })
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  _syncCanvasSize()
+
+  let _removeResizeListener = null
+  try {
+    if (typeof window !== 'undefined' && window?.addEventListener) {
+      const onResize = () => _syncCanvasSize()
+      window.addEventListener('resize', onResize, { passive: true })
+      _removeResizeListener = () => {
+        try { window.removeEventListener('resize', onResize) } catch (_) { /* ignore */ }
+      }
+    }
+  } catch (_) {
+    _removeResizeListener = null
+  }
+
   // v7.2 adaptive degradation: choose a safe particle budget based on device limits.
   const requested = Number(options?.particle_count)
   let particleCount = Number.isFinite(requested) && requested > 0 ? requested : 1000000
@@ -252,9 +449,45 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     // ignore
   }
 
+  // Visibility-first: in our templates we render sprites (6 vertices per particle).
+  // Keep a conservative cap to avoid fill-rate spikes on laptops.
+  try {
+    const preset = String(options?.preset || '').trim().toLowerCase()
+    if (preset === 'wind') particleCount = Math.min(particleCount, 80000)
+  } catch (_) {
+    // ignore
+  }
+
   const BU = (typeof globalThis !== 'undefined' && globalThis.GPUBufferUsage)
     ? globalThis.GPUBufferUsage
     : { MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008, INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080, INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200 }
+
+  // Debug probe: draw a full-screen triangle to validate that the overlay canvas is visible.
+  const DEBUG_TRI_WGSL = `
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+  @location(0) color : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  // Full-screen triangle (NDC).
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  out.Position = vec4<f32>(p[vid], 0.0, 1.0);
+  out.color = vec4<f32>(1.0, 0.95, 0.2, 0.85);
+  return out;
+}
+
+@fragment
+fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+  return in.color;
+}
+`.trim()
 
   const FALLBACK_WGSL = `
 struct Camera {
@@ -267,6 +500,7 @@ struct Particles {
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : Particles;
+@group(0) @binding(3) var<storage, read> particles_ro : Particles;
 @group(0) @binding(1) var<uniform> uCamera : Camera;
 @group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, _, _
 
@@ -293,9 +527,28 @@ struct VSOut {
 @vertex
 fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
   var out : VSOut;
-  let p = particles.data[vid];
-  out.Position = uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
-  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.85);
+  let pid = vid / 6u;
+  let corner = vid % 6u;
+  let p = particles_ro.data[pid];
+  let clipFix = mat4x4<f32>(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0
+  );
+  let base = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+
+  var ofs = vec2<f32>(0.0, 0.0);
+  if (corner == 0u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 1u) { ofs = vec2<f32>( 1.0, -1.0); }
+  else if (corner == 2u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else if (corner == 3u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 4u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else { ofs = vec2<f32>(-1.0,  1.0); }
+
+  let size = 0.003;
+  out.Position = vec4<f32>(base.x + (ofs.x * size * base.w), base.y + (ofs.y * size * base.w), base.z, base.w);
+  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.75);
   return out;
 }
 
@@ -305,18 +558,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 }
 `
 
-  let shaderModule = null
-  let fallbackUsed = false
-  try {
-    shaderModule = device.createShaderModule({ code: wgsl })
-  } catch (_) {
-    fallbackUsed = true
-    try {
-      shaderModule = device.createShaderModule({ code: FALLBACK_WGSL })
-    } catch (_) {
-      shaderModule = null
-    }
-  }
+  // Always keep a demo-safe fallback that is guaranteed to include compute+render.
+  shaderCandidates.push({ code: FALLBACK_WGSL, mode: 'fallback', topology: 'triangle-list' })
 
   // Uniform buffer for camera matrices (view + proj = 2 * mat4 = 128 bytes).
   let cameraUbo = null
@@ -376,8 +619,15 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
       if (!t0) t0 = now
       const t = (now - t0) / 1000.0
+
+      const stepOpt = Number(options?.step_scale ?? options?.stepScale)
+      const preset = String(options?.preset || '').trim().toLowerCase()
+      const stepScale = Number.isFinite(stepOpt)
+        ? stepOpt
+        : (preset === 'wind' ? 18.0 : 1.0)
+
       paramsScratch[0] = t
-      paramsScratch[1] = 1.0
+      paramsScratch[1] = stepScale
       paramsScratch[2] = 0.0
       paramsScratch[3] = 0.0
       device.queue.writeBuffer(paramsUbo, 0, paramsScratch)
@@ -389,6 +639,9 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   function _seedParticles() {
     if (!particleBuf) return
     try {
+      const preset = String(options?.preset || '').trim().toLowerCase()
+      const surfaceLike = preset === 'wind' || String(options?.seed || '').trim().toLowerCase() === 'surface'
+
       const arr = new Float32Array(particleCount * 4)
       for (let i = 0; i < particleCount; i += 1) {
         const j = i * 4
@@ -400,10 +653,10 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         const x = s * Math.cos(theta)
         const y = s * Math.sin(theta)
         const z = u
-        const radius = 20000000.0
+        const radius = surfaceLike ? 6700000.0 : 20000000.0
 
-        // Tiny jitter so points are not perfectly on a sphere.
-        const jitter = 15000.0
+        // Jitter so points are not perfectly on a sphere.
+        const jitter = surfaceLike ? 8000.0 : 15000.0
         arr[j + 0] = (x * radius) + ((Math.random() - 0.5) * jitter)
         arr[j + 1] = (y * radius) + ((Math.random() - 0.5) * jitter)
         arr[j + 2] = (z * radius) + ((Math.random() - 0.5) * jitter)
@@ -417,7 +670,46 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   _seedParticles()
 
-  function _renderClearPass() {
+  let debugTriPipeline = null
+  if (debugEnabled) {
+    try {
+      const mod = device.createShaderModule({ code: DEBUG_TRI_WGSL })
+      debugTriPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+          module: mod,
+          entryPoint: 'vs_main',
+        },
+        fragment: {
+          module: mod,
+          entryPoint: 'fs_main',
+          targets: [{ format }],
+        },
+        primitive: { topology: 'triangle-list' },
+      })
+    } catch (_) {
+      debugTriPipeline = null
+    }
+  }
+
+  let _debugFrame = 0
+  let _debugStartMs = 0
+  function _getDebugPhase() {
+    if (!debugEnabled) return 'normal'
+    if (debugMode === 'tint') return 'tint'
+    if (debugMode === 'tri') return 'tri'
+    // debugMode === 'all': cycle for quick diagnosis.
+    const f = Number(_debugFrame) || 0
+    const now = (typeof performance !== 'undefined' && performance?.now) ? Number(performance.now()) : Date.now()
+    const start = Number(_debugStartMs) || 0
+    const elapsed = start > 0 ? Math.max(0, now - start) : 0
+    // Hold each phase for a minimum wall time to avoid “blink and you miss it”.
+    if (f < 60 || elapsed < 1500) return 'tint'
+    if (f < 120 || elapsed < 3000) return 'tri'
+    return 'normal'
+  }
+
+  function _renderClearPass(clearValue) {
     try {
       const view = ctx.getCurrentTexture().createView()
       const encoder = device.createCommandEncoder()
@@ -425,7 +717,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         colorAttachments: [
           {
             view,
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            clearValue: clearValue || { r: 0, g: 0, b: 0, a: 0 },
             loadOp: 'clear',
             storeOp: 'store',
           },
@@ -438,37 +730,72 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  let bindGroupLayout = null
-  let pipelineLayout = null
-  let bindGroup = null
+  let computeBindGroupLayout = null
+  let renderBindGroupLayout = null
+  let computePipelineLayout = null
+  let renderPipelineLayout = null
+  let computeBindGroup = null
+  let renderBindGroup = null
   let computePipeline = null
   let renderPipeline = null
   let pipelineReady = false
 
+  let selectedMode = 'unknown'
+  let fallbackUsed = false
+  let selectedTopology = 'point-list'
+
+  async function _popValidationError() {
+    try {
+      if (!device || typeof device.popErrorScope !== 'function') return null
+      return await device.popErrorScope()
+    } catch (_) {
+      return null
+    }
+  }
+
+  function _pushValidationScope() {
+    try {
+      if (!device || typeof device.pushErrorScope !== 'function') return
+      device.pushErrorScope('validation')
+    } catch (_) {
+      // ignore
+    }
+  }
+
   try {
-    if (shaderModule && cameraUbo && paramsUbo && particleBuf) {
-      bindGroupLayout = device.createBindGroupLayout({
+    if (cameraUbo && paramsUbo && particleBuf) {
+      const STAGE = globalThis.GPUShaderStage || { VERTEX: 0x01, FRAGMENT: 0x02, COMPUTE: 0x04 }
+
+      // IMPORTANT:
+      // Do NOT bind the same buffer as both storage(read-write) and storage(read-only)
+      // in a bind group that is used in a render pass. Some implementations will warn
+      // (or invalidate the command buffer) due to mixed writable+other usages in the
+      // same synchronization scope.
+
+      _pushValidationScope()
+      computeBindGroupLayout = device.createBindGroupLayout({
         entries: [
           {
             binding: 0,
-            visibility: (globalThis.GPUShaderStage?.COMPUTE || 0x04) | (globalThis.GPUShaderStage?.VERTEX || 0x01),
+            visibility: STAGE.COMPUTE,
             buffer: { type: 'storage' },
           },
           {
             binding: 1,
-            visibility: globalThis.GPUShaderStage?.VERTEX || 0x01,
+            // Optional for advanced compute kernels; safe to expose.
+            visibility: STAGE.COMPUTE,
             buffer: { type: 'uniform' },
           },
           {
             binding: 2,
-            visibility: globalThis.GPUShaderStage?.COMPUTE || 0x04,
+            visibility: STAGE.COMPUTE,
             buffer: { type: 'uniform' },
           },
         ],
       })
-      pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] })
-      bindGroup = device.createBindGroup({
-        layout: bindGroupLayout,
+      computePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [computeBindGroupLayout] })
+      computeBindGroup = device.createBindGroup({
+        layout: computeBindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: particleBuf } },
           { binding: 1, resource: { buffer: cameraUbo } },
@@ -476,31 +803,97 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         ],
       })
 
-      computePipeline = device.createComputePipeline({
-        layout: pipelineLayout,
-        compute: { module: shaderModule, entryPoint: 'cs_main' },
+      renderBindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          {
+            binding: 1,
+            visibility: STAGE.VERTEX,
+            buffer: { type: 'uniform' },
+          },
+          {
+            binding: 2,
+            // Allow user WGSL to read time/params in fragment if desired.
+            visibility: (STAGE.VERTEX | STAGE.FRAGMENT),
+            buffer: { type: 'uniform' },
+          },
+          {
+            binding: 3,
+            visibility: STAGE.VERTEX,
+            buffer: { type: 'read-only-storage' },
+          },
+        ],
+      })
+      renderPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [renderBindGroupLayout] })
+      renderBindGroup = device.createBindGroup({
+        layout: renderBindGroupLayout,
+        entries: [
+          { binding: 1, resource: { buffer: cameraUbo } },
+          { binding: 2, resource: { buffer: paramsUbo } },
+          { binding: 3, resource: { buffer: particleBuf } },
+        ],
       })
 
-      renderPipeline = device.createRenderPipeline({
-        layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main' },
-        fragment: {
-          module: shaderModule,
-          entryPoint: 'fs_main',
-          targets: [
-            {
-              format,
-              blend: {
-                color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-              },
+      const bgErr = await _popValidationError()
+      if (bgErr) {
+        computeBindGroupLayout = null
+        renderBindGroupLayout = null
+        computePipelineLayout = null
+        renderPipelineLayout = null
+        computeBindGroup = null
+        renderBindGroup = null
+      }
+
+      for (const cand of shaderCandidates) {
+        if (!computePipelineLayout || !renderPipelineLayout || !computeBindGroup || !renderBindGroup) break
+
+        _pushValidationScope()
+        let shaderModule = null
+        try {
+          shaderModule = device.createShaderModule({ code: String(cand?.code || '') })
+        } catch (_) {
+          shaderModule = null
+        }
+
+        if (shaderModule) {
+          computePipeline = device.createComputePipeline({
+            layout: computePipelineLayout,
+            compute: { module: shaderModule, entryPoint: 'cs_main' },
+          })
+
+          renderPipeline = device.createRenderPipeline({
+            layout: renderPipelineLayout,
+            vertex: { module: shaderModule, entryPoint: 'vs_main' },
+            fragment: {
+              module: shaderModule,
+              entryPoint: 'fs_main',
+              targets: [
+                {
+                  format,
+                  blend: {
+                    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                  },
+                },
+              ],
             },
-          ],
-        },
-        primitive: { topology: 'point-list' },
-      })
+            primitive: { topology: String(cand?.topology || 'point-list') },
+          })
+        }
 
-      pipelineReady = true
+        const candErr = await _popValidationError()
+        if (candErr || !shaderModule) {
+          computePipeline = null
+          renderPipeline = null
+          pipelineReady = false
+          continue
+        }
+
+        pipelineReady = true
+        selectedMode = String(cand?.mode || 'unknown')
+        fallbackUsed = selectedMode === 'fallback'
+        selectedTopology = String(cand?.topology || 'point-list')
+        break
+      }
     }
   } catch (_) {
     pipelineReady = false
@@ -508,22 +901,74 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     renderPipeline = null
   }
 
+  if ((!pipelineReady || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) && !debugEnabled) {
+    try {
+      cameraUbo?.destroy?.()
+    } catch (_) {
+      // ignore
+    }
+    try {
+      paramsUbo?.destroy?.()
+    } catch (_) {
+      // ignore
+    }
+    try {
+      particleBuf?.destroy?.()
+    } catch (_) {
+      // ignore
+    }
+    showWebGPU.value = false
+    return { ok: false, reason: 'pipeline_failed', wrapped, mode: selectedMode }
+  }
+
   function _computeAndRender() {
-    if (!pipelineReady || !computePipeline || !renderPipeline || !bindGroup) {
-      _renderClearPass()
+    if (!pipelineReady || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) {
+      const phase = _getDebugPhase()
+      if (phase === 'tint') {
+        _renderClearPass({ r: 1.0, g: 0.0, b: 1.0, a: 0.55 })
+        return
+      }
+      if (phase === 'tri' && debugTriPipeline) {
+        // Even if the WGSL pipeline isn't ready, the overlay should show the debug triangle.
+        try {
+          const view = ctx.getCurrentTexture().createView()
+          const encoder = device.createCommandEncoder()
+          const rpass = encoder.beginRenderPass({
+            colorAttachments: [
+              {
+                view,
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                loadOp: 'clear',
+                storeOp: 'store',
+              },
+            ],
+          })
+          rpass.setPipeline(debugTriPipeline)
+          rpass.draw(3, 1, 0, 0)
+          rpass.end()
+          device.queue.submit([encoder.finish()])
+          return
+        } catch (_) {
+          // fall through
+        }
+      }
+      _renderClearPass({ r: 0, g: 0, b: 0, a: 0 })
       return
     }
     try {
+      const phase = _getDebugPhase()
       const encoder = device.createCommandEncoder()
 
-      // Compute pass (update particles).
-      const cpass = encoder.beginComputePass()
-      cpass.setPipeline(computePipeline)
-      cpass.setBindGroup(0, bindGroup)
-      const wg = 256
-      const workgroups = Math.ceil(particleCount / wg)
-      cpass.dispatchWorkgroups(workgroups)
-      cpass.end()
+      // For debug probes, skip compute so we isolate overlay visibility.
+      if (phase === 'normal') {
+        const cpass = encoder.beginComputePass()
+        cpass.setPipeline(computePipeline)
+        cpass.setBindGroup(0, computeBindGroup)
+        const wg = 256
+        const workgroups = Math.ceil(particleCount / wg)
+        cpass.dispatchWorkgroups(workgroups)
+        cpass.end()
+      }
 
       // Render pass (draw points into transparent overlay).
       const view = ctx.getCurrentTexture().createView()
@@ -531,15 +976,23 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         colorAttachments: [
           {
             view,
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            clearValue: phase === 'tint' ? { r: 1.0, g: 0.0, b: 1.0, a: 0.55 } : { r: 0, g: 0, b: 0, a: 0 },
             loadOp: 'clear',
             storeOp: 'store',
           },
         ],
       })
-      rpass.setPipeline(renderPipeline)
-      rpass.setBindGroup(0, bindGroup)
-      rpass.draw(particleCount, 1, 0, 0)
+      if (phase === 'tri' && debugTriPipeline) {
+        rpass.setPipeline(debugTriPipeline)
+        rpass.draw(3, 1, 0, 0)
+      } else if (phase === 'tint') {
+        // Tint probe: clear only (no draws) so the magenta overlay is unmistakable.
+      } else {
+        rpass.setPipeline(renderPipeline)
+        rpass.setBindGroup(0, renderBindGroup)
+        const vertexCount = selectedTopology === 'triangle-list' ? (particleCount * 6) : particleCount
+        rpass.draw(vertexCount, 1, 0, 0)
+      }
       rpass.end()
 
       device.queue.submit([encoder.finish()])
@@ -550,13 +1003,23 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   // Event-driven overlay: sync on Cesium postRender.
   const unsub = _addScenePostRender(viewer, () => {
+    if (debugEnabled && debugMode === 'all' && !_debugStartMs) {
+      try {
+        _debugStartMs = (typeof performance !== 'undefined' && performance?.now) ? Number(performance.now()) : Date.now()
+      } catch (_) {
+        _debugStartMs = Date.now()
+      }
+    }
+    if (debugEnabled && debugMode === 'all') _debugFrame += 1
+    _syncCanvasSize()
     _writeCameraUniforms()
     _writeParams()
     _computeAndRender()
   })
   _postRenderUnsub = unsub
 
-  _webgpuState = { device, ctx, format, particleCount, cameraUbo, paramsUbo, particleBuf, pipelineReady, fallbackUsed }
+  const vertexCount = (pipelineReady && selectedTopology === 'triangle-list') ? (particleCount * 6) : (pipelineReady ? particleCount : 0)
+  _webgpuState = { device, ctx, format, particleCount, vertexCount, cameraUbo, paramsUbo, particleBuf, pipelineReady, fallbackUsed, mode: selectedMode, topology: selectedTopology, debug_mode: debugEnabled ? debugMode : '' }
 
   _webgpuCleanup = () => {
     try {
@@ -565,6 +1028,12 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       // ignore
     }
     _postRenderUnsub = null
+    try {
+      if (typeof _removeResizeListener === 'function') _removeResizeListener()
+    } catch (_) {
+      // ignore
+    }
+    _removeResizeListener = null
     try {
       cameraUbo?.destroy?.()
     } catch (_) {
@@ -582,7 +1051,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  return { ok: true, particle_count: particleCount, fallback_used: fallbackUsed, pipeline_ready: pipelineReady, wrapped }
+  return { ok: true, particle_count: particleCount, vertex_count: vertexCount, fallback_used: fallbackUsed, pipeline_ready: pipelineReady, wrapped, mode: selectedMode, topology: selectedTopology, debug_mode: debugEnabled ? debugMode : '' }
 }
 
 function enableSubsurfaceMode(options = {}) {
@@ -783,25 +1252,65 @@ async function addSubsurfaceModel(options = {}) {
 
   try {
     const position = Cesium.Cartesian3.fromDegrees(lon0, lat0, depth0)
-    const entity = viewer.entities.add({
-      position,
-      ellipsoid: {
-        radii: new Cesium.Cartesian3(1200.0, 2500.0, 600.0),
-        material: Cesium.Color.fromCssColorString('#00F0FF').withAlpha(0.45),
-        outline: true,
-        outlineColor: Cesium.Color.fromCssColorString('#00F0FF'),
-      },
-      label: {
-        text: 'Subsurface Veins (stub)',
-        font: '14pt ui-monospace, monospace',
-        fillColor: Cesium.Color.WHITE,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2,
-        pixelOffset: new Cesium.Cartesian2(0, -30),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
-    })
+
+    const veinColor = Cesium.Color.fromCssColorString('#FF4D6D').withAlpha(0.9)
+    const label = {
+      text: 'Subsurface Veins (stub)',
+      font: '14pt ui-monospace, monospace',
+      fillColor: Cesium.Color.WHITE,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      pixelOffset: new Cesium.Cartesian2(0, -30),
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    }
+
+    // Prefer a “root-like” polyline volume for visual impact; fall back to ellipsoid.
+    let entity = null
+    try {
+      const shape = []
+      const seg = 14
+      const radius = 380.0
+      for (let i = 0; i < seg; i += 1) {
+        const a = (i / seg) * Math.PI * 2
+        shape.push(new Cesium.Cartesian2(Math.cos(a) * radius, Math.sin(a) * radius))
+      }
+
+      const positions = Cesium.Cartesian3.fromDegreesArrayHeights([
+        lon0, lat0, depth0,
+        lon0 + 0.02, lat0 + 0.02, depth0 - 500.0,
+        lon0 + 0.05, lat0 - 0.03, depth0 - 1200.0,
+      ])
+
+      entity = viewer.entities.add({
+        position,
+        polylineVolume: {
+          positions,
+          shape,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.85,
+            color: veinColor,
+          }),
+        },
+        label,
+      })
+    } catch (_) {
+      entity = null
+    }
+
+    if (!entity) {
+      entity = viewer.entities.add({
+        position,
+        ellipsoid: {
+          radii: new Cesium.Cartesian3(1200.0, 2500.0, 600.0),
+          material: veinColor.withAlpha(0.55),
+          outline: true,
+          outlineColor: veinColor,
+        },
+        label,
+      })
+    }
+
     _setOverlayEntry(_RUNTIME_KEYS.subsurfaceModel, { kind: 'entity', entity })
     return true
   } catch (_) {
@@ -970,6 +1479,7 @@ const _RUNTIME_KEYS = Object.freeze({
   water: 'demo7-water',
   subsurfaceModel: 'demo12-subsurface-model',
   deformation: 'demo8-deformation',
+  bivariate: 'demo10-bivariate',
 })
 
 // Global Standby default: start from a deep-space view.
@@ -1672,6 +2182,102 @@ async function addWaterPolygon(options = {}) {
   }
 }
 
+async function renderBivariateGridOverlay(options = {}) {
+  const viewer = cesiumViewerInstance.value
+  if (!viewer) return false
+
+  const title = String(options?.title || '').trim()
+  const data = (options && typeof options === 'object') ? (options.data ?? options) : null
+  if (!data || typeof data !== 'object') return false
+
+  const bounds = data?.bounds || {}
+  const west = Number(bounds?.west)
+  const east = Number(bounds?.east)
+  const south = Number(bounds?.south)
+  const north = Number(bounds?.north)
+  if (![west, east, south, north].every((n) => Number.isFinite(n))) return false
+  if (!(east > west && north > south)) return false
+
+  const dims = data?.dims || {}
+  const colsRaw = Number(dims?.cols)
+  const rowsRaw = Number(dims?.rows)
+  const cols = Number.isFinite(colsRaw) ? Math.max(1, Math.min(80, Math.round(colsRaw))) : 10
+  const rows = Number.isFinite(rowsRaw) ? Math.max(1, Math.min(80, Math.round(rowsRaw))) : 10
+
+  const grid = Array.isArray(data?.grid) ? data.grid : []
+  if (!grid.length) return false
+
+  const opacityRaw = Number(data?.opacity)
+  const opacity = Number.isFinite(opacityRaw) ? Math.max(0.05, Math.min(0.95, opacityRaw)) : 0.62
+
+  _removeOverlayEntry(_RUNTIME_KEYS.bivariate)
+
+  const dx = (east - west) / Math.max(1, cols)
+  const dy = (north - south) / Math.max(1, rows)
+
+  try {
+    const ds = new Cesium.CustomDataSource(_RUNTIME_KEYS.bivariate)
+
+    for (const cell of grid) {
+      const i = Number(cell?.i)
+      const j = Number(cell?.j)
+      if (!Number.isFinite(i) || !Number.isFinite(j)) continue
+      if (i < 0 || i >= cols || j < 0 || j >= rows) continue
+
+      const css = String(cell?.color || '').trim() || '#7AAED6'
+      let color = null
+      try {
+        color = Cesium.Color.fromCssColorString(css).withAlpha(opacity)
+      } catch (_) {
+        color = Cesium.Color.fromCssColorString('#7AAED6').withAlpha(opacity)
+      }
+
+      const w = west + i * dx
+      const e = west + (i + 1) * dx
+      const s = south + j * dy
+      const n = south + (j + 1) * dy
+      if (!(e > w && n > s)) continue
+
+      ds.entities.add({
+        rectangle: {
+          coordinates: Cesium.Rectangle.fromDegrees(w, s, e, n),
+          material: color,
+          outline: false,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        },
+      })
+    }
+
+    const centerLon = (west + east) * 0.5
+    const centerLat = (south + north) * 0.5
+    ds.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(centerLon, centerLat, 0),
+      label: {
+        text: title || 'Bivariate Grid',
+        font: '13pt ui-monospace, monospace',
+        fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        pixelOffset: new Cesium.Cartesian2(0, -26),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    })
+
+    viewer.dataSources.add(ds)
+    _setOverlayEntry(_RUNTIME_KEYS.bivariate, { kind: 'czml', dataSource: ds, sig: `bivariate:${Date.now()}` })
+
+    try {
+      viewer.scene?.requestRender?.()
+    } catch (_) {
+      // ignore
+    }
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
 async function _ensureAiVector({ enabled, opacity, geojson, token, color }) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return
@@ -2337,6 +2943,7 @@ defineExpose({
   applyCustomShader,
   addExtrudedPolygons,
   addWaterPolygon,
+  renderBivariateGridOverlay,
   enableSubsurfaceMode,
   disableSubsurfaceMode,
   addSubsurfaceModel,

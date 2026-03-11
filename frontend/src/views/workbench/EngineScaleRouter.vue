@@ -187,6 +187,14 @@ async function addExtrudedPolygons(opts) {
   }
 }
 
+async function renderBivariateGridOverlay(opts) {
+  try {
+    return await earthTwin.value?.renderBivariateGridOverlay?.(opts)
+  } catch (_) {
+    // ignore
+  }
+}
+
 function setSwipeMode(opts) {
   try {
     return earthTwin.value?.setSwipeMode?.(opts)
@@ -219,9 +227,9 @@ async function spinMacroCamera(opts) {
   }
 }
 
-async function rebuildMicroLattice() {
+async function rebuildMicroLattice(opts) {
   try {
-    return await threeTwin.value?.rebuildMicroLattice?.()
+    return await threeTwin.value?.rebuildMicroLattice?.(opts)
   } catch (_) {
     // ignore
   }
@@ -245,6 +253,7 @@ defineExpose({
   playCzmlAnimation,
   setGlobeTransparency,
   addExtrudedPolygons,
+  renderBivariateGridOverlay,
   setSwipeMode,
   setSwipePosition,
   highlightMacroCluster,
