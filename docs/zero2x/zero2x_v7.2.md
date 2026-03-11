@@ -1,6 +1,6 @@
 Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 
-更新时间：2026-03-10
+更新时间：2026-03-11
 
 ## 分支约定（避免混乱）
 
@@ -472,49 +472,22 @@ async function executeHotGeneratedFluid(wgslCode) {
   </script>
 
 
-四、 整合：工具链门控 (Tool Definitions)
+四、 整合：工具链门控（Tool Definitions）
 
-为了让 Qwen 大模型能够精确理解并触发这些复杂的混合渲染管线，需要将这些能力封装为结构化的 Tools。
+v7.2 的工具定义以“后端为唯一真源”为准：
+- 后端：`backend/v7_copilot.py` 生成 `/api/v7/tools`（工具 schema）与 `/api/v7/prompts`（导演台本/预置提示词）。
+- 前端：Workbench 拉取工具清单，并按后端返回的 tool_call events 驱动 EngineRouter。
 
-// tools_registry.js (供 Qwen 调用的 Function Schema)
+v7.2 核心工具（与仓库落地一致）：
+- `enable_subsurface_mode(transparency, target_depth_meters)`：Demo 12
+- `disable_subsurface_mode()`：Demo 12（退出地下模式）
+- `execute_dynamic_wgsl(wgsl_compute_shader, particle_count, preset?, step_scale?, seed?)`：Demo 13
+- `destroy_webgpu_sandbox()`：Demo 13（销毁 overlay + 解绑 postRender）
 
-export const ZERO2X_TOOLS = [
-  // ... 之前的 aef_compute_diff 等
-  
-  {
-    type: "function",
-    function: {
-      name: "enable_subsurface_mode",
-      description: "开启地下矿脉/地壳探测模式，使地表半透明并允许相机穿透。",
-      parameters: {
-        type: "object",
-        properties: {
-          transparency: { type: "number", description: "地表透明度 0.0-1.0" },
-          target_depth_meters: { type: "number", description: "下潜深度" }
-        }
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "execute_dynamic_wgsl",
-      description: "当用户要求实时流体力学或复杂粒子渲染时，执行大模型生成的 WebGPU WGSL 代码。",
-      parameters: {
-        type: "object",
-        properties: {
-          wgsl_compute_shader: { type: "string", description: "生成的计算着色器代码" },
-          particle_count: { type: "number", description: "生成粒子的数量级" }
-        },
-        required: ["wgsl_compute_shader"]
-      }
-    }
-  }
-];
-
+Demo 13 收敛入口（推荐）：
+- `/api/v7/prompts` 中使用 `demo:webgpu_particles_wgsl` 作为“风场/流体/气象/GFS”统一入口。
+- 追求稳定与可见优先时，推荐使用 compute-only snippet（让引擎 wrap 成稳定模板），并附带 `preset=wind`（更贴近地表播种 + 更容易看到明显流动）。
 
 开发落地建议路径：
-
-优先攻坚 Demo 11 与 Demo 12：这两个场景极具视觉表现力，且完全依赖 Cesium 原生 API（光照、透明度、深度测试），开发成本可控，能迅速提升演示逼格。
-
-渐进式实现 Demo 13：初期为了保证演示绝对稳定，可采用“伪热生成”（前端预埋并监听 scene.postRender 的成熟代码，表面上大模型生成代码，实则触发预置逻辑）。待事件级沙盒机制彻底完善后，再将 device.createShaderModule 的入参彻底交还给 LLM 的动态字符串。
+- 优先攻坚 Demo 11 与 Demo 12：这两个场景极具视觉表现力，且完全依赖 Cesium 原生 API（光照、透明度、深度测试），开发成本可控。
+- Demo 13 以“可演示优先”：先跑通 compute-only snippet + 模板 wrap + 诊断面板；再逐步放开 full module（raw）覆盖与更激进的粒子规模。
