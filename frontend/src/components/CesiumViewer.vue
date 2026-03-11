@@ -292,7 +292,18 @@ export default {
       //   Cannot read properties of undefined (reading 'addEventListener')
       // because providers like EllipsoidTerrainProvider don't have `readyEvent`.
       let terrainProvider = new Cesium.EllipsoidTerrainProvider()
-      if (hasIonToken) {
+      const disableWorldTerrainEnv = String(import.meta.env.VITE_DISABLE_WORLD_TERRAIN || '').trim() === '1'
+      let disableWorldTerrainQuery = false
+      try {
+        const q = new URLSearchParams(String(window?.location?.search || ''))
+        const v = String(q.get('terrain') || '').trim().toLowerCase()
+        disableWorldTerrainQuery = v === 'off' || v === '0' || v === 'false'
+      } catch (_) {
+        disableWorldTerrainQuery = false
+      }
+      const disableWorldTerrain = disableWorldTerrainEnv || disableWorldTerrainQuery
+
+      if (hasIonToken && !disableWorldTerrain) {
         try {
           if (typeof Cesium.createWorldTerrainAsync === 'function') {
             terrainProvider = await Cesium.createWorldTerrainAsync({
@@ -304,7 +315,12 @@ export default {
             terrainProvider = new Cesium.EllipsoidTerrainProvider()
           }
         } catch (e) {
-          console.warn('⚠️  Failed to load world terrain; falling back to ellipsoid.', e)
+          const msg = String(e?.message || e || '')
+          console.warn(
+            '⚠️  World Terrain unavailable; using ellipsoid terrain. ' +
+              'Tip: set VITE_DISABLE_WORLD_TERRAIN=1 (or add ?terrain=off) in restricted networks. ' +
+              (msg ? `(${msg})` : '')
+          )
           terrainProvider = new Cesium.EllipsoidTerrainProvider()
         }
       }
