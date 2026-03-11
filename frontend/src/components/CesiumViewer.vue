@@ -49,6 +49,7 @@ export default {
     let hiddenBaseLayers = []
     let tileLoadUnsub = null
     let ionBaseProviderUnsub = null
+    let terrainErrorUnsub = null
     let rotationTick = null
     let fadeTimer = null
     let centerTick = null
@@ -73,6 +74,7 @@ export default {
         if (currentAIProviderUnsub) currentAIProviderUnsub()
         if (currentBasemapProviderUnsub) currentBasemapProviderUnsub()
         if (ionBaseProviderUnsub) ionBaseProviderUnsub()
+        if (terrainErrorUnsub) terrainErrorUnsub()
         if (rotationTick) {
           try {
             viewer.clock.onTick.removeEventListener(rotationTick)
@@ -443,6 +445,62 @@ export default {
           }
           if (viewer?.scene?.skyAtmosphere) {
             viewer.scene.skyAtmosphere.show = true
+          }
+        } catch (_) {
+          // ignore
+        }
+
+        // Offline-safe behavior:
+        // Even if `createWorldTerrainAsync()` succeeds, restricted networks can still reset
+        // the actual tile requests (assets.ion.cesium.com). Cesium then keeps retrying tiles
+        // and spams the console. If we detect the first terrain error, downgrade to ellipsoid
+        // so the globe can continue rendering without repeated failing requests.
+        try {
+          const tp = viewer?.terrainProvider
+          const shouldWatchTerrainErrors = !!(hasIonToken && !disableWorldTerrain)
+          if (shouldWatchTerrainErrors && tp?.errorEvent?.addEventListener) {
+            let switched = false
+            const onTerrainError = (err) => {
+              if (switched) return
+              switched = true
+
+              let detail = ''
+              try {
+                const msg = String(err?.message || err || '').trim()
+                if (msg) detail = ` (${msg})`
+              } catch (_) {
+                // ignore
+              }
+
+              console.warn(
+                '⚠️  World Terrain tile request failed; switching to ellipsoid terrain.' +
+                  ' Tip: add ?terrain=off or set VITE_DISABLE_WORLD_TERRAIN=1 for offline demos.' +
+                  detail
+              )
+
+              try {
+                const ellipsoid = new Cesium.EllipsoidTerrainProvider()
+                viewer.terrainProvider = ellipsoid
+                if (viewer?.scene?.globe) viewer.scene.globe.terrainProvider = ellipsoid
+              } catch (_) {
+                // ignore
+              }
+
+              try {
+                tp.errorEvent.removeEventListener(onTerrainError)
+              } catch (_) {
+                // ignore
+              }
+            }
+
+            tp.errorEvent.addEventListener(onTerrainError)
+            terrainErrorUnsub = () => {
+              try {
+                tp.errorEvent.removeEventListener(onTerrainError)
+              } catch (_) {
+                // ignore
+              }
+            }
           }
         } catch (_) {
           // ignore
