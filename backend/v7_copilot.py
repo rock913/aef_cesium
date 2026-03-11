@@ -1519,7 +1519,7 @@ async def _execute_stub(
         # Resource-free and guaranteed visible via WebGPU overlay (Demo 13 pipeline).
         code = (
             "// WGSL compute body snippet: procedural wind on a sphere (demo-safe)\n"
-            "// Requires bindings: particles (storage vec4 array), uParams (vec4: t, stepScale, _, _)\n"
+            "// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, _, _)\n"
             "let i = gid.x;\n"
             "let n = arrayLength(&particles.data);\n"
             "if (i >= n) { return; }\n\n"

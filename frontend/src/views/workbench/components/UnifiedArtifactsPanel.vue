@@ -137,7 +137,7 @@ function onInsertWindPreset() {
   // Compute-only WGSL snippet (EngineRouter will wrap/augment render entrypoints).
   // Designed to be visually obvious with preset=wind (surface-like seeding + higher stepScale).
   const code = `// WGSL compute body snippet: procedural wind on a sphere (demo-safe)
-// Requires bindings: particles (storage vec4 array), uParams (vec4: t, stepScale, _, _)
+// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, _, _)
 let i = gid.x;
 let n = arrayLength(&particles.data);
 if (i >= n) { return; }
@@ -150,9 +150,10 @@ let r = length(p.xyz);
 if (r < 1.0) { return; }
 
 let up = normalize(p.xyz);
-var ref = vec3<f32>(0.0, 0.0, 1.0);
-if (abs(up.z) > 0.9) { ref = vec3<f32>(0.0, 1.0, 0.0); }
-let east = normalize(cross(ref, up));
+// NOTE: `ref` is a reserved keyword in newer WGSL parsers.
+var axisRef = vec3<f32>(0.0, 0.0, 1.0);
+if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
+let east = normalize(cross(axisRef, up));
 let north = normalize(cross(up, east));
 
 let a = t * 0.55 + f32(i) * 0.00003;

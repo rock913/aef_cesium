@@ -104,6 +104,7 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 
 ```wgsl
 // WGSL compute body snippet: procedural wind on a sphere (demo-safe)
+// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, _, _)
 let i = gid.x;
 let n = arrayLength(&particles.data);
 if (i >= n) { return; }
@@ -135,6 +136,7 @@ particles.data[i] = p;
 实现约束（稳定优先）
 - WebGPU 沙盒必须与 Cesium 渲染解耦（不侵入 Cesium 内部 WebGPU API）。
 - 所有新能力必须可降级：WebGPU 不可用时不影响 Cesium 主渲染；地下模式不依赖外部模型也可演示。
+- `enable_3d_terrain` 网络依赖说明：Cesium World Terrain 需要可访问 `assets.ion.cesium.com`（以及有效 Ion Token）。若出现 `net::ERR_CONNECTION_RESET`，前端会自动回退到 `EllipsoidTerrainProvider`（属预期兜底）。解决：放通外网/配置代理与 Token；或在离线/受限环境直接不配置 Token 以避免加载尝试与告警。
 
 ### 0303 Patch：视觉表现力验收标准（可演示优先）
 

@@ -52,6 +52,8 @@ Demo 7: 珠峰冰原溃决预警
 
 地形：调用 Cesium Ion 的 Cesium World Terrain (Asset ID: 1)。
 
+网络/环境兜底：若现场网络无法访问 `assets.ion.cesium.com`（常见报错：`net::ERR_CONNECTION_RESET`），前端会自动回退到椭球地形（Ellipsoid）。此时仍可继续演示“淹没 Polygon + 动态水体”，但不会有真实山体起伏。解决：放通外网/配置代理与 Ion Token；或直接关闭 World Terrain 依赖做离线演示。
+
 淹没范围：基于 SRTM 30m DEM，在 ArcGIS/QGIS 中使用水文分析工具（Hydrology）提取珠峰北坡汇水盆地，生成淹没 Polygon。
 
 演示兜底生成方案： 直接手绘一个沿山谷走向的多边形。
