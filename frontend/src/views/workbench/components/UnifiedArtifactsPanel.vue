@@ -81,7 +81,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import LayerTree from './LayerTree.vue'
 import MonacoLazyEditor from '../../../components/MonacoLazyEditor.vue'
 
@@ -97,6 +97,16 @@ const props = defineProps({
 const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled', 'run-code'])
 
 const tab = ref('layers')
+
+// UX: when WebGPU tool calls emit diagnostics, surface them immediately.
+watch(
+  () => String(props.reportText || ''),
+  (v) => {
+    const s = String(v || '').trim()
+    if (!s) return
+    if (s.includes('[WebGPU]')) tab.value = 'reports'
+  }
+)
 
 const swipeEnabledModel = computed({
   get() {
@@ -191,7 +201,7 @@ let vel = east * u + north * v;
 
 // Advect along tangent and re-project to a stable radius (cinematic shell).
 let adv = vel * (s * 80000.0);
-p.xyz = normalize(p.xyz + adv) * 20000000.0;
+  p = vec4<f32>(normalize(p.xyz + adv) * 20000000.0, p.w);
 particles.data[i] = p;`;
 
   try {

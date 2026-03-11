@@ -29,12 +29,12 @@ def test_v7_prompts_list() -> None:
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
-    assert len(data) >= 14
+    assert len(data) >= 13
     ids = {p.get("id") for p in data}
     assert "demo:amazon_cluster" in ids
-    assert "demo:global_wind_glsl" in ids
     assert "demo:webgpu_particles_wgsl" in ids
     assert "demo:wormhole_micro" in ids
+    assert "demo:global_wind_glsl" not in ids
 
 
 def test_v7_tools_list() -> None:

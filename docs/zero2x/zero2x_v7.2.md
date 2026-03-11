@@ -2,6 +2,11 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 
 更新时间：2026-03-10
 
+## 分支约定（避免混乱）
+
+- **主开发分支**：`021/v72`
+- **历史分支名（已弃用）**：`patch/0303-v72-phase4`（已重命名为 `021/v72`；请不要再基于旧名开新 PR/修复）
+
 ## 当前状态（基于仓库实际落地）
 
 已完成（✅）
@@ -13,7 +18,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
 - ✅ 回归测试已覆盖：后端 `/api/v7/tools` 工具清单包含 v7.2 新工具；前端契约测试锁定 WebGPU overlay 与 postRender 同步策略。
 - ✅ 0303 视觉表现力补强已落地：
   - Demo 11：night 模式基础影像可逆调色（Brightness↓、Contrast↑、Hue 冷偏），让轨迹/AI 图层更醒目。
-  - Demo 13：stub 增加 `fly_to(~18,000km)`；粒子播种半径升级为 ~20,000km 全局分布；默认粒子颜色改为 Cyan。
+  - Demo 13：stub 增加 `fly_to(~18,000km)`；粒子播种半径升级为 ~20,000km 全局分布；默认粒子颜色改为 Cyan；**WebGPU overlay 支持“拖尾/拉丝”（帧间保留 + fade pass，可用 `trail_alpha` 调强弱）**。
   - Demo 12：补齐 `add_subsurface_model` 地下锚点；`fly_to` 支持 `pitch_deg`，并固定顺序 `enable_subsurface_mode` → 下潜 → 锚点。
 - ✅ Demo 7（珠峰冰川湖溃决）：已具备“无资源依赖”闭环：`enable_3d_terrain` + `add_cesium_3d_tiles`（stub）+ `add_cesium_water_polygon`（动画洪水面）。
 - ✅ Demo 6（塔拉滩光伏蓝海）：已具备“无资源依赖”闭环：后端 stub 下发 inline GeoJSON → `add_cesium_vector` 面元轮廓 + `add_cesium_extruded_polygons(height_property='panel_area')` 拉伸柱，同时下发 `show_chart` 作为统计占位。
@@ -35,7 +40,7 @@ Zero2x v7.2：Demo 6-13 核心场景实现与 WebGPU 引擎架构指南
   - ✅ Demo 10（纽约热岛×脆弱性）：已补齐“地图侧可视化骨架”，`render_bivariate_map` 同步驱动 Cesium overlay + artifacts。
 
 分支与落地记录
-- 分支：`patch/0303-v72-phase4`
+- 分支：`021/v72`（原 `patch/0303-v72-phase4`）
 - 已落地基础闭环提交：`e41fdcb`（v7.2 subsurface + WebGPU tools，TDD）
 - 0303 视觉补强：`8bf07fb`（Demo 11/12/13 visual impact）
 - Demo 7 竖切片：`bb63aec`（Everest water polygon slice）
@@ -88,6 +93,8 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 
 ### Demo 13：LLM 输出 WGSL 模板约定（稳定优先）
 
+v7.2 收敛策略（避免产品认知混乱）：风场/流体/气象类效果统一走 Demo 13 的 WebGPU 粒子沙盒（WGSL-first）。历史上的“GLSL 风场 preset”不再作为单独技术分支维护。
+
 引擎 `execute_dynamic_wgsl` 接受两种输入：
 - ① 完整 WGSL module（包含 entryPoints：`cs_main`/`vs_main`/`fs_main`）
 - ② 仅 compute body 片段（不包含 `@compute` / `fn cs_main`），引擎会自动 wrap 成稳定模板
@@ -96,7 +103,7 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 - binding(0)：`particles`，`var<storage, read_write>`（Compute 用），`array<vec4<f32>>`
 - binding(3)：`particles_ro`，`var<storage, read>`（Vertex 用，避免 RW storage 在 Vertex 阶段非法）
 - binding(1)：`uCamera`，`var<uniform>`，`view`/`proj` 两个 `mat4x4<f32>`
-- binding(2)：`uParams`，`var<uniform>`，`vec4<f32>`：`(t, stepScale, _, _)`
+- binding(2)：`uParams`，`var<uniform>`，`vec4<f32>`：`(t, stepScale, particleCount, _)`
 
 #### 风场 RUN SCRIPT：推荐 compute-only WGSL（可见优先）
 
@@ -104,9 +111,9 @@ M3（后续迭代：逐步完成 Demo 6-10 的“高阶 Cesium 组装”）
 
 ```wgsl
 // WGSL compute body snippet: procedural wind on a sphere (demo-safe)
-// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, _, _)
+// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, particleCount, _)
 let i = gid.x;
-let n = arrayLength(&particles.data);
+let n = u32(max(0.0, uParams.z));
 if (i >= n) { return; }
 
 let t = uParams.x;
@@ -129,13 +136,17 @@ let v = cos(a * 1.70 + up.y * 3.0 - up.z * 2.0);
 let vel = east * u + north * v;
 
 let adv = vel * (s * 40.0);
-p.xyz = normalize(p.xyz + adv) * 6700000.0;
+p = vec4<f32>(normalize(p.xyz + adv) * 6700000.0, p.w);
 particles.data[i] = p;
 ```
 
 实现约束（稳定优先）
 - WebGPU 沙盒必须与 Cesium 渲染解耦（不侵入 Cesium 内部 WebGPU API）。
 - 所有新能力必须可降级：WebGPU 不可用时不影响 Cesium 主渲染；地下模式不依赖外部模型也可演示。
+- WGSL 稳定性约束（实战踩坑）：
+  - 避免 `p.xyz = ...` 这类 swizzle 赋值（严格实现会直接拒绝编译），改用 `p = vec4<f32>(newPos, p.w)`。
+  - 代码建议 ASCII-only（包含注释）；部分 WGSL 解析器会因 emoji/中文等非 ASCII 字符报 `invalid character`。
+  - 粒子计数边界优先使用 `uParams.z = particleCount`，少用 `arrayLength(&particles.data)`（部分实现/驱动上兼容性更差）。
 - `enable_3d_terrain` 网络依赖说明：Cesium World Terrain 需要可访问 `assets.ion.cesium.com`（以及有效 Ion Token）。若出现 `net::ERR_CONNECTION_RESET`，前端会自动回退到 `EllipsoidTerrainProvider`（属预期兜底）。解决：放通外网/配置代理与 Token；或在离线/受限环境直接不配置 Token 以避免加载尝试与告警。
 
 ### 0303 Patch：视觉表现力验收标准（可演示优先）
@@ -210,9 +221,35 @@ Demo 13（全球流体 WebGPU 热生成）
 - 重要约定（与仓库实现一致）：
   - Vertex 阶段读取 `particles_ro`（group(0) binding(3)）以避免 RW storage 在 Vertex 阶段非法。
   - Full module（raw）默认 `topology=point-list`，建议在 `VSOut` 增加 `@builtin(point_size)` 并赋值（例如 3~6），避免高 DPI 下点太小“看不见”。
-  - Debug 可用 `?wgpu_debug=tint|tri|all`，用来验证 overlay 可见性。
+  - Debug 可用 `?wgpu_debug=tint|tri|all`，用来验证 overlay 可见性（v7.2 已改为“可持续显示”，不会一闪而过）。
 - 导演台词："利用 WebGPU 计算着色器，在当前沙盒生成并渲染十万级带气旋特征的全球流体场。"
 - 视觉预期：深空全景 + 青色粒子风带/气旋拉丝。
+
+**Demo 13：排障（优先级从高到低）**
+
+1) 先确认“叠加层真的在画”（与 WGSL 无关）
+- 打开 `?wgpu_debug=tri`：屏幕应出现持续的“黄色全屏三角形”覆盖在 Cesium 之上。
+  - 看不到黄色三角形：优先怀疑 overlay canvas 没有覆盖在 Cesium 之上（z-index/布局/尺寸为 0）。
+- 打开 `?wgpu_debug=tint`：屏幕应出现持续的“品红色半透明遮罩”。
+
+2) 再确认“WebGPU 环境真的可用”（与 shader 无关）
+- 控制台验证：`window.isSecureContext === true`，且 `navigator.gpu` 存在。
+- 建议用 `https://webgpureport.org` 进一步确认当前浏览器/GPU/驱动支持状态。
+
+3) 如果能看到 tri/tint，但粒子仍看不到 → 进入 WGSL/管线诊断
+- Workbench 报告区会输出：
+  - 成功：`[WebGPU] running: mode=... topology=... particles=...`
+  - 失败：`[WebGPU] execute_dynamic_wgsl failed: pipeline_failed — <第一条可行动的错误>`
+- 常见失败原因（与 #file:update_patch_0303.md 保持一致）：
+  - 使用 `arrayLength(&particles.data)`：部分实现/驱动下可触发兼容性问题；v7.2 约定 `uParams.z = particleCount`。
+  - 顶点阶段读取 RW storage：`vs_main` 必须读 `particles_ro`（binding(3)），不要读 `particles`（binding(0)）。
+  - WGSL 类型构造不显式：应使用 `vec3<f32>(...)`，避免 `vec3(...)` 在更严格实现上失败。
+  - 变量命名踩关键字：例如 `ref` 在新 WGSL 解析器中是保留字。
+  - Full module 走 `point-list` 时未设置 `@builtin(point_size)`：高 DPI/远景下可能“看起来像没效果”。
+
+4) 仍无结果 → 优先走“compute-only snippet”策略
+- 推荐只下发 compute body，让引擎 wrap 成稳定模板（triangle sprites + clip-space 修正 + trail/fade）。
+- 这样能最大化绕开不同实现对 full module/布局/拓扑的细微差异。
 
 Demo 14（宏微观虫洞跃迁：Macro-Micro）
 - 目标：从 Earth → Macro → Micro 的尺度跃迁，强调“系统级架构张力”。

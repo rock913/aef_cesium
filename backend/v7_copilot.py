@@ -351,18 +351,14 @@ _PRESETS: List[CopilotPreset] = [
         prompt="使用高光谱解混算法 (Spectral Unmixing)，寻找地表下方的铁矿与锂矿隐伏脉络。",
     ),
     CopilotPreset(
-        id="demo:global_wind_glsl",
-        label="[演示] 全球风场流体 (WGSL-first)",
-        prompt="用 WGSL（或 compute body 片段）为我写一段资源无依赖的全球风场粒子/流体演示，并直接在地图上运行。",
-    ),
-    CopilotPreset(
         id="demo:webgpu_particles_wgsl",
-        label="[演示] WebGPU 粒子沙盒 (WGSL)",
+        label="[演示] WebGPU 全球气象流体 (Demo 13)",
         prompt=(
-            "Demo 13：请生成一段可执行的 WGSL（或仅 compute body 片段），用于更新 particles 缓冲区。\n"
+            "Demo 13：请生成一段可执行的 WGSL（优先：包含 @compute/@vertex/@fragment 的全管线 module），用于全球气象粒子流体演示。\n"
             "要求：使用 tool execute_dynamic_wgsl 下发 wgsl_compute_shader，并指定 particle_count。\n"
             "约定：引擎会提供 group(0) bindings：0=particles(storage read_write, compute), 3=particles_ro(storage read, vertex), 1=camera(view+proj), 2=params(vec4: t, stepScale, _, _)。\n"
             "注意：Vertex 阶段不要读取 RW storage（会编译失败）；如提供完整 module，请在 vs_main 使用 particles_ro(binding(3))。"
+            "\n稳定性约束：避免使用 arrayLength(&particles.data) 做边界（优先 uParams.z=particleCount）；避免 p.xyz = ... 这类 swizzle 赋值；WGSL 源码建议 ASCII-only（部分实现会拒绝非 ASCII 字符）。"
         ),
     ),
     CopilotPreset(
@@ -1490,7 +1486,16 @@ async def _execute_stub(
         )
         return events
 
-    if "webgpu" in lc or "wgsl" in lc or ("demo 13" in lc and ("粒子" in p or "sandbox" in lc)):
+    if (
+        "webgpu" in lc
+        or "wgsl" in lc
+        or ("demo 13" in lc and ("粒子" in p or "sandbox" in lc))
+        or "风场" in p
+        or "气象" in p
+        or "流体" in p
+        or "wind" in lc
+        or "gfs" in lc
+    ):
         code = (
             "// WGSL Full Module (raw): compute + vertex + fragment\n"
             "// Contract: group(0) bindings: 0=particles(rw, compute), 3=particles_ro(read, vertex), 1=camera(view+proj), 2=params(t, stepScale, _, _)\n\n"
@@ -1499,17 +1504,27 @@ async def _execute_stub(
             "@group(0) @binding(0) var<storage, read_write> particles: Particles;\n"
             "@group(0) @binding(3) var<storage, read> particles_ro: Particles;\n"
             "@group(0) @binding(1) var<uniform> uCamera: Camera;\n"
-            "@group(0) @binding(2) var<uniform> uParams: vec4<f32>;\n\n"
+            "@group(0) @binding(2) var<uniform> uParams: vec4<f32>; // (t, stepScale, _, _)\n\n"
             "fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }\n\n"
+            "// Stream function used to derive a curl-like, divergence-free-ish tangent flow.\n"
+            "fn stream(p: vec3<f32>, t: f32) -> f32 {\n"
+            "  var f = 0.0;\n"
+            "  f += sin(p.x * 4.0 + t) * cos(p.y * 4.0 - t) * 1.0;\n"
+            "  f += sin(p.y * 7.0 - t * 1.2) * cos(p.z * 7.0 + t * 0.8) * 0.5;\n"
+            "  f += sin(p.z * 12.0 + t * 1.5) * cos(p.x * 12.0 - t * 1.1) * 0.25;\n"
+            "  return f;\n"
+            "}\n\n"
             "@compute @workgroup_size(256)\n"
             "fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n"
             "  let i = gid.x;\n"
-            "  let n = arrayLength(&particles.data);\n"
-            "  if (i >= n) { return; }\n"
-            "  let t = uParams.x * 0.12;\n"
+            "  let n = u32(max(0.0, uParams.z));\n"
+            "  if (i >= n) { return; }\n\n"
+            "  let t = uParams.x * 0.15;\n"
             "  let s = max(0.0, uParams.y);\n"
-            "  var p = particles.data[i];\n"
-            "  p.w = p.w - (0.01 * s) * (0.5 + hash(f32(i)) * 0.9);\n"
+            "  let dt = max(0.001, (0.016 * clamp(s / 18.0, 0.25, 4.0)));\n\n"
+            "  var p = particles.data[i];\n\n"
+            "  // Lifecycle (age in p.w): fade + respawn.\n"
+            "  p.w = p.w - dt * (0.10 + hash(f32(i)) * 0.20);\n"
             "  if (p.w <= 0.0 || length(p.xyz) < 1.0) {\n"
             "    p.w = 1.0;\n"
             "    let seed = f32(i) + t * 100.0;\n"
@@ -1519,14 +1534,20 @@ async def _execute_stub(
             "    p.x = sin(theta) * cos(phi);\n"
             "    p.y = sin(theta) * sin(phi);\n"
             "    p.z = cos(theta);\n"
-            "    p.xyz = normalize(p.xyz) * 20000000.0;\n"
-            "  }\n"
-            "  let pos = normalize(p.xyz);\n"
-            "  let a = sin(pos.y * 6.0 + t) + cos(pos.z * 5.0 - t * 1.3);\n"
-            "  let b = sin(pos.z * 7.0 - t * 0.8) + cos(pos.x * 4.0 + t * 1.1);\n"
-            "  var vel = cross(pos, vec3<f32>(a, b, sin(t + f32(i) * 0.00001))) ;\n"
-            "  vel = normalize(vel + 0.00001) * 35000.0;\n"
-            "  p.xyz = normalize(p.xyz + vel * (0.016 * s)) * 20000000.0;\n"
+            "    p = vec4<f32>(normalize(p.xyz) * 20000000.0, p.w);\n"
+            "  }\n\n"
+            "  let pos = normalize(p.xyz);\n\n"
+            "  // Curl-like tangent velocity (finite differences on stream()).\n"
+            "  let eps = 0.02;\n"
+            "  let dx = stream(pos + vec3<f32>(eps, 0.0, 0.0), t) - stream(pos - vec3<f32>(eps, 0.0, 0.0), t);\n"
+            "  let dy = stream(pos + vec3<f32>(0.0, eps, 0.0), t) - stream(pos - vec3<f32>(0.0, eps, 0.0), t);\n"
+            "  let dz = stream(pos + vec3<f32>(0.0, 0.0, eps), t) - stream(pos - vec3<f32>(0.0, 0.0, eps), t);\n"
+            "  var vel = cross(pos, vec3<f32>(dx, dy, dz) / (2.0 * eps));\n\n"
+            "  // Zonal jet stream to create clear banded streaks.\n"
+            "  let jet = cross(vec3<f32>(0.0, 0.0, 1.0), pos) * cos(pos.z * 6.0) * 1.5;\n"
+            "  vel = vel + jet;\n\n"
+            "  // Advect on the sphere.\n"
+            "  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0, p.w);\n"
             "  particles.data[i] = p;\n"
             "}\n\n"
             "struct VSOut {\n"
@@ -1544,13 +1565,15 @@ async def _execute_stub(
             "    0.0, 0.0, 0.5, 1.0\n"
             "  );\n"
             "  var out: VSOut;\n"
-            "  out.pos = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);\n"
-            "  out.psize = 5.0;\n"
+            "  out.pos = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);\n\n"
+            "  // Larger points for visibility at 18,000km camera height.\n"
+            "  out.psize = 5.0;\n\n"
+            "  // Fade in/out by lifecycle and color-map by latitude.\n"
             "  let lat = abs(normalize(p.xyz).z);\n"
             "  let cWarm = vec3<f32>(0.0, 0.95, 1.0);\n"
             "  let cCool = vec3<f32>(0.6, 0.1, 0.9);\n"
-            "  let alpha = 0.15 + 0.75 * smoothstep(0.0, 0.25, p.w);\n"
-            "  out.color = vec4<f32>(mix(cWarm, cCool, lat), alpha);\n"
+            "  let alpha = smoothstep(0.0, 0.2, p.w) * smoothstep(1.0, 0.8, p.w);\n"
+            "  out.color = vec4<f32>(mix(cWarm, cCool, lat), alpha * 0.75);\n"
             "  return out;\n"
             "}\n\n"
             "@fragment\n"
@@ -1562,62 +1585,19 @@ async def _execute_stub(
                 CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
                 CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
                 CopilotEvent(type="tool_result", tool="write_to_editor", result="ok"),
-                CopilotEvent(type="tool_call", tool="execute_dynamic_wgsl", args={"wgsl_compute_shader": code, "particle_count": 120000}),
-                CopilotEvent(type="tool_result", tool="execute_dynamic_wgsl", result="ok"),
-                CopilotEvent(type="final", text="已下发 WebGPU/WGSL 粒子沙盒指令（stub）：镜头已拉远，编辑区包含 compute body，可直接运行。"),
-            ]
-        )
-        return events
-
-    if "风场" in p or "gfs" in lc or "glsl" in lc or "wind" in lc:
-        # WGSL-first wind demo: procedural tangent advection on a sphere.
-        # Resource-free and guaranteed visible via WebGPU overlay (Demo 13 pipeline).
-        code = (
-            "// WGSL compute body snippet: procedural wind on a sphere (demo-safe)\n"
-            "// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, _, _)\n"
-            "let i = gid.x;\n"
-            "let n = arrayLength(&particles.data);\n"
-            "if (i >= n) { return; }\n\n"
-            "let t = uParams.x;\n"
-            "let s = max(0.0, uParams.y);\n\n"
-            "var p = particles.data[i];\n"
-            "let r = length(p.xyz);\n"
-            "if (r < 1.0) { return; }\n\n"
-            "let up = normalize(p.xyz);\n"
-            "// NOTE: `ref` is a reserved keyword in newer WGSL parsers.\n"
-            "var axisRef = vec3<f32>(0.0, 0.0, 1.0);\n"
-            "if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }\n"
-            "let east = normalize(cross(axisRef, up));\n"
-            "let north = normalize(cross(up, east));\n\n"
-            "let a = t * 0.55 + f32(i) * 0.00003;\n"
-            "let u = sin(a * 1.30 + up.x * 3.0 + up.y * 2.0);\n"
-            "let v = cos(a * 1.70 + up.y * 3.0 - up.z * 2.0);\n"
-            "let vel = east * u + north * v;\n\n"
-            "let adv = vel * (s * 40.0);\n"
-            "p.xyz = normalize(p.xyz + adv) * 6700000.0;\n"
-            "particles.data[i] = p;\n"
-        ).strip()
-        events.extend(
-            [
-                CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 0.0, "lon": 0.0, "height": 12000000, "duration_s": 4.2}),
-                CopilotEvent(type="tool_result", tool="fly_to", result="ok"),
-                CopilotEvent(type="tool_call", tool="get_gfs_uv_wind_data", args={}),
-                CopilotEvent(type="tool_result", tool="get_gfs_uv_wind_data", result={"status": "stub", "url": ""}),
-                CopilotEvent(type="tool_call", tool="write_to_editor", args={"code": code, "tab": "CODE & SCRIPT"}),
-                CopilotEvent(type="tool_result", tool="write_to_editor", result="ok"),
                 CopilotEvent(
                     type="tool_call",
                     tool="execute_dynamic_wgsl",
                     args={
                         "wgsl_compute_shader": code,
-                        "particle_count": 200000,
+                        "particle_count": 180000,
                         "preset": "wind",
                         "step_scale": 18.0,
                         "seed": "surface",
                     },
                 ),
                 CopilotEvent(type="tool_result", tool="execute_dynamic_wgsl", result="ok"),
-                CopilotEvent(type="final", text="已下发风场（WGSL-first, procedural）并在 WebGPU overlay 中运行：可在 CODE & SCRIPT 内继续迭代风场物理/采样。"),
+                CopilotEvent(type="final", text="已下发 WebGPU 全球气象流体（Demo 13, full pipeline WGSL）：镜头已拉远，可直接在 WebGPU overlay 中看到生命周期+纬度色谱的拖尾粒子。"),
             ]
         )
         return events

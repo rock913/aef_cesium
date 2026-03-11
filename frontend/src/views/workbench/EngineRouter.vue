@@ -105,6 +105,31 @@ async function executeDynamicWgsl(options = {}) {
   const viewer = cesiumViewerInstance.value
   if (!viewer) return { ok: false, reason: 'viewer_not_ready' }
 
+  // WebGPU requires a secure context in all major browsers.
+  // If the app is opened via plain http://<public-ip> this will usually fail.
+  try {
+    if (typeof window !== 'undefined' && window && window.isSecureContext === false) {
+      return { ok: false, reason: 'insecure_context', hint: 'WebGPU requires HTTPS (or localhost). Open the site via https://<domain>.' }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  function _gpuErrorToString(err) {
+    if (!err) return ''
+    try {
+      if (typeof err === 'string') return err
+      if (typeof err?.message === 'string') return String(err.message)
+      return JSON.stringify(err)
+    } catch (_) {
+      try {
+        return String(err)
+      } catch (_) {
+        return 'unknown_gpu_error'
+      }
+    }
+  }
+
   function _getUrlParam(key) {
     try {
       if (typeof window === 'undefined') return ''
@@ -157,6 +182,19 @@ async function executeDynamicWgsl(options = {}) {
       .join('\n')
   }
 
+  function _sanitizeWgslSource(s) {
+    const src = String(s || '')
+    if (!src) return { code: src, changed: false, replaced: 0 }
+    let replaced = 0
+    // Some WebGPU/WGSL parsers reject non-ASCII characters (even in comments).
+    // Replace with spaces to preserve line breaks and keep diagnostics usable.
+    const code = src.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, () => {
+      replaced += 1
+      return ' '
+    })
+    return { code, changed: replaced > 0, replaced }
+  }
+
   // Stable template contract for LLM outputs.
   // Accept:
   // - Full WGSL module that defines entryPoints: cs_main/vs_main/fs_main
@@ -181,6 +219,82 @@ async function executeDynamicWgsl(options = {}) {
     return /@fragment\b/.test(t) || /fn\s+fs_main\s*\(/.test(t)
   }
 
+  // Some WebGPU implementations appear to be conservative when inferring resource
+  // layouts (especially with layout:'auto'), potentially considering resources
+  // declared in the module even if unused by a given entrypoint.
+  // To avoid "same buffer is both writable and read-only" hazards, we keep a
+  // split-module path: compute module has binding(0/2); render module has binding(1/3).
+  function _wrapComputeBodyIntoComputeOnlyTemplate(body) {
+    const computeBody = _indentLines(String(body || '').trim(), '  ')
+    return `
+struct Particles {
+  data : array<vec4<f32>>,
+}
+
+@group(0) @binding(0) var<storage, read_write> particles : Particles;
+@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, particleCount, _
+
+@compute @workgroup_size(256)
+fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
+${computeBody}
+}
+`.trim()
+  }
+
+  function _buildDefaultRenderOnlyModuleTriangleList() {
+    return `
+struct Camera {
+  view : mat4x4<f32>,
+  proj : mat4x4<f32>,
+}
+
+struct Particles {
+  data : array<vec4<f32>>,
+}
+
+@group(0) @binding(1) var<uniform> uCamera : Camera;
+@group(0) @binding(3) var<storage, read> particles_ro : Particles;
+
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+  @location(0) color : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  let pid = vid / 6u;
+  let corner = vid % 6u;
+  let p = particles_ro.data[pid];
+  let clipFix = mat4x4<f32>(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0
+  );
+  let base = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+
+  var ofs = vec2<f32>(0.0, 0.0);
+  if (corner == 0u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 1u) { ofs = vec2<f32>( 1.0, -1.0); }
+  else if (corner == 2u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else if (corner == 3u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 4u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else { ofs = vec2<f32>(-1.0,  1.0); }
+
+  let size = 0.003;
+  out.Position = vec4<f32>(base.x + (ofs.x * size * base.w), base.y + (ofs.y * size * base.w), base.z, base.w);
+  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.75);
+  return out;
+}
+
+@fragment
+fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+  return in.color;
+}
+`.trim()
+  }
+
   function _wrapComputeBodyIntoTemplate(body) {
     const computeBody = _indentLines(String(body || '').trim(), '  ')
     return `
@@ -196,7 +310,7 @@ struct Particles {
 @group(0) @binding(0) var<storage, read_write> particles : Particles;
 @group(0) @binding(3) var<storage, read> particles_ro : Particles;
 @group(0) @binding(1) var<uniform> uCamera : Camera;
-@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, _, _
+@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, particleCount, _
 
 @compute @workgroup_size(256)
 fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
@@ -304,7 +418,12 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   const shaderCandidates = []
   if (wrapped) {
-    shaderCandidates.push({ code: _wrapComputeBodyIntoTemplate(wgslInput), mode: 'wrapped', topology: 'triangle-list' })
+    shaderCandidates.push({
+      computeCode: _wrapComputeBodyIntoComputeOnlyTemplate(wgslInput),
+      renderCode: _buildDefaultRenderOnlyModuleTriangleList(),
+      mode: 'wrapped',
+      topology: 'triangle-list',
+    })
   } else {
     if (hasCS && !hasVS && !hasFS) {
       shaderCandidates.push({ code: _augmentComputeOnlyModuleWithDefaultRender(wgslInput), mode: 'augmented_render', topology: 'triangle-list' })
@@ -318,6 +437,14 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   showWebGPU.value = true
   await nextTick()
 
+  // Give layout a chance to settle so getBoundingClientRect() is non-zero.
+  // (Some deployments mount the Workbench in a transitioning panel.)
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  } catch (_) {
+    // ignore
+  }
+
   const canvas = gpuCanvas.value
   if (!canvas) return { ok: false, reason: 'canvas_not_ready' }
 
@@ -327,8 +454,20 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         ? Math.max(1, Number(window.devicePixelRatio))
         : 1
       const rect = canvas.getBoundingClientRect?.() || { width: canvas.clientWidth || 0, height: canvas.clientHeight || 0 }
-      const w = Math.max(1, Math.floor(Number(rect.width || 0) * dpr))
-      const h = Math.max(1, Math.floor(Number(rect.height || 0) * dpr))
+      let cssW = Number(rect.width || 0)
+      let cssH = Number(rect.height || 0)
+      if (cssW < 2 || cssH < 2) {
+        try {
+          const p = canvas.parentElement
+          const pr = p?.getBoundingClientRect?.() || { width: p?.clientWidth || 0, height: p?.clientHeight || 0 }
+          cssW = Math.max(cssW, Number(pr.width || 0))
+          cssH = Math.max(cssH, Number(pr.height || 0))
+        } catch (_) {
+          // ignore
+        }
+      }
+      const w = Math.max(1, Math.floor(cssW * dpr))
+      const h = Math.max(1, Math.floor(cssH * dpr))
       return { w, h }
     } catch (_) {
       return { w: 1, h: 1 }
@@ -372,6 +511,26 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   if (!device) {
     showWebGPU.value = false
     return { ok: false, reason: 'no_device' }
+  }
+
+  // Some implementations report the most actionable errors via uncaptured error events.
+  // Capture a short message so `pipeline_failed` can surface it in the Workbench.
+  let _lastUncapturedGpuError = ''
+  try {
+    const onUncaptured = (ev) => {
+      try {
+        const msg = _gpuErrorToString(ev?.error || ev)
+        if (msg) _lastUncapturedGpuError = msg
+      } catch (_) {
+        // ignore
+      }
+    }
+    if (typeof device.addEventListener === 'function') {
+      device.addEventListener('uncapturederror', onUncaptured)
+    }
+    device.onuncapturederror = onUncaptured
+  } catch (_) {
+    // ignore
   }
 
   const ctx = canvas.getContext('webgpu')
@@ -489,6 +648,54 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 }
 `.trim()
 
+  // Ultra-minimal fallback for maximum portability (no varyings).
+  const DEBUG_TRI_WGSL_MIN = `
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> @builtin(position) vec4<f32> {
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  return vec4<f32>(p[vid], 0.0, 1.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+  return vec4<f32>(1.0, 0.95, 0.2, 0.9);
+}
+`.trim()
+
+  // Trail/fade pass: keeps previous frame (loadOp=load) and gently fades existing pixels.
+  // IMPORTANT: Avoid darkening the Cesium scene beneath the overlay.
+  // We fade by scaling destination (dst *= 1 - srcAlpha), with srcColor=0.
+  function _buildFadeWgsl(alpha) {
+    const a = Number.isFinite(Number(alpha)) ? Math.min(0.35, Math.max(0.0, Number(alpha))) : 0.08
+    return `
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  out.Position = vec4<f32>(p[vid], 0.0, 1.0);
+  return out;
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+  // RGB is zero so we don't tint; alpha controls fade strength.
+  return vec4<f32>(0.0, 0.0, 0.0, ${a.toFixed(4)});
+}
+`.trim()
+  }
+
   const FALLBACK_WGSL = `
 struct Camera {
   view : mat4x4<f32>,
@@ -502,20 +709,55 @@ struct Particles {
 @group(0) @binding(0) var<storage, read_write> particles : Particles;
 @group(0) @binding(3) var<storage, read> particles_ro : Particles;
 @group(0) @binding(1) var<uniform> uCamera : Camera;
-@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, _, _
+@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, particleCount, _
+
+fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
+
+// Divergence-free-ish tangent flow on a sphere (curl of a stream function gradient).
+fn stream(p: vec3<f32>, t: f32) -> f32 {
+  var f = 0.0;
+  f += sin(p.x * 4.0 + t) * cos(p.y * 4.0 - t) * 1.0;
+  f += sin(p.y * 7.0 - t * 1.2) * cos(p.z * 7.0 + t * 0.8) * 0.5;
+  f += sin(p.z * 12.0 + t * 1.5) * cos(p.x * 12.0 - t * 1.1) * 0.25;
+  return f;
+}
 
 @compute @workgroup_size(256)
 fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
-  let n = arrayLength(&particles.data);
+  let n = u32(max(0.0, uParams.z));
   if (i >= n) { return; }
-  let t = uParams.x;
+  let t = uParams.x * 0.15;
   let s = max(0.0, uParams.y);
+  let dt = max(0.001, (0.016 * clamp(s / 18.0, 0.25, 4.0)));
   var p = particles.data[i];
-  // Tiny swirling motion in ECEF meters (demo-safe).
-  let a = f32(i) * 0.0001 + t * 0.6;
-  p.x = p.x + sin(a) * (2.0 * s);
-  p.y = p.y + cos(a) * (2.0 * s);
+
+  // Lifecycle: age decays from 1.0 -> 0.0, respawn on death.
+  p.w = p.w - dt * (0.10 + hash(f32(i)) * 0.20);
+  if (p.w <= 0.0 || length(p.xyz) < 1.0) {
+    p.w = 1.0;
+    let seed = f32(i) + t * 100.0;
+    let phi = hash(seed) * 6.2831853;
+    let costheta = hash(seed * 1.7) * 2.0 - 1.0;
+    let theta = acos(costheta);
+    p.x = sin(theta) * cos(phi);
+    p.y = sin(theta) * sin(phi);
+    p.z = cos(theta);
+    p = vec4<f32>(normalize(p.xyz) * 20000000.0, p.w);
+  }
+
+  // Curl-like tangent velocity + zonal jet.
+  let pos = normalize(p.xyz);
+  let eps = 0.02;
+  let dx = stream(pos + vec3<f32>(eps, 0.0, 0.0), t) - stream(pos - vec3<f32>(eps, 0.0, 0.0), t);
+  let dy = stream(pos + vec3<f32>(0.0, eps, 0.0), t) - stream(pos - vec3<f32>(0.0, eps, 0.0), t);
+  let dz = stream(pos + vec3<f32>(0.0, 0.0, eps), t) - stream(pos - vec3<f32>(0.0, 0.0, eps), t);
+  var vel = cross(pos, vec3<f32>(dx, dy, dz) / (2.0 * eps));
+
+  let jet = cross(vec3<f32>(0.0, 0.0, 1.0), pos) * cos(pos.z * 6.0) * 1.5;
+  vel = vel + jet;
+
+  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0, p.w);
   particles.data[i] = p;
 }
 
@@ -548,7 +790,12 @@ fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
 
   let size = 0.003;
   out.Position = vec4<f32>(base.x + (ofs.x * size * base.w), base.y + (ofs.y * size * base.w), base.z, base.w);
-  out.color = vec4<f32>(0.0, 0.95, 1.0, 0.75);
+  // Fade in/out by lifecycle and color-map by latitude.
+  let lat = abs(normalize(p.xyz).z);
+  let cWarm = vec3<f32>(0.0, 0.95, 1.0);
+  let cCool = vec3<f32>(0.6, 0.1, 0.9);
+  let alpha = smoothstep(0.0, 0.2, p.w) * smoothstep(1.0, 0.8, p.w);
+  out.color = vec4<f32>(mix(cWarm, cCool, lat), alpha * 0.55);
   return out;
 }
 
@@ -559,7 +806,119 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 `
 
   // Always keep a demo-safe fallback that is guaranteed to include compute+render.
-  shaderCandidates.push({ code: FALLBACK_WGSL, mode: 'fallback', topology: 'triangle-list' })
+  // Prefer split modules to avoid conservative layout reflection in some implementations.
+  const FALLBACK_COMPUTE_WGSL = `
+struct Particles {
+  data : array<vec4<f32>>,
+}
+
+@group(0) @binding(0) var<storage, read_write> particles : Particles;
+@group(0) @binding(2) var<uniform> uParams : vec4<f32>; // t, stepScale, particleCount, _
+
+fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
+
+fn stream(p: vec3<f32>, t: f32) -> f32 {
+  var f = 0.0;
+  f += sin(p.x * 4.0 + t) * cos(p.y * 4.0 - t) * 1.0;
+  f += sin(p.y * 7.0 - t * 1.2) * cos(p.z * 7.0 + t * 0.8) * 0.5;
+  f += sin(p.z * 12.0 + t * 1.5) * cos(p.x * 12.0 - t * 1.1) * 0.25;
+  return f;
+}
+
+@compute @workgroup_size(256)
+fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  let n = u32(max(0.0, uParams.z));
+  if (i >= n) { return; }
+  let t = uParams.x * 0.15;
+  let s = max(0.0, uParams.y);
+  let dt = max(0.001, (0.016 * clamp(s / 18.0, 0.25, 4.0)));
+  var p = particles.data[i];
+
+  p.w = p.w - dt * (0.10 + hash(f32(i)) * 0.20);
+  if (p.w <= 0.0 || length(p.xyz) < 1.0) {
+    p.w = 1.0;
+    let seed = f32(i) + t * 100.0;
+    let phi = hash(seed) * 6.2831853;
+    let costheta = hash(seed * 1.7) * 2.0 - 1.0;
+    let theta = acos(costheta);
+    p.x = sin(theta) * cos(phi);
+    p.y = sin(theta) * sin(phi);
+    p.z = cos(theta);
+    p = vec4<f32>(normalize(p.xyz) * 20000000.0, p.w);
+  }
+
+  let pos = normalize(p.xyz);
+  let eps = 0.02;
+  let dx = stream(pos + vec3<f32>(eps, 0.0, 0.0), t) - stream(pos - vec3<f32>(eps, 0.0, 0.0), t);
+  let dy = stream(pos + vec3<f32>(0.0, eps, 0.0), t) - stream(pos - vec3<f32>(0.0, eps, 0.0), t);
+  let dz = stream(pos + vec3<f32>(0.0, 0.0, eps), t) - stream(pos - vec3<f32>(0.0, 0.0, eps), t);
+  var vel = cross(pos, vec3<f32>(dx, dy, dz) / (2.0 * eps));
+
+  let jet = cross(vec3<f32>(0.0, 0.0, 1.0), pos) * cos(pos.z * 6.0) * 1.5;
+  vel = vel + jet;
+
+  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0, p.w);
+  particles.data[i] = p;
+}
+`.trim()
+
+  const FALLBACK_RENDER_WGSL = `
+struct Camera {
+  view : mat4x4<f32>,
+  proj : mat4x4<f32>,
+}
+
+struct Particles {
+  data : array<vec4<f32>>,
+}
+
+@group(0) @binding(1) var<uniform> uCamera : Camera;
+@group(0) @binding(3) var<storage, read> particles_ro : Particles;
+
+struct VSOut {
+  @builtin(position) Position : vec4<f32>,
+  @location(0) color : vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid : u32) -> VSOut {
+  var out : VSOut;
+  let pid = vid / 6u;
+  let corner = vid % 6u;
+  let p = particles_ro.data[pid];
+  let clipFix = mat4x4<f32>(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0
+  );
+  let base = clipFix * uCamera.proj * uCamera.view * vec4<f32>(p.xyz, 1.0);
+
+  var ofs = vec2<f32>(0.0, 0.0);
+  if (corner == 0u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 1u) { ofs = vec2<f32>( 1.0, -1.0); }
+  else if (corner == 2u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else if (corner == 3u) { ofs = vec2<f32>(-1.0, -1.0); }
+  else if (corner == 4u) { ofs = vec2<f32>( 1.0,  1.0); }
+  else { ofs = vec2<f32>(-1.0,  1.0); }
+
+  let size = 0.003;
+  out.Position = vec4<f32>(base.x + (ofs.x * size * base.w), base.y + (ofs.y * size * base.w), base.z, base.w);
+  let lat = abs(normalize(p.xyz).z);
+  let cWarm = vec3<f32>(0.0, 0.95, 1.0);
+  let cCool = vec3<f32>(0.6, 0.1, 0.9);
+  out.color = vec4<f32>(mix(cWarm, cCool, lat), 0.55);
+  return out;
+}
+
+@fragment
+fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
+  return in.color;
+}
+`.trim()
+
+  shaderCandidates.push({ computeCode: FALLBACK_COMPUTE_WGSL, renderCode: FALLBACK_RENDER_WGSL, mode: 'fallback', topology: 'triangle-list' })
 
   // Uniform buffer for camera matrices (view + proj = 2 * mat4 = 128 bytes).
   let cameraUbo = null
@@ -628,7 +987,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
       paramsScratch[0] = t
       paramsScratch[1] = stepScale
-      paramsScratch[2] = 0.0
+      paramsScratch[2] = Number(particleCount)
       paramsScratch[3] = 0.0
       device.queue.writeBuffer(paramsUbo, 0, paramsScratch)
     } catch (_) {
@@ -670,6 +1029,43 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   _seedParticles()
 
+  // Trails are a key part of the “fluid” illusion (continuous streaks).
+  // Default: enabled for Demo13; can be disabled via options.trail=false.
+  const presetForTrail = String(options?.preset || '').trim().toLowerCase()
+  const trailEnabled = options?.trail === false ? false : true
+  const trailAlphaOpt = Number(options?.trail_alpha ?? options?.trailAlpha)
+  const trailAlpha = Number.isFinite(trailAlphaOpt)
+    ? trailAlphaOpt
+    : (presetForTrail === 'wind' ? 0.08 : 0.10)
+
+  let fadePipeline = null
+  if (trailEnabled && !debugEnabled) {
+    try {
+      const fadeMod = device.createShaderModule({ code: _buildFadeWgsl(trailAlpha) })
+      fadePipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: { module: fadeMod, entryPoint: 'vs_main' },
+        fragment: {
+          module: fadeMod,
+          entryPoint: 'fs_main',
+          targets: [
+            {
+              format,
+              blend: {
+                // dst *= (1 - srcAlpha); srcColor is 0 so we don't tint.
+                color: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              },
+            },
+          ],
+        },
+        primitive: { topology: 'triangle-list' },
+      })
+    } catch (_) {
+      fadePipeline = null
+    }
+  }
+
   let debugTriPipeline = null
   if (debugEnabled) {
     try {
@@ -689,20 +1085,42 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       })
     } catch (_) {
       debugTriPipeline = null
+      try {
+        const mod = device.createShaderModule({ code: DEBUG_TRI_WGSL_MIN })
+        debugTriPipeline = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: {
+            module: mod,
+            entryPoint: 'vs_main',
+          },
+          fragment: {
+            module: mod,
+            entryPoint: 'fs_main',
+            targets: [{ format }],
+          },
+          primitive: { topology: 'triangle-list' },
+        })
+      } catch (_) {
+        debugTriPipeline = null
+      }
     }
   }
 
   let _debugFrame = 0
   let _debugStartMs = 0
+  let _trailPrimed = false
   function _getDebugPhase() {
     if (!debugEnabled) return 'normal'
-    if (debugMode === 'tint') return 'tint'
-    if (debugMode === 'tri') return 'tri'
-    // debugMode === 'all': cycle for quick diagnosis.
     const f = Number(_debugFrame) || 0
     const now = (typeof performance !== 'undefined' && performance?.now) ? Number(performance.now()) : Date.now()
     const start = Number(_debugStartMs) || 0
     const elapsed = start > 0 ? Math.max(0, now - start) : 0
+
+    // `tint` / `tri` are meant as quick visibility probes.
+    // When explicitly requested via URL/args, keep them persistent so users don't miss them.
+    if (debugMode === 'tint') return 'tint'
+    if (debugMode === 'tri') return 'tri'
+    // debugMode === 'all': cycle for quick diagnosis.
     // Hold each phase for a minimum wall time to avoid “blink and you miss it”.
     if (f < 60 || elapsed < 1500) return 'tint'
     if (f < 120 || elapsed < 3000) return 'tri'
@@ -730,10 +1148,6 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  let computeBindGroupLayout = null
-  let renderBindGroupLayout = null
-  let computePipelineLayout = null
-  let renderPipelineLayout = null
   let computeBindGroup = null
   let renderBindGroup = null
   let computePipeline = null
@@ -743,6 +1157,12 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   let selectedMode = 'unknown'
   let fallbackUsed = false
   let selectedTopology = 'point-list'
+
+  const diagnostics = {
+    bindGroup: null,
+    candidates: [],
+    uncaptured: null,
+  }
 
   async function _popValidationError() {
     try {
@@ -762,129 +1182,188 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
+  function _createBindGroupAuto(layout, tries) {
+    const arr = Array.isArray(tries) ? tries : []
+    let lastErr = null
+    for (const entries of arr) {
+      try {
+        const bg = device.createBindGroup({ layout, entries })
+        return { bg, error: null }
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    return { bg: null, error: lastErr }
+  }
+
   try {
     if (cameraUbo && paramsUbo && particleBuf) {
-      const STAGE = globalThis.GPUShaderStage || { VERTEX: 0x01, FRAGMENT: 0x02, COMPUTE: 0x04 }
-
-      // IMPORTANT:
-      // Do NOT bind the same buffer as both storage(read-write) and storage(read-only)
-      // in a bind group that is used in a render pass. Some implementations will warn
-      // (or invalidate the command buffer) due to mixed writable+other usages in the
-      // same synchronization scope.
-
-      _pushValidationScope()
-      computeBindGroupLayout = device.createBindGroupLayout({
-        entries: [
-          {
-            binding: 0,
-            visibility: STAGE.COMPUTE,
-            buffer: { type: 'storage' },
-          },
-          {
-            binding: 1,
-            // Optional for advanced compute kernels; safe to expose.
-            visibility: STAGE.COMPUTE,
-            buffer: { type: 'uniform' },
-          },
-          {
-            binding: 2,
-            visibility: STAGE.COMPUTE,
-            buffer: { type: 'uniform' },
-          },
-        ],
-      })
-      computePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [computeBindGroupLayout] })
-      computeBindGroup = device.createBindGroup({
-        layout: computeBindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: particleBuf } },
-          { binding: 1, resource: { buffer: cameraUbo } },
-          { binding: 2, resource: { buffer: paramsUbo } },
-        ],
-      })
-
-      renderBindGroupLayout = device.createBindGroupLayout({
-        entries: [
-          {
-            binding: 1,
-            visibility: STAGE.VERTEX,
-            buffer: { type: 'uniform' },
-          },
-          {
-            binding: 2,
-            // Allow user WGSL to read time/params in fragment if desired.
-            visibility: (STAGE.VERTEX | STAGE.FRAGMENT),
-            buffer: { type: 'uniform' },
-          },
-          {
-            binding: 3,
-            visibility: STAGE.VERTEX,
-            buffer: { type: 'read-only-storage' },
-          },
-        ],
-      })
-      renderPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [renderBindGroupLayout] })
-      renderBindGroup = device.createBindGroup({
-        layout: renderBindGroupLayout,
-        entries: [
-          { binding: 1, resource: { buffer: cameraUbo } },
-          { binding: 2, resource: { buffer: paramsUbo } },
-          { binding: 3, resource: { buffer: particleBuf } },
-        ],
-      })
-
-      const bgErr = await _popValidationError()
-      if (bgErr) {
-        computeBindGroupLayout = null
-        renderBindGroupLayout = null
-        computePipelineLayout = null
-        renderPipelineLayout = null
+      for (const cand of shaderCandidates) {
+        _pushValidationScope()
         computeBindGroup = null
         renderBindGroup = null
-      }
+        computePipeline = null
+        renderPipeline = null
 
-      for (const cand of shaderCandidates) {
-        if (!computePipelineLayout || !renderPipelineLayout || !computeBindGroup || !renderBindGroup) break
-
-        _pushValidationScope()
-        let shaderModule = null
+        let computeModule = null
+        let renderModule = null
+        let compilationInfoCompute = null
+        let compilationInfoRender = null
+        let computeSan = { replaced: 0 }
+        let renderSan = { replaced: 0 }
         try {
-          shaderModule = device.createShaderModule({ code: String(cand?.code || '') })
+          const computeCodeRaw = String(cand?.computeCode || cand?.code || '')
+          const renderCodeRaw = String(cand?.renderCode || cand?.code || '')
+          computeSan = _sanitizeWgslSource(computeCodeRaw)
+          renderSan = _sanitizeWgslSource(renderCodeRaw)
+          const computeCode = String(computeSan?.code || '')
+          const renderCode = String(renderSan?.code || '')
+          computeModule = computeCode ? device.createShaderModule({ code: computeCode }) : null
+          renderModule = renderCode ? device.createShaderModule({ code: renderCode }) : null
         } catch (_) {
-          shaderModule = null
+          computeModule = null
+          renderModule = null
         }
 
-        if (shaderModule) {
-          computePipeline = device.createComputePipeline({
-            layout: computePipelineLayout,
-            compute: { module: shaderModule, entryPoint: 'cs_main' },
-          })
+        if (computeModule && typeof computeModule.getCompilationInfo === 'function') {
+          try {
+            compilationInfoCompute = await computeModule.getCompilationInfo()
+          } catch (_) {
+            compilationInfoCompute = null
+          }
+        }
 
-          renderPipeline = device.createRenderPipeline({
-            layout: renderPipelineLayout,
-            vertex: { module: shaderModule, entryPoint: 'vs_main' },
-            fragment: {
-              module: shaderModule,
-              entryPoint: 'fs_main',
-              targets: [
-                {
-                  format,
-                  blend: {
-                    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        if (renderModule && typeof renderModule.getCompilationInfo === 'function') {
+          try {
+            compilationInfoRender = await renderModule.getCompilationInfo()
+          } catch (_) {
+            compilationInfoRender = null
+          }
+        }
+
+        let pipelineCreateThrown = ''
+        if (computeModule && renderModule) {
+          try {
+            computePipeline = device.createComputePipeline({
+              layout: 'auto',
+              compute: { module: computeModule, entryPoint: 'cs_main' },
+            })
+          } catch (e) {
+            computePipeline = null
+            pipelineCreateThrown = _gpuErrorToString(e)
+          }
+
+          try {
+            renderPipeline = device.createRenderPipeline({
+              layout: 'auto',
+              vertex: { module: renderModule, entryPoint: 'vs_main' },
+              fragment: {
+                module: renderModule,
+                entryPoint: 'fs_main',
+                targets: [
+                  {
+                    format,
+                    blend: {
+                      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                    },
                   },
-                },
+                ],
+              },
+              primitive: { topology: String(cand?.topology || 'point-list') },
+            })
+          } catch (e) {
+            renderPipeline = null
+            if (!pipelineCreateThrown) pipelineCreateThrown = _gpuErrorToString(e)
+          }
+        }
+
+        if (computePipeline && renderPipeline) {
+          try {
+            const computeLayout0 = computePipeline.getBindGroupLayout(0)
+            // Common patterns:
+            // - binding(0)=particles storage (rw)
+            // - binding(2)=uParams uniform
+            // - optionally binding(1)=uCamera uniform
+            const computeRes = _createBindGroupAuto(computeLayout0, [
+              [
+                { binding: 0, resource: { buffer: particleBuf } },
+                { binding: 2, resource: { buffer: paramsUbo } },
               ],
-            },
-            primitive: { topology: String(cand?.topology || 'point-list') },
-          })
+              [
+                { binding: 0, resource: { buffer: particleBuf } },
+                { binding: 1, resource: { buffer: cameraUbo } },
+                { binding: 2, resource: { buffer: paramsUbo } },
+              ],
+            ])
+            computeBindGroup = computeRes?.bg || null
+            if (!computeBindGroup && computeRes?.error && !diagnostics.bindGroup) {
+              diagnostics.bindGroup = { message: `compute_bind_group_failed: ${_gpuErrorToString(computeRes.error)}` }
+            }
+          } catch (_) {
+            computeBindGroup = null
+          }
+
+          try {
+            const renderLayout0 = renderPipeline.getBindGroupLayout(0)
+            // Common patterns:
+            // - binding(1)=uCamera uniform
+            // - binding(3)=particles read-only-storage
+            // - optionally binding(2)=uParams uniform
+            const renderRes = _createBindGroupAuto(renderLayout0, [
+              [
+                { binding: 1, resource: { buffer: cameraUbo } },
+                { binding: 3, resource: { buffer: particleBuf } },
+              ],
+              [
+                { binding: 1, resource: { buffer: cameraUbo } },
+                { binding: 2, resource: { buffer: paramsUbo } },
+                { binding: 3, resource: { buffer: particleBuf } },
+              ],
+              [
+                { binding: 2, resource: { buffer: paramsUbo } },
+                { binding: 3, resource: { buffer: particleBuf } },
+              ],
+            ])
+            renderBindGroup = renderRes?.bg || null
+            if (!renderBindGroup && renderRes?.error && !diagnostics.bindGroup) {
+              diagnostics.bindGroup = { message: `render_bind_group_failed: ${_gpuErrorToString(renderRes.error)}` }
+            }
+          } catch (_) {
+            renderBindGroup = null
+          }
         }
 
         const candErr = await _popValidationError()
-        if (candErr || !shaderModule) {
+        let candMsg = _gpuErrorToString(candErr)
+        if (!candMsg && pipelineCreateThrown) candMsg = pipelineCreateThrown
+        const compMsgsA = Array.isArray(compilationInfoCompute?.messages) ? compilationInfoCompute.messages : []
+        const compMsgsB = Array.isArray(compilationInfoRender?.messages) ? compilationInfoRender.messages : []
+        const compErrorsA = compMsgsA.filter((m) => String(m?.type || '').toLowerCase() === 'error')
+        const compErrorsB = compMsgsB.filter((m) => String(m?.type || '').toLowerCase() === 'error')
+        const firstCompError = compErrorsA.length
+          ? `${String(compErrorsA[0]?.message || 'WGSL compilation error (compute)')}`
+          : (compErrorsB.length ? `${String(compErrorsB[0]?.message || 'WGSL compilation error (render)')}` : '')
+
+        diagnostics.candidates.push({
+          mode: String(cand?.mode || ''),
+          topology: String(cand?.topology || ''),
+          validation: candMsg,
+          compilation: firstCompError,
+          sanitized_compute: Number(computeSan?.replaced || 0),
+          sanitized_render: Number(renderSan?.replaced || 0),
+          compute_ok: !!computePipeline,
+          render_ok: !!renderPipeline,
+          compute_bg_ok: !!computeBindGroup,
+          render_bg_ok: !!renderBindGroup,
+        })
+
+        if (candErr || !computeModule || !renderModule || compErrorsA.length || compErrorsB.length || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) {
+          pipelineReady = false
           computePipeline = null
           renderPipeline = null
-          pipelineReady = false
+          computeBindGroup = null
+          renderBindGroup = null
           continue
         }
 
@@ -894,14 +1373,50 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
         selectedTopology = String(cand?.topology || 'point-list')
         break
       }
+
+      if (!pipelineReady) {
+        try {
+          const msg = String(_lastUncapturedGpuError || '').trim()
+          if (msg) diagnostics.uncaptured = { message: msg }
+        } catch (_) {
+          // ignore
+        }
+      }
     }
   } catch (_) {
     pipelineReady = false
     computePipeline = null
     renderPipeline = null
+    computeBindGroup = null
+    renderBindGroup = null
   }
 
   if ((!pipelineReady || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) && !debugEnabled) {
+    try {
+      // Surface to DevTools for field debugging (some deployments don't display Workbench reports).
+      let firstLine = ''
+      try {
+        const cands = Array.isArray(diagnostics?.candidates) ? diagnostics.candidates : []
+        for (const c of cands) {
+          const m = String(c?.validation || c?.compilation || '').trim()
+          if (m) { firstLine = m.split('\n')[0].slice(0, 260); break }
+        }
+      } catch (_) {
+        firstLine = ''
+      }
+      if (firstLine) console.error(`[Zero2x WebGPU Sandbox] pipeline_failed summary: ${firstLine}`)
+      console.error('[Zero2x WebGPU Sandbox] pipeline_failed', {
+        mode: selectedMode,
+        topology: selectedTopology,
+        particle_count: particleCount,
+        canvas_backing_px: { w: Number(canvas?.width) || 0, h: Number(canvas?.height) || 0 },
+        bindGroup: diagnostics.bindGroup,
+        candidates: diagnostics.candidates,
+        uncaptured: diagnostics.uncaptured,
+      })
+    } catch (_) {
+      // ignore
+    }
     try {
       cameraUbo?.destroy?.()
     } catch (_) {
@@ -918,7 +1433,17 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       // ignore
     }
     showWebGPU.value = false
-    return { ok: false, reason: 'pipeline_failed', wrapped, mode: selectedMode }
+    return {
+      ok: false,
+      reason: 'pipeline_failed',
+      wrapped,
+      mode: selectedMode,
+      error: {
+        bindGroup: diagnostics.bindGroup,
+        candidates: diagnostics.candidates,
+        uncaptured: diagnostics.uncaptured,
+      },
+    }
   }
 
   function _computeAndRender() {
@@ -972,16 +1497,26 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
       // Render pass (draw points into transparent overlay).
       const view = ctx.getCurrentTexture().createView()
+      const shouldTrail = phase === 'normal' && trailEnabled && !!fadePipeline
+      const loadOp = (shouldTrail && _trailPrimed) ? 'load' : 'clear'
+      const clearValue = phase === 'tint' ? { r: 1.0, g: 0.0, b: 1.0, a: 0.55 } : { r: 0, g: 0, b: 0, a: 0 }
       const rpass = encoder.beginRenderPass({
         colorAttachments: [
           {
             view,
-            clearValue: phase === 'tint' ? { r: 1.0, g: 0.0, b: 1.0, a: 0.55 } : { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: 'clear',
+            clearValue,
+            loadOp,
             storeOp: 'store',
           },
         ],
       })
+
+      // Fade pass first (keeps previous pixels but decays them).
+      if (shouldTrail && _trailPrimed && fadePipeline) {
+        rpass.setPipeline(fadePipeline)
+        rpass.draw(3, 1, 0, 0)
+      }
+
       if (phase === 'tri' && debugTriPipeline) {
         rpass.setPipeline(debugTriPipeline)
         rpass.draw(3, 1, 0, 0)
@@ -995,6 +1530,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       }
       rpass.end()
 
+      if (phase === 'normal' && trailEnabled) _trailPrimed = true
+
       device.queue.submit([encoder.finish()])
     } catch (_) {
       _renderClearPass()
@@ -1003,14 +1540,14 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   // Event-driven overlay: sync on Cesium postRender.
   const unsub = _addScenePostRender(viewer, () => {
-    if (debugEnabled && debugMode === 'all' && !_debugStartMs) {
+    if (debugEnabled && !_debugStartMs) {
       try {
         _debugStartMs = (typeof performance !== 'undefined' && performance?.now) ? Number(performance.now()) : Date.now()
       } catch (_) {
         _debugStartMs = Date.now()
       }
     }
-    if (debugEnabled && debugMode === 'all') _debugFrame += 1
+    if (debugEnabled) _debugFrame += 1
     _syncCanvasSize()
     _writeCameraUniforms()
     _writeParams()
@@ -1019,6 +1556,10 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   _postRenderUnsub = unsub
 
   const vertexCount = (pipelineReady && selectedTopology === 'triangle-list') ? (particleCount * 6) : (pipelineReady ? particleCount : 0)
+  const canvas_backing_px = {
+    w: Number(canvas?.width) || 0,
+    h: Number(canvas?.height) || 0,
+  }
   _webgpuState = { device, ctx, format, particleCount, vertexCount, cameraUbo, paramsUbo, particleBuf, pipelineReady, fallbackUsed, mode: selectedMode, topology: selectedTopology, debug_mode: debugEnabled ? debugMode : '' }
 
   _webgpuCleanup = () => {
@@ -1051,7 +1592,53 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  return { ok: true, particle_count: particleCount, vertex_count: vertexCount, fallback_used: fallbackUsed, pipeline_ready: pipelineReady, wrapped, mode: selectedMode, topology: selectedTopology, debug_mode: debugEnabled ? debugMode : '' }
+  if (!pipelineReady || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) {
+    // Keep the overlay alive in debug modes (tri/tint), but report failure with diagnostics.
+    try {
+      let firstLine = ''
+      try {
+        const cands = Array.isArray(diagnostics?.candidates) ? diagnostics.candidates : []
+        for (const c of cands) {
+          const m = String(c?.validation || c?.compilation || '').trim()
+          if (m) { firstLine = m.split('\n')[0].slice(0, 260); break }
+        }
+      } catch (_) {
+        firstLine = ''
+      }
+      if (firstLine) console.error(`[Zero2x WebGPU Sandbox] pipeline_failed summary: ${firstLine}`)
+      console.error('[Zero2x WebGPU Sandbox] pipeline_failed (debug mode)', {
+        mode: selectedMode,
+        topology: selectedTopology,
+        particle_count: particleCount,
+        canvas_backing_px: { w: Number(canvas?.width) || 0, h: Number(canvas?.height) || 0 },
+        bindGroup: diagnostics.bindGroup,
+        candidates: diagnostics.candidates,
+        uncaptured: diagnostics.uncaptured,
+      })
+    } catch (_) {
+      // ignore
+    }
+    return {
+      ok: false,
+      reason: 'pipeline_failed',
+      particle_count: particleCount,
+      vertex_count: vertexCount,
+      canvas_backing_px,
+      fallback_used: fallbackUsed,
+      pipeline_ready: pipelineReady,
+      wrapped,
+      mode: selectedMode,
+      topology: selectedTopology,
+      debug_mode: debugEnabled ? debugMode : '',
+      error: {
+        bindGroup: diagnostics.bindGroup,
+        candidates: diagnostics.candidates,
+        uncaptured: diagnostics.uncaptured,
+      },
+    }
+  }
+
+  return { ok: true, particle_count: particleCount, vertex_count: vertexCount, canvas_backing_px, fallback_used: fallbackUsed, pipeline_ready: pipelineReady, wrapped, mode: selectedMode, topology: selectedTopology, debug_mode: debugEnabled ? debugMode : '' }
 }
 
 function enableSubsurfaceMode(options = {}) {
@@ -2956,6 +3543,7 @@ defineExpose({
   position: relative;
   width: 100%;
   height: 100%;
+  isolation: isolate;
 }
 
 .webgpu-canvas {
@@ -2963,7 +3551,9 @@ defineExpose({
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 30;
+  display: block;
+  z-index: 9999;
+  transform: translateZ(0);
 }
 
 .pointer-events-none {

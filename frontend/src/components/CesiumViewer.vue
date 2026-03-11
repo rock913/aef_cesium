@@ -296,6 +296,25 @@ export default {
       let terrainProvider = new Cesium.EllipsoidTerrainProvider()
       const disableWorldTerrainEnv = String(import.meta.env.VITE_DISABLE_WORLD_TERRAIN || '').trim() === '1'
       let disableWorldTerrainQuery = false
+      // Small helper: avoid hanging forever on network-dependent promises.
+      async function _withTimeout(promise, ms, label) {
+        const timeoutMs = Number.isFinite(Number(ms)) ? Number(ms) : 12000
+        const tag = String(label || 'timeout')
+        let t = null
+        const timeoutPromise = new Promise((_, reject) => {
+          t = setTimeout(() => reject(new Error(`${tag}_timeout_${timeoutMs}ms`)), timeoutMs)
+        })
+        try {
+          return await Promise.race([promise, timeoutPromise])
+        } finally {
+          try {
+            if (t) clearTimeout(t)
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
+
       try {
         const q = new URLSearchParams(String(window?.location?.search || ''))
         const v = String(q.get('terrain') || '').trim().toLowerCase()
@@ -308,10 +327,14 @@ export default {
       if (hasIonToken && !disableWorldTerrain) {
         try {
           if (typeof Cesium.createWorldTerrainAsync === 'function') {
-            terrainProvider = await Cesium.createWorldTerrainAsync({
-              requestWaterMask: true,
-              requestVertexNormals: true
-            })
+            terrainProvider = await _withTimeout(
+              Cesium.createWorldTerrainAsync({
+                requestWaterMask: true,
+                requestVertexNormals: true
+              }),
+              8000,
+              'world_terrain'
+            )
           } else {
             // Fallback: keep ellipsoid if this build doesn't expose the async helper.
             terrainProvider = new Cesium.EllipsoidTerrainProvider()
@@ -699,54 +722,93 @@ export default {
           }
         }
         
-        // Optional 3D buildings / photorealistic 3D tiles (requires Ion token + network)
-        try {
-          if (hasIonToken) {
-            const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
-            const enablePhotorealistic = Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
-
-            if (enablePhotorealistic) {
-              let tileset = null
-              if (Cesium?.Cesium3DTileset?.fromIonAssetId) {
-                tileset = await Cesium.Cesium3DTileset.fromIonAssetId(photorealisticAssetId)
-              } else {
-                const resource = await Cesium.IonResource.fromAssetId(photorealisticAssetId)
-                tileset = await Cesium.Cesium3DTileset.fromUrl(resource)
-              }
-              if (tileset) {
-                viewer.scene.primitives.add(tileset)
-                photorealisticTileset = tileset
-                photorealisticTilesetBaseStyle = tileset.style || null
-                lastAppliedTilesetShow = null
-                lastAppliedTilesetStyle = null
-                try {
-                  // Avoid Z-fighting / flickering when mixing imagery + terrain + photorealistic tiles.
-                  viewer.scene.globe.depthTestAgainstTerrain = false
-                } catch (_) {
-                  // ignore
-                }
-
-                try {
-                  _updatePhotorealisticTilesetVisibility()
-                } catch (_) {
-                  // ignore
-                }
-              }
-            } else {
-              // Lightweight fallback: OSM buildings (not photorealistic, but provides 3D cues)
-              viewer.scene.primitives.add(Cesium.createOsmBuildings())
-            }
-          }
-        } catch (_) {
-          // ignore
-        }
-
+        // Mark viewer as ready immediately after core Cesium initialization.
+        // IMPORTANT: do NOT block readiness on network-heavy, optional assets
+        // (photorealistic tiles, etc). Restricted networks can hang those requests.
         loading.value = false
         emit('viewer-ready', viewer)
 
         // Initial center emit.
         try {
           _emitMapCenter()
+        } catch (_) {
+          // ignore
+        }
+
+        // Optional 3D buildings / photorealistic 3D tiles (requires Ion token + network)
+        // Load asynchronously so it never blocks viewer-ready.
+        try {
+          const loadPhotorealisticAsync = async () => {
+            if (!viewer || disposed) return
+            if (!hasIonToken) return
+
+            // Escape hatch: allow disabling photorealistic tiles from URL for demos
+            // when Google/Cesium upstream is rate-limited (429) or blocked.
+            try {
+              const sp = new URLSearchParams(String(window?.location?.search || ''))
+              const v = String(sp.get('photorealistic') || sp.get('pr') || '').trim().toLowerCase()
+              const off = v === '0' || v === 'off' || v === 'false'
+              if (off) return
+            } catch (_) {
+              // ignore
+            }
+
+            const photorealisticAssetId = Number(import.meta.env.VITE_ION_PHOTOREALISTIC_ASSET_ID || '')
+            const enablePhotorealistic = Number.isFinite(photorealisticAssetId) && photorealisticAssetId > 0
+
+            if (!enablePhotorealistic) {
+              try {
+                viewer.scene.primitives.add(Cesium.createOsmBuildings())
+              } catch (_) {
+                // ignore
+              }
+              return
+            }
+
+            let tileset = null
+            try {
+              // Give Ion resource resolution / tileset bootstrap a bounded time budget.
+              if (Cesium?.Cesium3DTileset?.fromIonAssetId) {
+                tileset = await _withTimeout(Cesium.Cesium3DTileset.fromIonAssetId(photorealisticAssetId), 12000, 'ion_tileset')
+              } else {
+                const resource = await _withTimeout(Cesium.IonResource.fromAssetId(photorealisticAssetId), 8000, 'ion_resource')
+                tileset = await _withTimeout(Cesium.Cesium3DTileset.fromUrl(resource), 12000, 'tileset_url')
+              }
+            } catch (e) {
+              console.warn(
+                '[OneEarth Cesium] photorealistic tileset load skipped (offline/restricted network). ' +
+                  'Tip: add ?photorealistic=off to disable during demos.',
+                e
+              )
+              return
+            }
+
+            if (!tileset || !viewer || disposed) return
+
+            try {
+              viewer.scene.primitives.add(tileset)
+              photorealisticTileset = tileset
+              photorealisticTilesetBaseStyle = tileset.style || null
+              lastAppliedTilesetShow = null
+              lastAppliedTilesetStyle = null
+            } catch (_) {
+              // ignore
+            }
+
+            try {
+              viewer.scene.globe.depthTestAgainstTerrain = false
+            } catch (_) {
+              // ignore
+            }
+
+            try {
+              _updatePhotorealisticTilesetVisibility()
+            } catch (_) {
+              // ignore
+            }
+          }
+
+          void loadPhotorealisticAsync()
         } catch (_) {
           // ignore
         }
@@ -778,7 +840,8 @@ export default {
         
       } catch (error) {
         console.error('Cesium初始化失败:', error)
-        loadingText.value = '初始化失败: ' + error.message
+        loading.value = false
+        loadingText.value = '初始化失败: ' + (error?.message || String(error))
       }
     }
 
