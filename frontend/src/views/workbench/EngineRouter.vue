@@ -1118,7 +1118,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       const stepScale = Number.isFinite(stepOpt)
         ? stepOpt
         : (preset === 'wind'
-          ? (topologyOpt === 'line-list' ? 24.0 : 18.0)
+          ? (topologyOpt === 'line-list' ? 20.0 : 18.0)
           : 1.0)
 
       paramsScratch[0] = t
@@ -1182,7 +1182,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   const trailAlpha = Number.isFinite(trailAlphaOpt)
     ? trailAlphaOpt
     : (presetForTrail === 'wind'
-      ? (topoForTrail === 'line-list' ? 0.05 : 0.08)
+      ? (topoForTrail === 'line-list' ? 0.07 : 0.08)
       : 0.10)
 
   let fadePipeline = null

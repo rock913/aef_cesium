@@ -1515,11 +1515,12 @@ const EARTH_RADIUS: f32 = 6378137.0;
 const LAYER_OFFSET: f32 = 20000.0;
 const R: f32 = EARTH_RADIUS + LAYER_OFFSET;
 
-// Visual scale: tuned for stepScale ~ 18..30.
-const ADV_BASE_MPS: f32 = 110000.0;
-const TAIL_MIN_M: f32 = 250000.0;
-const TAIL_MAX_M: f32 = 950000.0;
-const BRIGHTNESS: f32 = 1.6;
+// Visual scale: tuned for stepScale ~ 16..26.
+// (Softer defaults to avoid an overly bright overlay in demos.)
+const ADV_BASE_MPS: f32 = 90000.0;
+const TAIL_MIN_M: f32 = 180000.0;
+const TAIL_MAX_M: f32 = 720000.0;
+const BRIGHTNESS: f32 = 1.25;
 
 struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }
 struct Particles { data: array<vec4<f32>> }
@@ -1661,13 +1662,13 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
     let alphaLife = smoothstep(0.0, 0.15, p4.w) * smoothstep(1.0, 0.85, p4.w);
     let col = speed_to_color(speed) * BRIGHTNESS;
     out.along = select(0.0, 1.0, isHead);
-    out.color = vec4<f32>(col, alphaLife * (0.10 + 0.62 * out.along));
+    out.color = vec4<f32>(col, alphaLife * (0.08 + 0.45 * out.along));
     return out;
 }
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-    let a = in.color.a * pow(clamp(in.along, 0.0, 1.0), 1.4);
+    let a = in.color.a * pow(clamp(in.along, 0.0, 1.0), 1.8);
     return vec4<f32>(in.color.rgb, a);
 }
         """.strip()
@@ -1682,10 +1683,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                     tool="execute_dynamic_wgsl",
                     args={
                         "wgsl_compute_shader": code,
-                        "particle_count": 220000,
+                        "particle_count": 180000,
                         "topology": "line-list",
                         "preset": "wind",
-                        "step_scale": 28.0,
+                        "step_scale": 22.0,
                         "seed": "surface",
                     },
                 ),
