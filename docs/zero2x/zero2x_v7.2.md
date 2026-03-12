@@ -157,6 +157,165 @@ particles.data[i] = p;
 - `line-list`：最快成型（每粒子 2 顶点），非常适合“拖尾/拉丝”写法。
 - `triangle-list`：更像流体（每粒子 6 顶点的 billboard 流线带），可做**粗线 + 软边**，远景更稳定。
 
+#### Demo 13：长拉丝（line-list）参数强化（全球“流线感”首选）
+
+现象复盘：当相机拉远到全景（~18,000km）时，如果 **推进步长** 和 **尾迹长度** 只对应几十公里量级，视觉会退化为“短促散点/局部斑块”。
+
+核心原则（按优先级）：
+- **先选拓扑**：优先 `topology='line-list'`（每粒子 2 顶点：头+尾），第 1 帧就能看到流向。
+- **尾迹长度用“公里级”标定**：建议尾迹长度从 200km 起步，上探到 1000km（地球太大，60km 在全景下像短针）。
+- **推进步长避免“乘子和 stepScale 双倍放大”**：
+  - 如果 WGSL 内部已经使用了较大的 `ADV_SCALE`（比如 5e4~2e5），那么 `step_scale` 建议设为 1~5。
+  - 如果希望保持 `step_scale` 在 18~35（引擎默认 wind=18），则建议 `ADV_SCALE` 选 2e3~8e3。
+- **优先稳定**：推进距离过大可能出现“抖动/跳跃/闪烁”。推荐让单帧切向推进量落在 50~150km 左右（按 $d \approx \|vel\| \cdot stepScale \cdot ADV\_SCALE$ 粗估）。
+
+推荐 tool 参数（导演台本/后端 stub/手动调用均适用）：
+- `particle_count`: 180000~300000（线段视觉体积更大，不必追 100 万）
+- `topology`: `line-list`
+- `preset`: `wind`
+- `step_scale`: 18~30（若使用下方参考 WGSL）
+
+下面给出一份“参数强化版”的 **WGSL Full Module（line-list）**，满足 v7.2 引擎绑定约定，可直接替换 Demo 13 的代码：
+
+```wgsl
+// WGSL Full Module (raw): global flow lines (line-list, long trails)
+// topology: line-list
+// Contract (group(0) bindings):
+//   0=particles (storage rw, compute)
+//   3=particles_ro (storage read, vertex)
+//   1=uCamera (uniform: view+proj)
+//   2=uParams (uniform vec4: t, stepScale, particleCount, _)
+
+@group(0) @binding(0) var<storage, read_write> particles: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read> particles_ro: array<vec4<f32>>;
+
+struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }
+@group(0) @binding(1) var<uniform> uCamera: Camera;
+
+@group(0) @binding(2) var<uniform> uParams: vec4<f32>; // (t, stepScale, particleCount, _)
+
+const PI: f32 = 3.14159265;
+const EARTH_RADIUS: f32 = 6378137.0;
+const OFFSET: f32 = 25000.0;
+const R: f32 = EARTH_RADIUS + OFFSET;
+
+fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
+
+fn get_basis(p: vec3<f32>) -> mat3x3<f32> {
+  let up = normalize(p);
+  var axisRef = vec3<f32>(0.0, 0.0, 1.0);
+  if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
+  let east = normalize(cross(axisRef, up));
+  let north = normalize(cross(up, east));
+  return mat3x3<f32>(east, north, up);
+}
+
+// Synthetic wind: zonal bands + cyclones (tangent on sphere).
+fn get_wind_velocity(p: vec3<f32>, t: f32) -> vec3<f32> {
+  let up = normalize(p);
+  let lat = asin(up.z);
+  let lon = atan2(up.y, up.x);
+  let basis = get_basis(p);
+  let east = basis[0];
+  let north = basis[1];
+
+  // Stronger background to avoid dead zones.
+  let u = -cos(lat * 3.0) * 2.2 + sin(lon * 8.0 + t) * cos(lat * 8.0) * 0.9;
+  let v =  sin(lat * 5.0) * 1.1 * sin(lon * 2.0 + t * 0.1) + sin(lon * 10.0 + t) * cos(lat * 10.0) * 0.75;
+  var vel_u = u;
+  var vel_v = v;
+
+  // Cyclone 1
+  let c1_lat = 0.30 + sin(t * 0.20) * 0.10;
+  let c1_lon = 2.00 - t * 0.30;
+  let d1 = distance(vec2<f32>(lat, lon), vec2<f32>(c1_lat, c1_lon));
+  if (d1 < 0.40) {
+    let swirl = smoothstep(0.40, 0.05, d1);
+    vel_u = vel_u + swirl * -sin(lon - c1_lon) * 6.0;
+    vel_v = vel_v + swirl *  cos(lat - c1_lat) * 6.0;
+  }
+
+  // Cyclone 2
+  let c2_lat = -0.20 - cos(t * 0.15) * 0.10;
+  let c2_lon = -1.00 + t * 0.20;
+  let d2 = distance(vec2<f32>(lat, lon), vec2<f32>(c2_lat, c2_lon));
+  if (d2 < 0.50) {
+    let swirl = smoothstep(0.50, 0.05, d2);
+    vel_u = vel_u + swirl *  sin(lon - c2_lon) * 5.0;
+    vel_v = vel_v + swirl * -cos(lat - c2_lat) * 5.0;
+  }
+
+  return east * vel_u + north * vel_v;
+}
+
+fn speed_to_color(speed: f32) -> vec3<f32> {
+  let t = clamp(speed / 6.0, 0.0, 1.0);
+  let c0 = vec3<f32>(0.0, 0.30, 0.80);
+  let c1 = vec3<f32>(0.0, 0.90, 1.00);
+  let c2 = vec3<f32>(0.9, 1.00, 0.00);
+  let c3 = vec3<f32>(1.0, 0.10, 0.00);
+  var col = mix(c0, c1, smoothstep(0.0, 0.33, t));
+  col = mix(col, c2, smoothstep(0.33, 0.66, t));
+  return mix(col, c3, smoothstep(0.66, 1.00, t));
+}
+
+@compute @workgroup_size(64)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  let n = u32(max(0.0, uParams.z));
+  if (i >= n) { return; }
+
+  var p = particles[i];
+  if (length(p.xyz) < 1.0) { return; }
+
+  let t = uParams.x;
+  let stepScale = max(0.001, uParams.y);
+  let vel = get_wind_velocity(p.xyz, t);
+
+  // Advance scale (meters): tuned for stepScale ~ 18..30.
+  const ADV_SCALE: f32 = 4000.0;
+  let adv = vel * (stepScale * ADV_SCALE);
+  let newPos = normalize(p.xyz + adv) * R;
+  particles[i] = vec4<f32>(newPos, p.w);
+}
+
+struct VSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) color: vec4<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+  var out: VSOut;
+  let pid = vid / 2u;
+  let isTail = (vid % 2u) == 1u;
+
+  let p = particles_ro[pid].xyz;
+  let t = uParams.x;
+  let vel = get_wind_velocity(p, t);
+  let speed = length(vel);
+
+  var drawPos = p;
+  if (isTail) {
+    // Tail length in meters: ~300km .. ~1000km
+    let tailLen = 300000.0 + speed * 140000.0;
+    let dir = select(normalize(vel), vec3<f32>(0.0, 0.0, 1.0), speed < 0.0001);
+    drawPos = p - dir * tailLen;
+  }
+
+  out.pos = uCamera.proj * uCamera.view * vec4<f32>(drawPos, 1.0);
+  let a = select(0.85, 0.0, isTail);
+  out.color = vec4<f32>(speed_to_color(speed), a);
+  return out;
+}
+
+@fragment
+fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+  let intensity = 1.2;
+  return vec4<f32>(color.rgb * color.a * intensity, color.a);
+}
+```
+
 raw full-module 可见性提醒：若遇到“管线 OK 但看不到”，优先检查 WebGL→WebGPU 裁剪空间差异（z 修正）。推荐策略：
 - 引擎侧预乘投影修正（v7.2 已 best-effort 支持）。
 - 或在 WGSL 中显式使用 `clipFix` 矩阵 / `clip.z = (clip.z + clip.w) * 0.5`。

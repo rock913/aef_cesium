@@ -357,9 +357,10 @@ _PRESETS: List[CopilotPreset] = [
             "Demo 13：请生成一段可执行的 WGSL（优先：包含 @compute/@vertex/@fragment 的全管线 module），用于全球气象粒子流体演示。\n"
             "要求：使用 tool execute_dynamic_wgsl 下发 wgsl_compute_shader，并指定 particle_count/topology。\n"
             "推荐：topology='line-list'（每粒子 2 顶点拉丝，第 1 帧即可成型，避免 point-list 的噪点感/成型慢）。如需更粗更像流体的流线，可用 topology='triangle-list'（每粒子 6 顶点 billboard 线带，支持软边）。\n"
+            "尺度建议（全景相机 ~18,000km）：尾迹长度建议 200~1000km；单帧切向推进量建议 50~150km。避免同时把 WGSL 内 ADV/scale 常量和 step_scale 都调很大（会抖动/跳跃，甚至绕圈闪烁）。\n"
             "视觉升级（建议按顺序叠加）：速度色谱（speed→蓝→青→黄→红）+ 气候带（纬度函数形成信风/西风带）+ 气旋注入（2~3 个 swirl 焦点）+ 尾迹渐隐（尾=0 头=0.4~0.7，叠加 overlay 的 fade pass 形成发光拉丝）。\n"
             "比例：粒子半径建议贴近地球：EARTH_RADIUS(6378137.0) + OFFSET(20000.0) = 6398137.0；避免 normalize(...) * 20000000.0 这种过大外壳。\n"
-            "约定：引擎会提供 group(0) bindings：0=particles(storage read_write, compute), 3=particles_ro(storage read, vertex), 1=camera(view+proj), 2=params(vec4: t, stepScale, _, _)。\n"
+            "约定：引擎会提供 group(0) bindings：0=particles(storage read_write, compute), 3=particles_ro(storage read, vertex), 1=camera(view+proj), 2=params(vec4: t, stepScale, particleCount, _)。\n"
             "注意：Vertex 阶段不要读取 RW storage（会编译失败）；如提供完整 module，请在 vs_main 使用 particles_ro(binding(3))。"
             "\n稳定性约束：避免使用 arrayLength(&particles.data) 做边界（优先 uParams.z=particleCount）；避免 p.xyz = ... 这类 swizzle 赋值；WGSL 源码建议 ASCII-only（部分实现会拒绝非 ASCII 字符）。"
         ),
@@ -1500,169 +1501,176 @@ async def _execute_stub(
         or "wind" in lc
         or "gfs" in lc
     ):
-        code = (
-            "// WGSL Full Module (raw): compute + vertex + fragment\n"
-            "// Contract: group(0) bindings: 0=particles(rw, compute), 3=particles_ro(read, vertex), 1=camera(view+proj), 2=params(t, stepScale, _, _)\n\n"
-            "// topology: triangle-list\n"
-            "const PI: f32 = 3.14159265;\n"
-            "const EARTH_RADIUS: f32 = 6378137.0;\n"
-            "const LAYER_OFFSET: f32 = 20000.0;\n"
-            "const R: f32 = EARTH_RADIUS + LAYER_OFFSET;\n\n"
-            "struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }\n"
-            "struct Particles { data: array<vec4<f32>> }\n"
-            "@group(0) @binding(0) var<storage, read_write> particles: Particles;\n"
-            "@group(0) @binding(3) var<storage, read> particles_ro: Particles;\n"
-            "@group(0) @binding(1) var<uniform> uCamera: Camera;\n"
-            "@group(0) @binding(2) var<uniform> uParams: vec4<f32>; // (t, stepScale, _, _)\n\n"
-            "fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }\n\n"
-            "// --- Physics: synthetic meteorological wind field (zonal bands + cyclones + curl-ish noise) ---\n"
-            "fn get_wind_velocity(p: vec3<f32>, t: f32) -> vec3<f32> {\n"
-            "  let up = normalize(p);\n"
-            "  let lat = asin(up.z);\n"
-            "  let lon = atan2(up.y, up.x);\n"
-            "  var axisRef = vec3<f32>(0.0, 0.0, 1.0);\n"
-            "  if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }\n"
-            "  let east = normalize(cross(axisRef, up));\n"
-            "  let north = normalize(cross(up, east));\n\n"
-            "  // 1) Zonal winds: trade winds (westward) + mid-latitude westerlies (eastward).\n"
-            "  let zonal = -cos(lat * 3.0) * 1.5;\n"
-            "  let merid = sin(lat * 5.0) * 0.5 * sin(lon * 2.0 + t * 0.10);\n"
-            "  var u = zonal;\n"
-            "  var v = merid;\n\n"
-            "  // 2) Inject 2 cyclones (swirl focus).\n"
-            "  let c1_lat = 0.30 + sin(t * 0.20) * 0.10;\n"
-            "  let c1_lon = 2.00 - t * 0.30;\n"
-            "  let d1 = distance(vec2<f32>(lat, lon), vec2<f32>(c1_lat, c1_lon));\n"
-            "  if (d1 < 0.40) {\n"
-            "    let swirl = smoothstep(0.40, 0.05, d1);\n"
-            "    u += swirl * -sin(lon - c1_lon) * 4.0;\n"
-            "    v += swirl *  cos(lat - c1_lat) * 4.0;\n"
-            "  }\n\n"
-            "  let c2_lat = -0.20 - cos(t * 0.15) * 0.10;\n"
-            "  let c2_lon = -1.00 + t * 0.20;\n"
-            "  let d2 = distance(vec2<f32>(lat, lon), vec2<f32>(c2_lat, c2_lon));\n"
-            "  if (d2 < 0.50) {\n"
-            "    let swirl = smoothstep(0.50, 0.05, d2);\n"
-            "    u += swirl *  sin(lon - c2_lon) * 3.5;\n"
-            "    v += swirl * -cos(lat - c2_lat) * 3.5;\n"
-            "  }\n\n"
-            "  // 3) Micro perturbation (curl-noise-ish) to avoid overly rigid streaks.\n"
-            "  let noise = sin(lon * 10.0 + t) * cos(lat * 10.0) * 0.8;\n"
-            "  u += noise * 0.5;\n"
-            "  v += noise * 0.5;\n\n"
-            "  return east * u + north * v;\n"
-            "}\n\n"
-            "// --- Visual: speed→color ramp (deep blue → cyan → yellow/green → red) ---\n"
-            "fn speed_to_color(speed: f32) -> vec3<f32> {\n"
-            "  let tt = clamp(speed / 4.5, 0.0, 1.0);\n"
-            "  let c0 = vec3<f32>(0.0, 0.1, 0.6);\n"
-            "  let c1 = vec3<f32>(0.0, 0.8, 1.0);\n"
-            "  let c2 = vec3<f32>(0.8, 1.0, 0.1);\n"
-            "  let c3 = vec3<f32>(1.0, 0.1, 0.0);\n"
-            "  var col = mix(c0, c1, smoothstep(0.0, 0.33, tt));\n"
-            "  col = mix(col, c2, smoothstep(0.33, 0.66, tt));\n"
-            "  col = mix(col, c3, smoothstep(0.66, 1.0, tt));\n"
-            "  return col;\n"
-            "}\n\n"
-            "@compute @workgroup_size(256)\n"
-            "fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n"
-            "  let i = gid.x;\n"
-            "  let n = u32(max(0.0, uParams.z));\n"
-            "  if (i >= n) { return; }\n\n"
-            "  let t = uParams.x;\n"
-            "  let s = max(0.0, uParams.y);\n"
-            "  let dt = max(0.001, (0.016 * clamp(s / 18.0, 0.25, 4.0)));\n\n"
-            "  var p = particles.data[i];\n\n"
-            "  // Lifecycle (age in p.w): fade + respawn.\n"
-            "  p.w = p.w - dt * (0.10 + hash(f32(i)) * 0.20);\n"
-            "  if (p.w <= 0.0 || length(p.xyz) < 1.0) {\n"
-            "    p.w = 1.0;\n"
-            "    let seed = f32(i) + t * 100.0;\n"
-            "    let phi = hash(seed) * 6.2831853;\n"
-            "    let costheta = hash(seed * 1.7) * 2.0 - 1.0;\n"
-            "    let theta = acos(costheta);\n"
-            "    p.x = sin(theta) * cos(phi);\n"
-            "    p.y = sin(theta) * sin(phi);\n"
-            "    p.z = cos(theta);\n"
-            "    p = vec4<f32>(normalize(p.xyz) * R, p.w);\n"
-            "  }\n\n"
-            "  let pos = normalize(p.xyz);\n\n"
-            "  // Tangent velocity from the synthetic wind field (zonal bands + cyclones).\n"
-            "  let t0 = t + hash(f32(i)) * 0.35;\n"
-            "  let vel = get_wind_velocity(pos, t0);\n\n"
-            "  // Advect on the sphere (meters/sec-ish scale tuned for fast visual formation).\n"
-            "  let vScale = 90000.0;\n"
-            "  p = vec4<f32>(normalize(p.xyz + vel * (dt * vScale)) * R, p.w);\n"
-            "  particles.data[i] = p;\n"
-            "}\n\n"
-            "struct VSOut {\n"
-            "  @builtin(position) pos: vec4<f32>,\n"
-            "  @location(0) color: vec4<f32>,\n"
-            "  @location(1) side: f32,\n"
-            "  @location(2) along: f32,\n"
-            "}\n\n"
-            "@vertex\n"
-            "fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {\n"
-            "  // triangle-list: 6 vertices per particle (two triangles = one line ribbon).\n"
-            "  let n = max(1u, u32(max(0.0, uParams.z)));\n"
-            "  let i = min(vid / 6u, n - 1u);\n"
-            "  let k = vid % 6u;\n"
-            "  let isHead = (k == 2u) || (k == 4u) || (k == 5u);\n"
-            "  let isRight = (k == 1u) || (k == 3u) || (k == 4u);\n"
-            "  let p4 = particles_ro.data[i];\n"
-            "  let pos = normalize(p4.xyz);\n"
-            "  let t = uParams.x;\n"
-            "  let vel = get_wind_velocity(pos, t + hash(f32(i)) * 0.35);\n"
-            "  let speed = length(vel);\n"
-            "  let dir0 = vel - pos * dot(vel, pos);\n"
-            "  let dir = normalize(dir0 + vec3<f32>(0.00001, 0.0, 0.0));\n"
-            "  // Segment length in meters: longer for faster flows.\n"
-            "  let segBase = 12000.0 + 60000.0 * clamp(speed / 5.0, 0.0, 1.0);\n"
-            "  let seg = segBase * clamp(uParams.y / 18.0, 0.25, 2.5);\n"
-            "  let d = seg / R;\n"
-            "  let tailUnit = normalize(pos - dir * d);\n"
-            "  let baseUnit = select(tailUnit, pos, isHead);\n"
-            "  let clipFix = mat4x4<f32>(\n"
-            "    1.0, 0.0, 0.0, 0.0,\n"
-            "    0.0, 1.0, 0.0, 0.0,\n"
-            "    0.0, 0.0, 0.5, 0.0,\n"
-            "    0.0, 0.0, 0.5, 1.0\n"
-            "  );\n"
-            "  let m = clipFix * uCamera.proj * uCamera.view;\n"
-            "  let clipTail = m * vec4<f32>(tailUnit * R, 1.0);\n"
-            "  let clipHead = m * vec4<f32>(pos * R, 1.0);\n"
-            "  let w0 = max(0.00001, abs(clipTail.w));\n"
-            "  let w1 = max(0.00001, abs(clipHead.w));\n"
-            "  let ndcTail = clipTail.xy / w0;\n"
-            "  let ndcHead = clipHead.xy / w1;\n"
-            "  let dir2 = normalize((ndcHead - ndcTail) + vec2<f32>(0.00001, 0.0));\n"
-            "  let n2 = vec2<f32>(-dir2.y, dir2.x);\n"
-            "  let side = select(-1.0, 1.0, isRight);\n"
-            "  let thicknessNdc = (0.0012 + 0.0010 * clamp(speed / 5.0, 0.0, 1.0)) * clamp(uParams.y / 18.0, 0.6, 1.4);\n"
-            "  let offsetNdc = n2 * side * thicknessNdc;\n"
-            "  let clipBase = select(clipTail, clipHead, isHead);\n"
-            "  let w = max(0.00001, abs(clipBase.w));\n"
-            "  let ndc = (clipBase.xy / w) + offsetNdc;\n"
-            "  var out: VSOut;\n"
-            "  out.pos = vec4<f32>(ndc * w, clipBase.z, clipBase.w);\n\n"
-            "  // Fade in/out by lifecycle, and color-map by speed.\n"
-            "  let alphaLife = smoothstep(0.0, 0.15, p4.w) * smoothstep(1.0, 0.85, p4.w);\n"
-            "  let col = speed_to_color(speed);\n"
-            "  out.color = vec4<f32>(col, alphaLife * 0.65);\n"
-            "  out.side = side;\n"
-            "  out.along = select(0.0, 1.0, isHead);\n"
-            "  return out;\n"
-            "}\n\n"
-            "@fragment\n"
-            "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
-            "  // Soft edges across width (in.side interpolates from -1..+1).\n"
-            "  let edge = 1.0 - abs(in.side);\n"
-            "  let aEdge = smoothstep(0.0, 0.12, edge);\n"
-            "  // Tail fully transparent → head semi-opaque.\n"
-            "  let aAlong = pow(clamp(in.along, 0.0, 1.0), 1.6);\n"
-            "  return vec4<f32>(in.color.rgb, in.color.a * aEdge * aAlong);\n"
-            "}\n"
-        ).strip()
+        code = """
+// WGSL Full Module (raw): global flow lines (compute + render)
+// Contract: group(0) bindings:
+//   0=particles (storage read_write, compute)
+//   3=particles_ro (storage read, vertex)
+//   1=uCamera (uniform: view+proj)
+//   2=uParams (uniform vec4: t, stepScale, particleCount, _)
+// topology: line-list
+
+const PI: f32 = 3.14159265;
+const EARTH_RADIUS: f32 = 6378137.0;
+const LAYER_OFFSET: f32 = 20000.0;
+const R: f32 = EARTH_RADIUS + LAYER_OFFSET;
+
+// Visual scale: tuned for stepScale ~ 18..30.
+const ADV_BASE_MPS: f32 = 110000.0;
+const TAIL_MIN_M: f32 = 250000.0;
+const TAIL_MAX_M: f32 = 950000.0;
+const BRIGHTNESS: f32 = 1.6;
+
+struct Camera { view: mat4x4<f32>, proj: mat4x4<f32> }
+struct Particles { data: array<vec4<f32>> }
+
+@group(0) @binding(0) var<storage, read_write> particles: Particles;
+@group(0) @binding(3) var<storage, read> particles_ro: Particles;
+@group(0) @binding(1) var<uniform> uCamera: Camera;
+@group(0) @binding(2) var<uniform> uParams: vec4<f32>; // (t, stepScale, particleCount, _)
+
+fn hash(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
+
+// Synthetic wind: zonal bands + cyclones + small perturbations (tangent on sphere).
+fn get_wind_velocity(unitPos: vec3<f32>, t: f32) -> vec3<f32> {
+    let up = normalize(unitPos);
+    let lat = asin(up.z);
+    let lon = atan2(up.y, up.x);
+
+    var axisRef = vec3<f32>(0.0, 0.0, 1.0);
+    if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
+    let east = normalize(cross(axisRef, up));
+    let north = normalize(cross(up, east));
+
+    // 1) Zonal winds.
+    let zonal = -cos(lat * 3.0) * 1.8;
+    let merid = sin(lat * 5.0) * 0.55 * sin(lon * 2.0 + t * 0.12);
+    var u = zonal;
+    var v = merid;
+
+    // 2) Inject 2 cyclones.
+    let c1 = vec2<f32>(0.35 + sin(t * 0.20) * 0.10, 2.00 - t * 0.30);
+    let d1 = distance(vec2<f32>(lat, lon), c1);
+    if (d1 < 0.45) {
+        let s = smoothstep(0.45, 0.06, d1);
+        u += s * -sin(lon - c1.y) * 4.4;
+        v += s *  cos(lat - c1.x) * 4.4;
+    }
+
+    let c2 = vec2<f32>(-0.25 - cos(t * 0.17) * 0.10, -1.00 + t * 0.22);
+    let d2 = distance(vec2<f32>(lat, lon), c2);
+    if (d2 < 0.52) {
+        let s = smoothstep(0.52, 0.06, d2);
+        u += s *  sin(lon - c2.y) * 3.9;
+        v += s * -cos(lat - c2.x) * 3.9;
+    }
+
+    // 3) Micro perturbation.
+    let noise = sin(lon * 10.0 + t) * cos(lat * 9.0) * 0.85;
+    u += noise * 0.55;
+    v += noise * 0.45;
+
+    return east * u + north * v;
+}
+
+fn speed_to_color(speed: f32) -> vec3<f32> {
+    let tt = clamp(speed / 4.8, 0.0, 1.0);
+    let c0 = vec3<f32>(0.0, 0.1, 0.6);
+    let c1 = vec3<f32>(0.0, 0.85, 1.0);
+    let c2 = vec3<f32>(0.85, 1.0, 0.1);
+    let c3 = vec3<f32>(1.0, 0.12, 0.0);
+    var col = mix(c0, c1, smoothstep(0.0, 0.33, tt));
+    col = mix(col, c2, smoothstep(0.33, 0.66, tt));
+    col = mix(col, c3, smoothstep(0.66, 1.0, tt));
+    return col;
+}
+
+@compute @workgroup_size(256)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    let n = u32(max(0.0, uParams.z));
+    if (i >= n) { return; }
+
+    let t = uParams.x;
+    let s = max(0.0, uParams.y);
+    let dt = max(0.001, 0.016 * clamp(s / 24.0, 0.25, 4.0));
+
+    var p = particles.data[i];
+
+    // Lifecycle (age in p.w): fade + respawn.
+    p.w = p.w - dt * (0.09 + hash(f32(i)) * 0.22);
+    if (p.w <= 0.0 || length(p.xyz) < 1.0) {
+        p.w = 1.0;
+        let seed = f32(i) * 1.31 + t * 80.0;
+        let phi = hash(seed) * 6.2831853;
+        let costheta = hash(seed * 1.7) * 2.0 - 1.0;
+        let theta = acos(costheta);
+        let u = vec3<f32>(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+        p = vec4<f32>(u * R, p.w);
+    }
+
+    let unitPos = normalize(p.xyz);
+    let vel = get_wind_velocity(unitPos, t + hash(f32(i)) * 0.35);
+
+    // Advect on the sphere (meters/sec-ish scale tuned for global formation).
+    let vScale = ADV_BASE_MPS * clamp(s / 24.0, 0.4, 2.0);
+    p = vec4<f32>(normalize(p.xyz + vel * (dt * vScale)) * R, p.w);
+    particles.data[i] = p;
+}
+
+struct VSOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) along: f32,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+    // line-list: 2 vertices per particle (tail, head).
+    let n = max(1u, u32(max(0.0, uParams.z)));
+    let i = min(vid / 2u, n - 1u);
+    let isHead = (vid & 1u) == 1u;
+    let p4 = particles_ro.data[i];
+    let unitPos = normalize(p4.xyz);
+    let t = uParams.x;
+    let vel = get_wind_velocity(unitPos, t + hash(f32(i)) * 0.35);
+    let speed = length(vel);
+
+    let dir0 = vel - unitPos * dot(vel, unitPos);
+    let dir = normalize(dir0 + vec3<f32>(0.00001, 0.0, 0.0));
+
+    let tailMeters = mix(TAIL_MIN_M, TAIL_MAX_M, clamp(speed / 4.8, 0.0, 1.0))
+        * clamp(uParams.y / 24.0, 0.6, 1.6);
+    let d = tailMeters / R;
+    let tailUnit = normalize(unitPos - dir * d);
+    let baseUnit = select(tailUnit, unitPos, isHead);
+
+    // Cesium provides a WebGL-style projection matrix; convert to WebGPU clip space.
+    let clipFix = mat4x4<f32>(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 0.5, 0.0,
+        0.0, 0.0, 0.5, 1.0
+    );
+    let m = clipFix * uCamera.proj * uCamera.view;
+
+    var out: VSOut;
+    out.pos = m * vec4<f32>(baseUnit * R, 1.0);
+
+    // Fade in/out by lifecycle, and color-map by speed.
+    let alphaLife = smoothstep(0.0, 0.15, p4.w) * smoothstep(1.0, 0.85, p4.w);
+    let col = speed_to_color(speed) * BRIGHTNESS;
+    out.along = select(0.0, 1.0, isHead);
+    out.color = vec4<f32>(col, alphaLife * (0.10 + 0.62 * out.along));
+    return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    let a = in.color.a * pow(clamp(in.along, 0.0, 1.0), 1.4);
+    return vec4<f32>(in.color.rgb, a);
+}
+        """.strip()
         events.extend(
             [
                 CopilotEvent(type="tool_call", tool="fly_to", args={"lat": 15.0, "lon": 110.0, "height": 18000000, "duration_s": 4.0}),
@@ -1674,15 +1682,15 @@ async def _execute_stub(
                     tool="execute_dynamic_wgsl",
                     args={
                         "wgsl_compute_shader": code,
-                        "particle_count": 180000,
-                        "topology": "triangle-list",
+                        "particle_count": 220000,
+                        "topology": "line-list",
                         "preset": "wind",
-                        "step_scale": 18.0,
+                        "step_scale": 28.0,
                         "seed": "surface",
                     },
                 ),
                 CopilotEvent(type="tool_result", tool="execute_dynamic_wgsl", result="ok"),
-                CopilotEvent(type="final", text="已下发 WebGPU 全球气象流体（Demo 13, full pipeline WGSL）：镜头已拉远，可直接在 WebGPU overlay 中看到生命周期+纬度色谱的拖尾粒子。"),
+                CopilotEvent(type="final", text="已下发 WebGPU 全球气象流体（Demo 13, full pipeline WGSL, line-list 长拉丝）：镜头已拉远，可直接在 WebGPU overlay 中看到全球流线与拖尾积累效果。"),
             ]
         )
         return events

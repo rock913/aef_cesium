@@ -1113,9 +1113,13 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
       const stepOpt = Number(options?.step_scale ?? options?.stepScale)
       const preset = String(options?.preset || '').trim().toLowerCase()
+      const topoOptRaw = String(options?.topology || '').trim().toLowerCase()
+      const topologyOpt = ['point-list', 'line-list', 'triangle-list'].includes(topoOptRaw) ? topoOptRaw : ''
       const stepScale = Number.isFinite(stepOpt)
         ? stepOpt
-        : (preset === 'wind' ? 18.0 : 1.0)
+        : (preset === 'wind'
+          ? (topologyOpt === 'line-list' ? 24.0 : 18.0)
+          : 1.0)
 
       paramsScratch[0] = t
       paramsScratch[1] = stepScale
@@ -1173,9 +1177,13 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   const presetForTrail = String(options?.preset || '').trim().toLowerCase()
   const trailEnabled = options?.trail === false ? false : true
   const trailAlphaOpt = Number(options?.trail_alpha ?? options?.trailAlpha)
+  const topoForTrailRaw = String(options?.topology || '').trim().toLowerCase()
+  const topoForTrail = ['point-list', 'line-list', 'triangle-list'].includes(topoForTrailRaw) ? topoForTrailRaw : ''
   const trailAlpha = Number.isFinite(trailAlphaOpt)
     ? trailAlphaOpt
-    : (presetForTrail === 'wind' ? 0.08 : 0.10)
+    : (presetForTrail === 'wind'
+      ? (topoForTrail === 'line-list' ? 0.05 : 0.08)
+      : 0.10)
 
   let fadePipeline = null
   if (trailEnabled && !debugEnabled) {
