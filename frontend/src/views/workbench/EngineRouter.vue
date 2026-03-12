@@ -424,6 +424,85 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   const hasVS = _hasVertexEntrypoint(wgslInput)
   const hasFS = _hasFragmentEntrypoint(wgslInput)
 
+  function _findFunctionBlockRange(src, fnName) {
+    // Best-effort WGSL block extraction by brace matching.
+    // We only need this for cs_main/vs_main/fs_main in our demo modules.
+    const s = String(src || '')
+    const re = new RegExp(`\\bfn\\s+${fnName}\\s*\\(`)
+    const m = re.exec(s)
+    if (!m) return null
+    const fnIdx = Number(m.index || 0)
+    const braceOpen = s.indexOf('{', fnIdx)
+    if (braceOpen < 0) return null
+    let depth = 0
+    for (let i = braceOpen; i < s.length; i += 1) {
+      const ch = s[i]
+      if (ch === '{') depth += 1
+      else if (ch === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return { start: fnIdx, end: i + 1 }
+        }
+      }
+    }
+    return null
+  }
+
+  function _stripEntrypoint(src, decorator, fnName) {
+    // Removes: from the decorator line (e.g. '@compute') up to end of function block.
+    const s = String(src || '')
+    const r = _findFunctionBlockRange(s, fnName)
+    if (!r) return s
+    const beforeFn = s.slice(0, r.start)
+    const decorIdx = beforeFn.lastIndexOf(String(decorator || ''))
+    const start = decorIdx >= 0 ? decorIdx : r.start
+    return `${s.slice(0, start).trimEnd()}\n\n${s.slice(r.end).trimStart()}`.trim()
+  }
+
+  function _stripBindingVarLines(src, bindings = []) {
+    const s = String(src || '')
+    const set = new Set((bindings || []).map((b) => String(b)))
+    if (!set.size) return s
+    const out = s
+      .split('\n')
+      .filter((line) => {
+        const t = String(line || '')
+        // Match both '@binding(3)' and '@binding(3) ' styles.
+        for (const b of set) {
+          if (t.includes(`@binding(${b})`)) return false
+        }
+        return true
+      })
+      .join('\n')
+    return out.trim()
+  }
+
+  function _looksLikeSplitContractRawModule(src) {
+    const t = String(src || '')
+    const hasRw0 = /@binding\(0\)\s+var<storage,\s*read_write>\s+particles\b/.test(t)
+    const hasRo3 = /@binding\(3\)\s+var<storage,\s*read>\s+particles_ro\b/.test(t)
+    const hasCam1 = /@binding\(1\)\s+var<uniform>\s+uCamera\b/.test(t)
+    const hasParams2 = /@binding\(2\)\s+var<uniform>\s+uParams\b/.test(t)
+    return hasRw0 && hasRo3 && hasCam1 && hasParams2
+  }
+
+  function _splitRawFullModuleIntoComputeAndRender(src) {
+    // Goal: avoid conservative resource reflection pulling render-only bindings into compute.
+    // compute module: keep cs_main + binding(0,2), drop vs/fs + binding(1,3)
+    // render module: keep vs/fs + binding(1,2,3), drop cs_main + binding(0)
+    const raw = String(src || '').trim()
+    let compute = raw
+    compute = _stripEntrypoint(compute, '@vertex', 'vs_main')
+    compute = _stripEntrypoint(compute, '@fragment', 'fs_main')
+    compute = _stripBindingVarLines(compute, [1, 3])
+
+    let render = raw
+    render = _stripEntrypoint(render, '@compute', 'cs_main')
+    render = _stripBindingVarLines(render, [0])
+
+    return { compute, render }
+  }
+
   const topologyOpt = String(options?.topology || '').trim()
   const topologyReq = topologyOpt && ['point-list', 'line-list', 'triangle-list'].includes(topologyOpt)
     ? topologyOpt
@@ -440,6 +519,19 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   } else {
     if (hasCS && !hasVS && !hasFS) {
       shaderCandidates.push({ code: _augmentComputeOnlyModuleWithDefaultRender(wgslInput), mode: 'augmented_render', topology: 'triangle-list' })
+    }
+    // Some WebGPU implementations reflect all declared resources into pipeline layouts
+    // even if unused by a given stage. When a full module declares both:
+    // - compute RW particles (binding=0)
+    // - render RO particles (binding=3)
+    // a raw single-module compile can cause compute bind group creation to fail,
+    // which triggers a fallback and makes visual updates appear "not applied".
+    // Fix: auto-split such raw modules into compute-only + render-only modules.
+    if (hasCS && hasVS && hasFS && _looksLikeSplitContractRawModule(wgslInput)) {
+      const { compute, render } = _splitRawFullModuleIntoComputeAndRender(wgslInput)
+      if (compute && render) {
+        shaderCandidates.push({ computeCode: compute, renderCode: render, mode: 'raw_split', topology: topologyReq || 'point-list' })
+      }
     }
     shaderCandidates.push({ code: wgslInput, mode: 'raw', topology: topologyReq || 'point-list' })
   }
