@@ -1303,6 +1303,27 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     uncaptured: null,
   }
 
+  function _summarizeDiagnostics(diag) {
+    const d = diag && typeof diag === 'object' ? diag : {}
+    const cands = Array.isArray(d.candidates) ? d.candidates : []
+    const lines = []
+    for (const c of cands) {
+      const mode = String(c?.mode || '').trim() || 'unknown'
+      const topo = String(c?.topology || '').trim()
+      const comp = String(c?.compilation || '').trim()
+      const val = String(c?.validation || '').trim()
+      const bg = (c?.compute_bg_ok === false || c?.render_bg_ok === false)
+        ? ` bg=compute:${c?.compute_bg_ok ? 'ok' : 'no'}/render:${c?.render_bg_ok ? 'ok' : 'no'}`
+        : ''
+      const reason = comp ? ` comp=${comp}` : (val ? ` val=${val}` : '')
+      const t = topo ? ` topo=${topo}` : ''
+      if (reason) lines.push(`${mode}${t}${bg}${reason}`)
+    }
+    if (d.bindGroup?.message) lines.push(String(d.bindGroup.message))
+    if (d.uncaptured) lines.push(`uncaptured=${String(d.uncaptured)}`)
+    return lines.slice(0, 6).join(' | ')
+  }
+
   async function _popValidationError() {
     try {
       if (!device || typeof device.popErrorScope !== 'function') return null
@@ -1783,7 +1804,23 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  return { ok: true, particle_count: particleCount, vertex_count: vertexCount, canvas_backing_px, fallback_used: fallbackUsed, pipeline_ready: pipelineReady, wrapped, mode: selectedMode, topology: selectedTopology, debug_mode: debugEnabled ? debugMode : '' }
+  const diagSummary = _summarizeDiagnostics(diagnostics)
+  const wantDiag = debugEnabled || fallbackUsed
+  return {
+    ok: true,
+    particle_count: particleCount,
+    vertex_count: vertexCount,
+    canvas_backing_px,
+    fallback_used: fallbackUsed,
+    pipeline_ready: pipelineReady,
+    wrapped,
+    mode: selectedMode,
+    topology: selectedTopology,
+    debug_mode: debugEnabled ? debugMode : '',
+    diagnostics: wantDiag
+      ? { bindGroup: diagnostics.bindGroup, candidates: diagnostics.candidates, summary: diagSummary }
+      : undefined,
+  }
 }
 
 function enableSubsurfaceMode(options = {}) {

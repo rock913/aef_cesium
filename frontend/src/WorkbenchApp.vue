@@ -1550,13 +1550,15 @@ function applyCopilotEvents(events) {
             const pc = Number(res?.particle_count)
             const vc = Number(res?.vertex_count)
             const dbg = String(res?.debug_mode || '').trim()
+            const diag = String(res?.diagnostics?.summary || '').trim()
             const pr = typeof res?.pipeline_ready === 'boolean' ? ` pipeline=${res.pipeline_ready ? 'ok' : 'no'}` : ''
             const extraPc = Number.isFinite(pc) ? ` particles=${pc}` : ''
             const extraVc = Number.isFinite(vc) ? ` verts=${vc}` : ''
             const extraMode = mode ? ` mode=${mode}` : ''
             const extraTopo = topo ? ` topo=${topo}` : ''
             const extraDbg = dbg ? ` debug=${dbg}` : ''
-            theaterReport.value = `✅ WebGPU WGSL 已执行（best-effort）${fallback}${extraMode}${extraTopo}${extraDbg}${pr}${extraPc}${extraVc}`
+            const extraDiag = (res?.fallback_used && diag) ? ` why=${diag}` : ''
+            theaterReport.value = `✅ WebGPU WGSL 已执行（best-effort）${fallback}${extraMode}${extraTopo}${extraDbg}${pr}${extraPc}${extraVc}${extraDiag}`
           }
         } catch (e) {
           theaterReport.value = `❌ WebGPU 执行异常: ${String(e?.message || e)}`
