@@ -1303,6 +1303,8 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     uncaptured: null,
   }
 
+  const WEBGPU_SANDBOX_VERSION = 'v7.2-webgpu-diag-20260312.1'
+
   function _summarizeDiagnostics(diag) {
     const d = diag && typeof diag === 'object' ? diag : {}
     const cands = Array.isArray(d.candidates) ? d.candidates : []
@@ -1315,9 +1317,13 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       const bg = (c?.compute_bg_ok === false || c?.render_bg_ok === false)
         ? ` bg=compute:${c?.compute_bg_ok ? 'ok' : 'no'}/render:${c?.render_bg_ok ? 'ok' : 'no'}`
         : ''
-      const reason = comp ? ` comp=${comp}` : (val ? ` val=${val}` : '')
+      const reason = comp
+        ? ` comp=${comp}`
+        : (val
+          ? ` val=${val}`
+          : (bg ? ' val=bind_group_mismatch' : ''))
       const t = topo ? ` topo=${topo}` : ''
-      if (reason) lines.push(`${mode}${t}${bg}${reason}`)
+      if (reason || bg) lines.push(`${mode}${t}${bg}${reason}`)
     }
     if (d.bindGroup?.message) lines.push(String(d.bindGroup.message))
     if (d.uncaptured) lines.push(`uncaptured=${String(d.uncaptured)}`)
@@ -1806,6 +1812,27 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
 
   const diagSummary = _summarizeDiagnostics(diagnostics)
   const wantDiag = debugEnabled || fallbackUsed
+
+  if (wantDiag) {
+    try {
+      const title = fallbackUsed
+        ? '[Zero2x WebGPU Sandbox] fallback_used'
+        : '[Zero2x WebGPU Sandbox] debug'
+      // Console logging is critical for diagnosing vendor-specific layout:'auto' issues.
+      // Keep it collapsed by default to avoid noisy logs.
+      console.groupCollapsed(title)
+      console.info('summary:', diagSummary || '(empty)')
+      console.info('selected:', { mode: selectedMode, topology: selectedTopology, particle_count: particleCount, vertex_count: vertexCount })
+      console.info('bindGroup:', diagnostics.bindGroup)
+      console.info('candidates:', diagnostics.candidates)
+      if (diagnostics.uncaptured) console.info('uncaptured:', diagnostics.uncaptured)
+      console.info('version:', WEBGPU_SANDBOX_VERSION)
+      console.groupEnd()
+    } catch (_) {
+      // ignore
+    }
+  }
+
   return {
     ok: true,
     particle_count: particleCount,
@@ -1817,6 +1844,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     mode: selectedMode,
     topology: selectedTopology,
     debug_mode: debugEnabled ? debugMode : '',
+    webgpu_sandbox_version: WEBGPU_SANDBOX_VERSION,
     diagnostics: wantDiag
       ? { bindGroup: diagnostics.bindGroup, candidates: diagnostics.candidates, summary: diagSummary }
       : undefined,
