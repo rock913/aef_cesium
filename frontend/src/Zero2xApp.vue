@@ -27,7 +27,7 @@
 
           <ul v-if="isOmniOpen" class="dropdown-menu" role="listbox" aria-label="Suggested scenarios">
             <li v-for="s in scenarios" :key="s.id" role="option" class="dropdown-item" @click.stop="selectScenario(s)">
-              {{ s.label }}
+              {{ s.targetName || s.label }}
             </li>
           </ul>
         </div>
@@ -266,7 +266,7 @@ const scenarios = scenarios021
 const selectedContextId = ref('poyang')
 const activeScenario = computed(() => getScenario021ById(selectedContextId.value) || getDefaultScenario021())
 
-const query = ref(activeScenario.value?.label || '')
+const query = ref(activeScenario.value?.targetName || activeScenario.value?.label || '')
 const placeholder = computed(() => '请点击选择 V6.0 核心演示场景...')
 const isOmniOpen = ref(false)
 
@@ -385,7 +385,7 @@ function closeOmni() {
 function selectScenario(scenario) {
   const s = scenario && typeof scenario === 'object' ? scenario : null
   if (!s?.id) return
-  query.value = String(s.label || '')
+  query.value = String(s.targetName || s.label || '')
   selectedContextId.value = String(s.id)
   closeOmni()
   try {
@@ -437,7 +437,7 @@ onMounted(() => {
     const sc = getScenario021ById(last)
     if (sc) {
       selectedContextId.value = sc.id
-      query.value = String(sc.label || '')
+      query.value = String(sc.targetName || sc.label || '')
     }
   } catch (_) { }
 
