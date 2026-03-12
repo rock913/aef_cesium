@@ -9,7 +9,7 @@
     </div>
 
     <!-- Middle: Chat history -->
-    <div v-if="!collapsed" class="chat-history" aria-label="Chat History">
+    <div ref="historyEl" v-if="!collapsed" class="chat-history" aria-label="Chat History">
       <template v-if="chatHistory && chatHistory.length">
         <div v-for="(m, idx) in chatHistory" :key="m.id || idx" class="message-wrapper">
           <div v-if="String(m.role || '') === 'user'" class="bubble user" aria-label="User Message">
@@ -111,7 +111,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   presets: { type: Array, default: () => [] },
@@ -126,6 +126,43 @@ const collapsed = ref(false)
 const composerExpanded = ref(false)
 const paletteOpen = ref(false)
 const textareaEl = ref(null)
+const historyEl = ref(null)
+
+const stickToBottom = ref(true)
+
+function _isNearBottom(el) {
+  if (!el) return true
+  const gap = el.scrollHeight - (el.scrollTop + el.clientHeight)
+  return gap < 28
+}
+
+function scrollToBottom({ force = false } = {}) {
+  const el = historyEl.value
+  if (!el) return
+  if (!force && !stickToBottom.value) return
+  try {
+    el.scrollTop = el.scrollHeight
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function _maybeScrollToBottom({ force = false } = {}) {
+  await nextTick()
+  try {
+    requestAnimationFrame(() => scrollToBottom({ force }))
+  } catch (_) {
+    scrollToBottom({ force })
+  }
+}
+
+function _onHistoryScroll() {
+  try {
+    stickToBottom.value = _isNearBottom(historyEl.value)
+  } catch (_) {
+    stickToBottom.value = true
+  }
+}
 
 const startedAtMs = ref(0)
 const finishedAtMs = ref(0)
@@ -140,6 +177,51 @@ const elapsedLabel = computed(() => {
   const s = Math.max(0, (end - start) / 1000)
   if (!Number.isFinite(s)) return ''
   return `${s.toFixed(1)}s`
+})
+
+function onToggleCot() {
+onMounted(() => {
+  try {
+    historyEl.value?.addEventListener?.('scroll', _onHistoryScroll, { passive: true })
+  } catch (_) {
+    // ignore
+  }
+
+  // First paint: default to bottom.
+  void _maybeScrollToBottom({ force: true })
+})
+
+onBeforeUnmount(() => {
+  try {
+    historyEl.value?.removeEventListener?.('scroll', _onHistoryScroll)
+  } catch (_) {
+    // ignore
+  }
+})
+
+watch(
+  () => chatHistory.value.length,
+  (len, prev) => {
+    const force = Number.isFinite(prev) && len < prev
+    void _maybeScrollToBottom({ force })
+  }
+)
+
+watch(
+  () => {
+    const last = chatHistory.value?.[chatHistory.value.length - 1] || null
+    const lastId = String(last?.id || '')
+    const evLen = Array.isArray(last?.events) ? last.events.length : 0
+    const contentLen = String(last?.content || '').length
+    return `${lastId}:${evLen}:${contentLen}:${props.busy ? '1' : '0'}`
+  },
+  () => {
+    void _maybeScrollToBottom({ force: false })
+  }
+)
+
+defineExpose({
+  scrollToBottom,
 })
 
 watch(
@@ -236,6 +318,8 @@ function onToggleCot(ev) {
   } catch (_) {
     // ignore
   }
+  // Expand/collapse changes height; keep bottom anchored when appropriate.
+  void _maybeScrollToBottom({ force: false })
 }
 
 function formatJson(v) {

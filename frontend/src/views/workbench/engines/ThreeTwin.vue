@@ -45,6 +45,8 @@ let microBondLines = null
 let microMaterial = null
 let microMaterialO = null
 
+const MICRO_MAX_INSTANCES = 12000
+
 function _hashSeed(s) {
   const t = String(s || 'sio2')
   let h = 2166136261
@@ -118,8 +120,10 @@ function _buildMicroScene(scene) {
   microMaterial = siMat
   microMaterialO = oMat
 
-  microSiMesh = markRaw(new THREE.InstancedMesh(siGeo, siMat, 1))
-  microOMesh = markRaw(new THREE.InstancedMesh(oGeo, oMat, 1))
+  // IMPORTANT: the 3rd argument is the *capacity* of the instance buffers.
+  // We later set `.count` to thousands (rebuildMicroLattice), so allocate a safe upper bound.
+  microSiMesh = markRaw(new THREE.InstancedMesh(siGeo, siMat, MICRO_MAX_INSTANCES))
+  microOMesh = markRaw(new THREE.InstancedMesh(oGeo, oMat, MICRO_MAX_INSTANCES))
   microRoot.add(microSiMesh)
   microRoot.add(microOMesh)
 
@@ -303,8 +307,12 @@ async function rebuildMicroLattice(options = {}) {
   // A stable procedural lattice (demo-safe): two species + simple neighbor bonds.
   // Not a physically accurate quartz crystal; optimized for visual clarity + performance.
   const ratioO = type === 'sio2' ? 2 : 1
-  const siCount = Math.max(1, Math.floor(count / (1 + ratioO)))
-  const oCount = Math.max(1, count - siCount)
+  const siCap = MICRO_MAX_INSTANCES
+  const oCap = MICRO_MAX_INSTANCES
+  const siCountWanted = Math.max(1, Math.floor(count / (1 + ratioO)))
+  const oCountWanted = Math.max(1, count - siCountWanted)
+  const siCount = Math.min(siCap, siCountWanted)
+  const oCount = Math.min(oCap, oCountWanted)
 
   microSiMesh.count = siCount
   microOMesh.count = oCount

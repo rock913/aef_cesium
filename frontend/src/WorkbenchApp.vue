@@ -1684,6 +1684,19 @@ function onCopilotSelectPreset(preset) {
   } catch (_) {
     // ignore
   }
+
+  // UX: after switching demos, keep the chat view pinned to the newest messages.
+  try {
+    nextTick(() => {
+      try {
+        copilotPanel.value?.scrollToBottom?.({ force: true })
+      } catch (_) {
+        // ignore
+      }
+    })
+  } catch (_) {
+    // ignore
+  }
 }
 
 function applyPreset(preset) {
@@ -1718,6 +1731,19 @@ function applyPreset(preset) {
   }
 
   runStub()
+
+  // UX: preset switches should always reveal the latest chat output.
+  try {
+    nextTick(() => {
+      try {
+        copilotPanel.value?.scrollToBottom?.({ force: true })
+      } catch (_) {
+        // ignore
+      }
+    })
+  } catch (_) {
+    // ignore
+  }
 }
 
 function onKeydown(e) {
