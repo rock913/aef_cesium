@@ -1348,16 +1348,32 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  function _createBindGroupAuto(layout, tries) {
+  async function _tryCreateGpuObject(createFn) {
+    // Some implementations report validation errors via error scopes even when
+    // object creation is wrapped in try/catch. If we use a single scope for the
+    // whole candidate, any failed "try" attempt can poison the candidate even
+    // if a later attempt succeeds. Scope each attempt to keep best-effort tries safe.
+    _pushValidationScope()
+    let obj = null
+    let thrown = null
+    try {
+      obj = createFn()
+    } catch (e) {
+      thrown = e
+    }
+    const scopeErr = await _popValidationError()
+    const err = scopeErr || thrown
+    if (err) return { obj: null, error: err }
+    return { obj, error: null }
+  }
+
+  async function _createBindGroupAuto(layout, tries) {
     const arr = Array.isArray(tries) ? tries : []
     let lastErr = null
     for (const entries of arr) {
-      try {
-        const bg = device.createBindGroup({ layout, entries })
-        return { bg, error: null }
-      } catch (e) {
-        lastErr = e
-      }
+      const res = await _tryCreateGpuObject(() => device.createBindGroup({ layout, entries }))
+      if (res?.obj) return { bg: res.obj, error: null }
+      if (res?.error) lastErr = res.error
     }
     return { bg: null, error: lastErr }
   }
@@ -1365,7 +1381,6 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   try {
     if (cameraUbo && paramsUbo && particleBuf) {
       for (const cand of shaderCandidates) {
-        _pushValidationScope()
         computeBindGroup = null
         renderBindGroup = null
         computePipeline = null
@@ -1407,58 +1422,53 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
           }
         }
 
-        let pipelineCreateThrown = ''
+        let pipelineCreateErr = null
         if (computeModule && renderModule) {
-          try {
-            computePipeline = device.createComputePipeline({
-              layout: 'auto',
-              compute: { module: computeModule, entryPoint: 'cs_main' },
-            })
-          } catch (e) {
-            computePipeline = null
-            pipelineCreateThrown = _gpuErrorToString(e)
-          }
+          const computePipeRes = await _tryCreateGpuObject(() => device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: computeModule, entryPoint: 'cs_main' },
+          }))
+          computePipeline = computePipeRes?.obj || null
+          if (!computePipeline && computePipeRes?.error) pipelineCreateErr = computePipeRes.error
 
-          try {
-            renderPipeline = device.createRenderPipeline({
-              layout: 'auto',
-              vertex: { module: renderModule, entryPoint: 'vs_main' },
-              fragment: {
-                module: renderModule,
-                entryPoint: 'fs_main',
-                targets: [
-                  {
-                    format,
-                    blend: {
-                      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-                    },
+          const renderPipeRes = await _tryCreateGpuObject(() => device.createRenderPipeline({
+            layout: 'auto',
+            vertex: { module: renderModule, entryPoint: 'vs_main' },
+            fragment: {
+              module: renderModule,
+              entryPoint: 'fs_main',
+              targets: [
+                {
+                  format,
+                  blend: {
+                    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
                   },
-                ],
-              },
-              primitive: { topology: String(cand?.topology || 'point-list') },
-            })
-          } catch (e) {
-            renderPipeline = null
-            if (!pipelineCreateThrown) pipelineCreateThrown = _gpuErrorToString(e)
-          }
+                },
+              ],
+            },
+            primitive: { topology: String(cand?.topology || 'point-list') },
+          }))
+          renderPipeline = renderPipeRes?.obj || null
+          if (!renderPipeline && renderPipeRes?.error && !pipelineCreateErr) pipelineCreateErr = renderPipeRes.error
         }
 
         if (computePipeline && renderPipeline) {
+          let bindGroupErrMsg = ''
           try {
             const computeLayout0 = computePipeline.getBindGroupLayout(0)
             // Common patterns:
             // - binding(0)=particles storage (rw)
             // - binding(2)=uParams uniform
             // - optionally binding(1)=uCamera uniform
-            const computeRes = _createBindGroupAuto(computeLayout0, [
+            const computeRes = await _createBindGroupAuto(computeLayout0, [
               [
                 { binding: 0, resource: { buffer: particleBuf } },
+                { binding: 1, resource: { buffer: cameraUbo } },
                 { binding: 2, resource: { buffer: paramsUbo } },
               ],
               [
                 { binding: 0, resource: { buffer: particleBuf } },
-                { binding: 1, resource: { buffer: cameraUbo } },
                 { binding: 2, resource: { buffer: paramsUbo } },
               ],
             ])
@@ -1466,6 +1476,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
             if (!computeBindGroup && computeRes?.error && !diagnostics.bindGroup) {
               diagnostics.bindGroup = { message: `compute_bind_group_failed: ${_gpuErrorToString(computeRes.error)}` }
             }
+            if (!computeBindGroup && computeRes?.error) bindGroupErrMsg = `compute_bind_group_failed: ${_gpuErrorToString(computeRes.error)}`
           } catch (_) {
             computeBindGroup = null
           }
@@ -1476,14 +1487,14 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
             // - binding(1)=uCamera uniform
             // - binding(3)=particles read-only-storage
             // - optionally binding(2)=uParams uniform
-            const renderRes = _createBindGroupAuto(renderLayout0, [
+            const renderRes = await _createBindGroupAuto(renderLayout0, [
               [
                 { binding: 1, resource: { buffer: cameraUbo } },
+                { binding: 2, resource: { buffer: paramsUbo } },
                 { binding: 3, resource: { buffer: particleBuf } },
               ],
               [
                 { binding: 1, resource: { buffer: cameraUbo } },
-                { binding: 2, resource: { buffer: paramsUbo } },
                 { binding: 3, resource: { buffer: particleBuf } },
               ],
               [
@@ -1495,14 +1506,19 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
             if (!renderBindGroup && renderRes?.error && !diagnostics.bindGroup) {
               diagnostics.bindGroup = { message: `render_bind_group_failed: ${_gpuErrorToString(renderRes.error)}` }
             }
+            if (!renderBindGroup && renderRes?.error) bindGroupErrMsg = `render_bind_group_failed: ${_gpuErrorToString(renderRes.error)}`
           } catch (_) {
             renderBindGroup = null
           }
+
+          if (!computeBindGroup || !renderBindGroup) {
+            // Surface bind group failures into the per-candidate validation field.
+            // This is especially important when a candidate never becomes "ready".
+            if (bindGroupErrMsg && !pipelineCreateErr) pipelineCreateErr = new Error(bindGroupErrMsg)
+          }
         }
 
-        const candErr = await _popValidationError()
-        let candMsg = _gpuErrorToString(candErr)
-        if (!candMsg && pipelineCreateThrown) candMsg = pipelineCreateThrown
+        const candMsg = _gpuErrorToString(pipelineCreateErr)
         const compMsgsA = Array.isArray(compilationInfoCompute?.messages) ? compilationInfoCompute.messages : []
         const compMsgsB = Array.isArray(compilationInfoRender?.messages) ? compilationInfoRender.messages : []
         const compErrorsA = compMsgsA.filter((m) => String(m?.type || '').toLowerCase() === 'error')
@@ -1524,7 +1540,7 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
           render_bg_ok: !!renderBindGroup,
         })
 
-        if (candErr || !computeModule || !renderModule || compErrorsA.length || compErrorsB.length || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) {
+        if (!computeModule || !renderModule || compErrorsA.length || compErrorsB.length || !computePipeline || !renderPipeline || !computeBindGroup || !renderBindGroup) {
           pipelineReady = false
           computePipeline = null
           renderPipeline = null
