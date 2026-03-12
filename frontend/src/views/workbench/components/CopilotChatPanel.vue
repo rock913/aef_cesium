@@ -179,7 +179,6 @@ const elapsedLabel = computed(() => {
   return `${s.toFixed(1)}s`
 })
 
-function onToggleCot() {
 onMounted(() => {
   try {
     historyEl.value?.addEventListener?.('scroll', _onHistoryScroll, { passive: true })
@@ -219,10 +218,6 @@ watch(
     void _maybeScrollToBottom({ force: false })
   }
 )
-
-defineExpose({
-  scrollToBottom,
-})
 
 watch(
   () => props.busy,
@@ -369,6 +364,7 @@ function closePalette() {
 }
 
 defineExpose({
+  scrollToBottom,
   openPalette,
   closePalette,
 })
