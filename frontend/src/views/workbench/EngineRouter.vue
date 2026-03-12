@@ -175,6 +175,14 @@ async function executeDynamicWgsl(options = {}) {
   const wgslInput = _extractFirstWgslCodeBlock(wgslRaw)
   if (!wgslInput) return { ok: false, reason: 'missing_wgsl' }
 
+  // Raw full-modules frequently do: clip = uCamera.proj * uCamera.view * worldPos;
+  // Cesium's projection matrix is WebGL clip space (z in [-1, 1]) while WebGPU needs [0, 1].
+  // Our wrapped/augmented/fallback templates already include a clip-fix; raw modules may not.
+  const rawUsesUCamera = /uCamera\s*\.\s*proj/.test(wgslInput) && /uCamera\s*\.\s*view/.test(wgslInput)
+  const rawHasClipFix = /\bclipFix\b/.test(wgslInput)
+    || /\.z\s*=\s*\(\s*[^;\n]+\.z\s*\+\s*[^;\n]+\.w\s*\)\s*\*\s*0\.5/.test(wgslInput)
+  const rawMayNeedProjClipFix = rawUsesUCamera && !rawHasClipFix
+
   function _indentLines(s, pad = '  ') {
     return String(s || '')
       .split('\n')
@@ -617,7 +625,9 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   // Keep a conservative cap to avoid fill-rate spikes on laptops.
   try {
     const preset = String(options?.preset || '').trim().toLowerCase()
-    if (preset === 'wind') particleCount = Math.min(particleCount, 80000)
+    // For line-list, each particle is only a segment (2 verts) so we can afford more.
+    const reqTopo = String(options?.topology || '').trim().toLowerCase()
+    if (preset === 'wind') particleCount = Math.min(particleCount, reqTopo === 'line-list' ? 200000 : 80000)
   } catch (_) {
     // ignore
   }
@@ -748,7 +758,8 @@ fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
     p.x = sin(theta) * cos(phi);
     p.y = sin(theta) * sin(phi);
     p.z = cos(theta);
-    p = vec4<f32>(normalize(p.xyz) * 20000000.0, p.w);
+    // Near-earth shell: WGS84 radius (~6,378km) + ~20km troposphere.
+    p = vec4<f32>(normalize(p.xyz) * 6398137.0, p.w);
   }
 
   // Curl-like tangent velocity + zonal jet.
@@ -762,7 +773,7 @@ fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let jet = cross(vec3<f32>(0.0, 0.0, 1.0), pos) * cos(pos.z * 6.0) * 1.5;
   vel = vel + jet;
 
-  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0, p.w);
+  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 6398137.0, p.w);
   particles.data[i] = p;
 }
 
@@ -850,7 +861,8 @@ fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
     p.x = sin(theta) * cos(phi);
     p.y = sin(theta) * sin(phi);
     p.z = cos(theta);
-    p = vec4<f32>(normalize(p.xyz) * 20000000.0, p.w);
+    // Near-earth shell: WGS84 radius (~6,378km) + ~20km troposphere.
+    p = vec4<f32>(normalize(p.xyz) * 6398137.0, p.w);
   }
 
   let pos = normalize(p.xyz);
@@ -863,7 +875,7 @@ fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let jet = cross(vec3<f32>(0.0, 0.0, 1.0), pos) * cos(pos.z * 6.0) * 1.5;
   vel = vel + jet;
 
-  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 20000000.0, p.w);
+  p = vec4<f32>(normalize(p.xyz + vel * (dt * 15.0)) * 6398137.0, p.w);
   particles.data[i] = p;
 }
 `.trim()
@@ -959,6 +971,15 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
   }
 
   const cameraScratch = new Float32Array(32)
+  const _clipFix = (Cesium?.Matrix4?.fromArray)
+    ? Cesium.Matrix4.fromArray([
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 0.5, 0.0,
+      0.0, 0.0, 0.5, 1.0,
+    ])
+    : null
+  const _projScratch = (Cesium?.Matrix4) ? new Cesium.Matrix4() : null
   function _writeCameraUniforms() {
     if (!cameraUbo) return
     try {
@@ -966,7 +987,21 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
       const proj = viewer.camera?.frustum?.projectionMatrix
       if (!view || !proj || !Cesium.Matrix4) return
       const a = Cesium.Matrix4.toArray(view, new Array(16))
-      const b = Cesium.Matrix4.toArray(proj, new Array(16))
+
+      // For raw full-modules, best-effort pre-multiply projection with clip-fix.
+      // This makes raw shaders render correctly without requiring them to manually
+      // remap z from [-1, 1] to [0, 1].
+      let projToWrite = proj
+      if (selectedMode === 'raw' && rawMayNeedProjClipFix && _clipFix && _projScratch && Cesium.Matrix4.multiply) {
+        try {
+          Cesium.Matrix4.multiply(_clipFix, proj, _projScratch)
+          projToWrite = _projScratch
+        } catch (_) {
+          projToWrite = proj
+        }
+      }
+
+      const b = Cesium.Matrix4.toArray(projToWrite, new Array(16))
       for (let i = 0; i < 16; i += 1) cameraScratch[i] = Number(a[i])
       for (let i = 0; i < 16; i += 1) cameraScratch[16 + i] = Number(b[i])
       device.queue.writeBuffer(cameraUbo, 0, cameraScratch)
@@ -1004,26 +1039,33 @@ fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
     if (!particleBuf) return
     try {
       const preset = String(options?.preset || '').trim().toLowerCase()
-      const surfaceLike = preset === 'wind' || String(options?.seed || '').trim().toLowerCase() === 'surface'
+      const seedMode = String(options?.seed || '').trim().toLowerCase()
+      const surfaceLike = preset === 'wind' || seedMode === 'surface' || seedMode === 'earth'
+      const cinematic = seedMode === 'cinematic'
+
+      const EARTH_RADIUS = 6378137.0
+      const SURFACE_OFFSET = 20000.0
+      const CINEMATIC_RADIUS = 20000000.0
+      const baseRadius = cinematic ? CINEMATIC_RADIUS : (EARTH_RADIUS + SURFACE_OFFSET)
 
       const arr = new Float32Array(particleCount * 4)
       for (let i = 0; i < particleCount; i += 1) {
         const j = i * 4
-        // Global scatter in ECEF meters for macro visual impact.
-        // Radius ~20,000km (covers the earth in a cinematic way).
+        // Global scatter in ECEF meters.
+        // Default: near-earth shell (avoids a too-large outer sphere).
+        // Opt-in: seed=cinematic uses a much larger radius for “Dyson shell” look.
         const u = (Math.random() * 2.0) - 1.0
         const theta = Math.random() * Math.PI * 2.0
         const s = Math.sqrt(Math.max(0.0, 1.0 - (u * u)))
         const x = s * Math.cos(theta)
         const y = s * Math.sin(theta)
         const z = u
-        const radius = surfaceLike ? 6700000.0 : 20000000.0
-
-        // Jitter so points are not perfectly on a sphere.
-        const jitter = surfaceLike ? 8000.0 : 15000.0
-        arr[j + 0] = (x * radius) + ((Math.random() - 0.5) * jitter)
-        arr[j + 1] = (y * radius) + ((Math.random() - 0.5) * jitter)
-        arr[j + 2] = (z * radius) + ((Math.random() - 0.5) * jitter)
+        const thickness = cinematic ? 50000.0 : (surfaceLike ? 25000.0 : 40000.0)
+        const jitter = (Math.random() - 0.5) * thickness
+        const radius = baseRadius + jitter
+        arr[j + 0] = (x * radius)
+        arr[j + 1] = (y * radius)
+        arr[j + 2] = (z * radius)
         arr[j + 3] = 1.0
       }
       device.queue.writeBuffer(particleBuf, 0, arr)

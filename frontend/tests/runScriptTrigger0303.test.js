@@ -7,11 +7,11 @@ function read(file) {
   return fs.readFileSync(p, 'utf-8')
 }
 
-describe('0303 RUN SCRIPT trigger contracts', () => {
-  it('UnifiedArtifactsPanel exposes a RUN SCRIPT button and emits run-code', () => {
+describe('0303 HOT RELOAD trigger contracts', () => {
+  it('UnifiedArtifactsPanel exposes a HOT RELOAD button and emits run-code', () => {
     const s = read('../src/views/workbench/components/UnifiedArtifactsPanel.vue')
-    expect(s).toMatch(/RUN SCRIPT/)
-    expect(s).toMatch(/WIND PRESET/)
+    expect(s).toMatch(/HOT RELOAD/)
+    expect(s).not.toMatch(/WIND PRESET/)
     expect(s).toMatch(/defineEmits\(\[[^\]]*'run-code'[^\]]*\]\)/)
     expect(s).toMatch(/emit\('run-code'/)
   })

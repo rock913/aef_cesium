@@ -75,6 +75,7 @@
       <div class="middle-workspace" aria-label="Main Workspace">
         <aside class="left-rail glass-panel pointer-events-auto" aria-label="Unified Artifacts" v-show="!isImmersive">
           <UnifiedArtifactsPanel
+            ref="unifiedArtifacts"
             v-model:layers="layers"
             v-model:code="code"
             v-model:swipe-enabled="swipeEnabled"
@@ -157,8 +158,65 @@ import UnifiedArtifactsPanel from './views/workbench/components/UnifiedArtifacts
 import CopilotChatPanel from './views/workbench/components/CopilotChatPanel.vue'
 
 const engineRouter = ref(null)
+const unifiedArtifacts = ref(null)
 const copilotPanel = ref(null)
 const viewerReady = ref(false)
+
+function _extractTopologyDirectiveFromWgslSource(wgslSource) {
+  const s = String(wgslSource || '')
+  if (!s) return ''
+  // Allow explicit override in WGSL comments, e.g.:
+  //   // topology: line-list
+  //   /* topology: triangle-list */
+  // Scan early lines first (fast path), then fallback to whole string.
+  const head = s.split('\n').slice(0, 40).join('\n')
+  const re = /topology\s*:\s*(point-list|line-list|triangle-list)/i
+  const m = re.exec(head) || re.exec(s)
+  const v = String(m?.[1] || '').trim().toLowerCase()
+  return ['point-list', 'line-list', 'triangle-list'].includes(v) ? v : ''
+}
+
+function _inferTopologyFromWgslSource(wgslSource) {
+  const s = String(wgslSource || '')
+  if (!s) return ''
+  // Allow explicit override in comments.
+  const directive = _extractTopologyDirectiveFromWgslSource(s)
+  if (directive) return directive
+
+  // Heuristic: line-list shaders commonly use 2 vertices per segment/particle.
+  // Infer only when the module declares a vertex entrypoint.
+  if (!/@vertex\b/.test(s) && !/fn\s+vs_main\s*\(/.test(s)) return ''
+
+  // Common patterns:
+  //   pid = vid / 2u; side = vid % 2u;
+  //   pid = vid >> 1u; side = vid & 1u;
+  const builtinNames = []
+  try {
+    const re = /@builtin\s*\(\s*vertex_index\s*\)\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*u32/g
+    let m = null
+    while ((m = re.exec(s))) {
+      const name = String(m?.[1] || '').trim()
+      if (name) builtinNames.push(name)
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  const namesToTry = builtinNames.length ? builtinNames : ['vid', 'vertex_index', 'vertexIndex', 'vi']
+  for (const name of namesToTry) {
+    const ident = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const expr = `(?:\\b\\w+\\s*\\.\\s*)?${ident}`
+    const hasDiv2 = new RegExp(`${expr}\\s*\\/\\s*2u`, 'm').test(s)
+    const hasMod2 = new RegExp(`${expr}\\s*%\\s*2u`, 'm').test(s)
+    const hasShift1 = new RegExp(`${expr}\\s*>>\\s*1u`, 'm').test(s)
+    const hasAnd1 = new RegExp(`${expr}\\s*&\\s*1u`, 'm').test(s)
+    if ((hasDiv2 && hasMod2) || (hasShift1 && hasAnd1) || (hasDiv2 && hasAnd1) || (hasShift1 && hasMod2)) {
+      return 'line-list'
+    }
+  }
+
+  return ''
+}
 
 const researchStore = useResearchStore()
 const currentScale = researchStore.currentScale
@@ -176,7 +234,7 @@ const timelineIsLoading = ref(false)
 let _timelineTimer = null
 
 async function _ensureEarthTwinReady() {
-  // RUN SCRIPT is Cesium/WebGPU oriented in v7.2, so force earth+twin view.
+  // HOT RELOAD is Cesium/WebGPU oriented in v7.2, so force earth+twin view.
   try {
     ensureTabKind('twin')
   } catch (_) {
@@ -232,21 +290,23 @@ async function handleRunCode(codeContent) {
 
   const ready = await _ensureEarthTwinReady()
   if (!ready) {
-    theaterReport.value = '⚠️ Cesium 未就绪：请切到 Twin/Earth 后重试 RUN SCRIPT。'
+    theaterReport.value = '⚠️ Cesium 未就绪：请切到 Twin/Earth 后重试 HOT RELOAD。'
     return
   }
 
   // Prefer WGSL for Demo 13 + wind-field compute overlays.
   if (looksWgsl || (!looksGlsl && src.length > 0)) {
     try {
+      const inferred = _inferTopologyFromWgslSource(src)
       const res = await engineRouter.value?.executeDynamicWgsl?.({
         wgsl_compute_shader: src,
         particle_count: looksWind ? 220000 : 150000,
+        topology: inferred,
         preset: looksWind ? 'wind' : undefined,
       })
 
       if (!res) {
-        theaterReport.value = '⚠️ RUN SCRIPT 未生效：当前未挂载 Earth Twin（可能在 macro/micro）。'
+        theaterReport.value = '⚠️ HOT RELOAD 未生效：当前未挂载 Earth Twin（可能在 macro/micro）。'
       } else if (res?.ok === false) {
         theaterReport.value = `❌ WebGPU WGSL 执行失败: ${String(res?.reason || 'unknown')}`
       } else {
@@ -262,7 +322,11 @@ async function handleRunCode(codeContent) {
         const extraDbg = dbg ? ` debug=${dbg}` : ''
         const extraPc = Number.isFinite(pc) ? ` particles=${pc}` : ''
         const extraVc = Number.isFinite(vc) ? ` verts=${vc}` : ''
-        theaterReport.value = `✅ WebGPU WGSL 已执行（best-effort）${fallback}${extraMode}${extraTopo}${extraDbg}${pr}${extraPc}${extraVc}`
+        const hint =
+          !inferred && topo === 'point-list' && (/@vertex\b/.test(src) || /fn\s+vs_main\s*\(/.test(src))
+            ? '（提示：可在 WGSL 顶部加 // topology: line-list 强制线段）'
+            : ''
+        theaterReport.value = `✅ WebGPU WGSL 已执行（best-effort）${fallback}${extraMode}${extraTopo}${extraDbg}${pr}${extraPc}${extraVc}${hint}`
       }
     } catch (e) {
       theaterReport.value = `❌ WebGPU 执行异常: ${String(e?.message || e)}`
@@ -1438,6 +1502,14 @@ function applyCopilotEvents(events) {
         } catch (_) {
           // ignore
         }
+
+        // Surface the CODE & SCRIPT panel so users can see generated WGSL.
+        try {
+          unifiedArtifacts.value?.setTab?.('code')
+        } catch (_) {
+          // ignore
+        }
+
         // Ensure the Cesium Earth Twin is actually mounted.
         // (In macro/micro scales, Earth Twin is not mounted and WebGPU overlay won't render.)
         try {
@@ -1456,9 +1528,11 @@ function applyCopilotEvents(events) {
         }
 
         try {
+          const inferred = _inferTopologyFromWgslSource(wgsl)
           const res = await engineRouter.value?.executeDynamicWgsl?.({
             wgsl_compute_shader: wgsl,
             particle_count: args?.particle_count,
+            topology: args?.topology || inferred,
             preset: args?.preset,
             step_scale: args?.step_scale,
             seed: args?.seed,

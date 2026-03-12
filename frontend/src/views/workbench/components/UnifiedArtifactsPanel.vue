@@ -54,8 +54,7 @@
         <div class="code-head">
           <span class="code-title">EDITOR (WGSL/GLSL)</span>
           <div class="code-actions">
-            <button class="preset-btn" type="button" @click="onInsertWindPreset">WIND PRESET</button>
-            <button class="run-btn" type="button" @click="onRunCode">▶ RUN SCRIPT</button>
+            <button class="run-btn" type="button" @click="onRunCode">⟳ HOT RELOAD</button>
           </div>
         </div>
         <div class="code-editor">
@@ -98,6 +97,13 @@ const emit = defineEmits(['update:layers', 'update:code', 'update:swipeEnabled',
 
 const tab = ref('layers')
 
+function setTab(nextTab) {
+  const t = String(nextTab || '').trim().toLowerCase()
+  if (t === 'layers' || t === 'code' || t === 'charts' || t === 'reports') tab.value = t
+}
+
+defineExpose({ setTab })
+
 // UX: when WebGPU tool calls emit diagnostics, surface them immediately.
 watch(
   () => String(props.reportText || ''),
@@ -138,74 +144,6 @@ const codeModel = computed({
 function onRunCode() {
   try {
     emit('run-code', String(codeModel.value || ''))
-  } catch (_) {
-    // ignore
-  }
-}
-
-function onInsertWindPreset() {
-  // Compute-only WGSL snippet (EngineRouter will wrap/augment render entrypoints).
-  // Designed to be visually obvious with preset=wind (surface-like seeding + higher stepScale).
-  const code = `// WGSL compute body snippet: procedural wind on a sphere (demo-safe)
-// Requires bindings (group(0)): particles (binding(0) storage rw vec4 array), particles_ro (binding(3) storage read vec4 array), uParams (binding(2) vec4: t, stepScale, _, _)
-let i = gid.x;
-let n = arrayLength(&particles.data);
-if (i >= n) { return; }
-
-let t = uParams.x;
-let s = max(0.0, uParams.y);
-
-var p = particles.data[i];
-let r = length(p.xyz);
-if (r < 1.0) { return; }
-
-let up = normalize(p.xyz);
-let PI = 3.14159265;
-let TAU = 6.2831853;
-
-// NOTE: 'ref' is a reserved keyword in newer WGSL parsers.
-var axisRef = vec3<f32>(0.0, 0.0, 1.0);
-if (abs(up.z) > 0.9) { axisRef = vec3<f32>(0.0, 1.0, 0.0); }
-let east = normalize(cross(axisRef, up));
-let north = normalize(cross(up, east));
-
-// Build a cyclone-rich tangent flow in lon/lat space.
-let lat = asin(clamp(up.z, -1.0, 1.0));
-let lon = atan2(up.y, up.x);
-
-// Zonal jet bands + meanders.
-let jet = cos(lat * 6.0) * 1.25;
-let meander = sin(lon * 3.0 + t * 0.9 + lat * 2.0) * 0.65;
-
-// Two moving vortex centers (in lon/lat).
-let c1 = vec2<f32>(0.85 * sin(t * 0.35), 0.45 * sin(t * 0.27));
-let c2 = vec2<f32>(1.70 * cos(t * 0.23 + 1.0), -0.55 * cos(t * 0.19));
-
-var d1 = vec2<f32>(lon - c1.x, lat - c1.y);
-var d2 = vec2<f32>(lon - c2.x, lat - c2.y);
-
-// Wrap lon deltas to [-PI, PI] for continuity across the date line.
-d1.x = d1.x - select(0.0, TAU, d1.x > PI);
-d1.x = d1.x + select(0.0, TAU, d1.x < -PI);
-d2.x = d2.x - select(0.0, TAU, d2.x > PI);
-d2.x = d2.x + select(0.0, TAU, d2.x < -PI);
-
-let inv1 = 1.0 / (dot(d1, d1) + 0.07);
-let inv2 = 1.0 / (dot(d2, d2) + 0.06);
-let swirl1 = vec2<f32>(-d1.y, d1.x) * inv1 * 2.6;
-let swirl2 = vec2<f32>(-d2.y, d2.x) * inv2 * 2.2;
-
-let u = (jet + meander) + swirl1.x + swirl2.x;
-let v = (swirl1.y + swirl2.y) - sin(lat * 3.0) * 0.55;
-let vel = east * u + north * v;
-
-// Advect along tangent and re-project to a stable radius (cinematic shell).
-let adv = vel * (s * 80000.0);
-  p = vec4<f32>(normalize(p.xyz + adv) * 20000000.0, p.w);
-particles.data[i] = p;`;
-
-  try {
-    codeModel.value = code
   } catch (_) {
     // ignore
   }
@@ -284,6 +222,8 @@ function stringify(v) {
   flex-direction: column;
   gap: 10px;
   overflow: hidden;
+  /* CODE wants an IDE-like fill; avoid nested scrollbars. */
+  padding: 0;
 }
 
 .code-head {
@@ -291,6 +231,7 @@ function stringify(v) {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding: 10px 10px 0 10px;
 }
 
 .code-title {
@@ -304,22 +245,6 @@ function stringify(v) {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.preset-btn {
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.preset-btn:hover {
-  border-color: rgba(0, 240, 255, 0.28);
-  background: rgba(0, 240, 255, 0.08);
 }
 
 .run-btn {
@@ -340,10 +265,22 @@ function stringify(v) {
 
 .code-editor {
   flex: 1;
-  min-height: 240px;
+  min-height: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.10);
+  margin: 0 10px 10px 10px;
+}
+
+/* Let Monaco shrink/grow with the panel without forcing parent scroll. */
+.code-editor :deep(.monaco-shell) {
+  height: 100%;
+  min-height: 0;
+}
+
+.code-editor :deep(.host),
+.code-editor :deep(.fallback) {
+  min-height: 0;
 }
 
 .swipe-box {
