@@ -53,6 +53,8 @@ let _macroRedshiftPending = null
 let _macroRedshiftMaxDepth = 42
 let _macroRedshiftScale = 0
 
+let _pendingAstroAction = null
+
 let _inpaintMesh = null
 let _inpaintUniforms = null
 let _inpaintActive = false
@@ -820,6 +822,52 @@ function initEngine() {
     bloomPass = null
   }
 
+  // If a deterministic OneAstronomy action was dispatched before ThreeTwin was ready,
+  // attempt to run it now (e.g., first click on a preset that also switches scale).
+  try {
+    _flushPendingAstroAction?.()
+  } catch (_) {
+    // ignore
+  }
+
+
+function _tryRunAstroAction(action) {
+  if (!action || typeof action !== 'object') return false
+  const type = String(action?.type || '').trim()
+
+  // Stop should work regardless of the current scale.
+  if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
+    try {
+      _stopModalInpaint()
+    } catch (_) {
+      // ignore
+    }
+    return true
+  }
+
+  // Stage 2: run only in macro scene.
+  const scale = String(store.currentScale.value || '').trim().toLowerCase()
+  if (scale !== 'macro') return false
+
+  if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
+    if (!macroMesh) return false
+    void _executeRedshiftBurst(action?.payload || null)
+    return true
+  }
+
+  if (type === ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT) {
+    if (!_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return false
+    _startModalInpaint(action?.payload || null)
+    return true
+  }
+
+  return false
+}
+
+function _flushPendingAstroAction() {
+  if (!_pendingAstroAction) return
+  if (_tryRunAstroAction(_pendingAstroAction)) _pendingAstroAction = null
+}
   onResize = () => {
     if (!renderer || !camera || !container.value) return
     const w = container.value.clientWidth || window.innerWidth
@@ -921,6 +969,15 @@ watch(
     }
 
     activeScene = next === 'micro' ? microScene : macroScene
+
+    // If a deterministic action arrived before macro scene was active, run it now.
+    if (String(next || '').trim().toLowerCase() === 'macro') {
+      try {
+        _flushPendingAstroAction()
+      } catch (_) {
+        // ignore
+      }
+    }
   }
 )
 
@@ -929,24 +986,11 @@ watch(
   (id) => {
     if (!id) return
     const action = astroStore.currentAgentAction.value
-    const type = String(action?.type || '').trim()
-
-    // Stage 2: run only in macro scene.
-    const scale = String(store.currentScale.value || '').trim().toLowerCase()
-    if (scale !== 'macro') return
-
-    if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
-      void _executeRedshiftBurst(action?.payload || null)
-      return
-    }
-
-    if (type === ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT) {
-      _startModalInpaint(action?.payload || null)
-      return
-    }
-
-    if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
-      _stopModalInpaint()
+    try {
+      const ran = _tryRunAstroAction(action)
+      if (!ran) _pendingAstroAction = action
+    } catch (_) {
+      _pendingAstroAction = action
     }
   },
   { immediate: true }
