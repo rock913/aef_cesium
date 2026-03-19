@@ -248,7 +248,17 @@ function applyPreset(p) {
     if (prompt) {
       text.value = prompt
       submit()
+      return
     }
+  } catch (_) {
+    // ignore
+  }
+
+  // Local deterministic presets may have an empty prompt: still close the palette
+  // to provide immediate feedback.
+  try {
+    paletteOpen.value = false
+    composerExpanded.value = false
   } catch (_) {
     // ignore
   }

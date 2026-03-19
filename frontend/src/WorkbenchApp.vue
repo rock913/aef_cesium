@@ -745,6 +745,74 @@ const chatHistory = ref([
   },
 ])
 
+let _oneAstroTimer = null
+
+function _appendChat(role, content) {
+  const text = String(content || '').trim()
+  if (!text) return
+  try {
+    chatHistory.value = [...(chatHistory.value || []), { id: `${role[0]}:${Date.now()}`, role, content: text }]
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _scrollChatBottomSoon() {
+  try {
+    nextTick(() => {
+      try {
+        copilotPanel.value?.scrollToBottom?.({ force: true })
+      } catch (_) {
+        // ignore
+      }
+    })
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _scheduleOneAstroAction({ label, action }) {
+  try {
+    if (_oneAstroTimer) {
+      clearTimeout(_oneAstroTimer)
+      _oneAstroTimer = null
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Visual feedback: avoid the “no response” feeling.
+  _appendChat('user', label || 'Run OneAstronomy demo')
+  _appendChat('assistant', 'Switching to Sky (macro) and preparing the astronomy pipeline…')
+  _scrollChatBottomSoon()
+
+  // Delay dispatch slightly to let the crossfade + Three init settle.
+  _oneAstroTimer = setTimeout(() => {
+    try {
+      const actionId = astroStore.dispatchAgentAction(action)
+      theaterReport.value = `✅ OneAstronomy action dispatched (#${actionId}).`
+      _appendChat('assistant', 'Astronomy action dispatched. If the scene is still transitioning, it will auto-run as soon as macro is ready.')
+      _scrollChatBottomSoon()
+
+      // Optional safety retry: if nothing else happened, re-dispatch once.
+      setTimeout(() => {
+        try {
+          const stillSame = astroStore.currentAgentAction.value?.actionId === actionId
+          const busy = !!astroStore.aionModelState.value?.isGenerating
+          if (!busy && stillSame && String(researchStore.currentScale.value || '').toLowerCase() === 'macro') {
+            astroStore.dispatchAgentAction({ ...action, meta: { ...(action.meta || {}), retry: 1 } })
+          }
+        } catch (_) {
+          // ignore
+        }
+      }, 900)
+    } catch (_) {
+      _appendChat('assistant', 'Failed to dispatch OneAstronomy action. Please check console logs.')
+      _scrollChatBottomSoon()
+    }
+  }, 850)
+}
+
 const openTabs = ref([
   { id: 'twin', title: 'Twin View', kind: 'twin', closable: false },
   { id: 'table-1', title: 'Data Table', kind: 'table', closable: true },
@@ -1759,27 +1827,19 @@ function onCopilotSelectPreset(preset) {
   // Stage 2: fire deterministic macro actions from presets (no buttons on canvas).
   try {
     if (id.includes('oneastro_redshift')) {
-      nextTick(() => {
-        try {
-          astroStore.dispatchAgentAction({
-            type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION,
-            payload: { maxDepth: 52 },
-          })
-          theaterReport.value = '✅ OneAstronomy: Demo 1 红移拉伸已触发（macro）。'
-        } catch (_) {
-          // ignore
-        }
+      _scheduleOneAstroAction({
+        label: preset?.label || '[v7.5] OneAstronomy · Redshift Burst (Demo 1)',
+        action: {
+          type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION,
+          payload: { maxDepth: 52 },
+        },
       })
     }
 
     if (id.includes('oneastro_inpaint')) {
-      nextTick(() => {
-        try {
-          astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT, payload: null })
-          theaterReport.value = '✅ OneAstronomy: Demo 3 模态 Inpaint 已开启。请在画布点击触发扫描扩散。'
-        } catch (_) {
-          // ignore
-        }
+      _scheduleOneAstroAction({
+        label: preset?.label || '[v7.5] OneAstronomy · Modal Inpaint (Demo 3)',
+        action: { type: ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT, payload: null },
       })
     }
   } catch (_) {
