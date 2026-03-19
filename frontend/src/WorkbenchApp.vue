@@ -671,7 +671,7 @@ const demoPresets = Object.freeze([
   },
 ])
 
-const copilotPresets = ref([
+const LOCAL_COPILOT_PRESETS = Object.freeze([
   {
     id: 'demo:yuhang_audit',
     label: '[演示] 余杭城建审计',
@@ -703,6 +703,29 @@ const copilotPresets = ref([
     prompt: '切到 Sky(macro)，进入模态 inpaint，并提示用户点击画布触发扫描线扩散。'
   },
 ])
+
+const copilotPresets = ref([...(LOCAL_COPILOT_PRESETS || [])])
+
+function _mergeCopilotPresets(remotePresets) {
+  const remote = Array.isArray(remotePresets) ? remotePresets : []
+  const local = Array.isArray(LOCAL_COPILOT_PRESETS) ? [...LOCAL_COPILOT_PRESETS] : []
+
+  const seen = new Set()
+  const out = []
+
+  const pushUnique = (p) => {
+    const id = String(p?.id || '').trim().toLowerCase()
+    if (!id || seen.has(id)) return
+    seen.add(id)
+    out.push(p)
+  }
+
+  // Prefer remote order (team-configurable), but never drop local demo gates.
+  for (const p of remote) pushUnique(p)
+  for (const p of local) pushUnique(p)
+
+  return out
+}
 
 const copilotEvents = ref([])
 
@@ -1961,7 +1984,7 @@ onMounted(() => {
     try {
       const prompts = await apiService.listCopilotPrompts()
       if (Array.isArray(prompts) && prompts.length) {
-        copilotPresets.value = prompts
+        copilotPresets.value = _mergeCopilotPresets(prompts)
       }
     } catch (_) {
       // ignore (keep local defaults)
