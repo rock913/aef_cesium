@@ -31,4 +31,14 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('100000')
     expect(s).toContain('2400')
   })
+
+  it('wires OneAstronomy stage2 actions (redshift + modal inpaint)', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    expect(s).toContain('useAstroStore')
+    expect(s).toContain('ASTRO_AGENT_ACTION_TYPES')
+    expect(s).toContain('EXECUTE_REDSHIFT_PREDICTION')
+    expect(s).toContain('START_MODAL_INPAINT')
+    expect(s).toContain('STOP_MODAL_INPAINT')
+  })
 })

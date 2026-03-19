@@ -147,6 +147,7 @@ import { applyCopilotArtifacts } from './utils/copilotArtifacts.js'
 import { apiService } from './services/api.js'
 import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
+import { ASTRO_AGENT_ACTION_TYPES, useAstroStore } from './stores/astroStore.js'
 import { TaskQueue } from './utils/taskQueue.js'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
 import SwipeHUD from './views/workbench/components/SwipeHUD.vue'
@@ -161,6 +162,8 @@ const engineRouter = ref(null)
 const unifiedArtifacts = ref(null)
 const copilotPanel = ref(null)
 const viewerReady = ref(false)
+
+const astroStore = useAstroStore()
 
 function _extractTopologyDirectiveFromWgslSource(wgslSource) {
   const s = String(wgslSource || '')
@@ -265,6 +268,43 @@ async function handleRunCode(codeContent) {
   const src = String(codeContent || '')
   if (!src.trim()) return
   const lc = src.toLowerCase()
+
+  // Stage 2 (OneAstronomy macro): allow a no-UI command channel via the editor.
+  // Examples:
+  // - "astro redshift" / "redshift"
+  // - "astro inpaint start" / "inpaint start"
+  // - "astro inpaint stop" / "inpaint stop"
+  try {
+    const scale = String(researchStore.currentScale.value || '').trim().toLowerCase()
+    if (scale === 'macro') {
+      const wantsRedshift = /\bredshift\b|execute_redshift_prediction|oneastronomy\s+redshift/i.test(src)
+      const wantsInpaintStart = /(modal\s+inpaint|\binpaint\b).*\b(start|on)\b/i.test(src)
+      const wantsInpaintStop = /(modal\s+inpaint|\binpaint\b).*\b(stop|off)\b/i.test(src)
+
+      if (wantsRedshift) {
+        astroStore.dispatchAgentAction({
+          type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION,
+          payload: { maxDepth: 52 },
+        })
+        theaterReport.value = '✅ OneAstronomy: 已触发 Demo 1 红移拉伸（macro）。'
+        return
+      }
+
+      if (wantsInpaintStart) {
+        astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT, payload: null })
+        theaterReport.value = '✅ OneAstronomy: 已进入 Demo 3 模态 Inpaint。请在画布点击选定扫描中心。'
+        return
+      }
+
+      if (wantsInpaintStop) {
+        astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT, payload: null })
+        theaterReport.value = '✅ OneAstronomy: 已退出 Demo 3 模态 Inpaint。'
+        return
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
 
   const looksWind =
     lc.includes('wind') ||
@@ -651,6 +691,16 @@ const copilotPresets = ref([
     id: 'demo:wormhole_micro',
     label: '[演示] 宏微虫洞跃迁',
     prompt: '触发虫洞动画并切换到 micro，生成 SiO2 分子晶格。'
+  },
+  {
+    id: 'demo:oneastro_redshift',
+    label: '[v7.5] OneAstronomy · Redshift Burst (Demo 1)',
+    prompt: '切到 Sky(macro)，执行红移预测并触发红移拉伸动画。'
+  },
+  {
+    id: 'demo:oneastro_inpaint',
+    label: '[v7.5] OneAstronomy · Modal Inpaint (Demo 3)',
+    prompt: '切到 Sky(macro)，进入模态 inpaint，并提示用户点击画布触发扫描线扩散。'
   },
 ])
 
@@ -1673,6 +1723,38 @@ function onCopilotSelectPreset(preset) {
   else if (id.includes('talatan')) setContextScale('talatan', 'earth')
   else if (id.includes('wind') || id.includes('gfs') || id.includes('glsl')) setContextScale('global', 'earth')
   else if (id.includes('wormhole') || id.includes('micro')) setContextScale(contextId.value || 'poyang', 'micro')
+  else if (id.includes('oneastro') || id.includes('astronomy') || id.includes('redshift') || id.includes('inpaint'))
+    setContextScale(contextId.value || 'poyang', 'macro')
+
+  // Stage 2: fire deterministic macro actions from presets (no buttons on canvas).
+  try {
+    if (id.includes('oneastro_redshift')) {
+      nextTick(() => {
+        try {
+          astroStore.dispatchAgentAction({
+            type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION,
+            payload: { maxDepth: 52 },
+          })
+          theaterReport.value = '✅ OneAstronomy: Demo 1 红移拉伸已触发（macro）。'
+        } catch (_) {
+          // ignore
+        }
+      })
+    }
+
+    if (id.includes('oneastro_inpaint')) {
+      nextTick(() => {
+        try {
+          astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT, payload: null })
+          theaterReport.value = '✅ OneAstronomy: Demo 3 模态 Inpaint 已开启。请在画布点击触发扫描扩散。'
+        } catch (_) {
+          // ignore
+        }
+      })
+    }
+  } catch (_) {
+    // ignore
+  }
 
   try {
     window.sessionStorage?.setItem?.('z2x:lastContext', contextId.value)

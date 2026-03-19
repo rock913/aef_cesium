@@ -11,6 +11,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import gsap from 'gsap'
 import { useResearchStore } from '../../../stores/researchStore.js'
+import { ASTRO_AGENT_ACTION_TYPES, useAstroStore } from '../../../stores/astroStore.js'
 import { disposeThreeEngine } from './threeDispose.js'
 import { executeQuantumDive } from './quantumDive.js'
 import { createBloomPipeline, updateBloomParams } from './threePostprocessing.js'
@@ -24,6 +25,7 @@ const props = defineProps({
 
 const container = ref(null)
 const store = useResearchStore()
+const astroStore = useAstroStore()
 
 let renderer = null
 let camera = null
@@ -44,6 +46,21 @@ let microOMesh = null
 let microBondLines = null
 let microMaterial = null
 let microMaterialO = null
+
+let _macroRedshiftTween = null
+let _macroRedshiftShader = null
+let _macroRedshiftPending = null
+let _macroRedshiftMaxDepth = 42
+let _macroRedshiftScale = 0
+
+let _inpaintMesh = null
+let _inpaintUniforms = null
+let _inpaintActive = false
+let _inpaintClickHandler = null
+let _inpaintRadiusTween = null
+let _inpaintTime = 0
+const _inpaintRaycaster = new THREE.Raycaster()
+const _inpaintMouse = new THREE.Vector2()
 
 const MICRO_MAX_INSTANCES = 12000
 
@@ -71,12 +88,29 @@ function _mulberry32(seed) {
 let _macroSpinTween = null
 
 function _buildMacroScene(scene) {
-  // Minimal procedural galaxy using InstancedMesh (size tuned for dev; can scale up later).
+  // Minimal procedural cosmic web using InstancedMesh.
+  // Stage 2 Demo 1: add per-instance redshift attribute + uniform-driven stretch along +Z.
   const count = 100000
   const geometry = new THREE.SphereGeometry(0.02, 4, 4)
+
   const material = new THREE.MeshBasicMaterial({ color: 0xffffff })
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.u_redshift_scale = { value: Number(_macroRedshiftScale) || 0 }
+    shader.uniforms.u_max_depth = { value: Number(_macroRedshiftMaxDepth) || 42 }
+
+    shader.vertexShader = `attribute float aRedshift;\nuniform float u_redshift_scale;\nuniform float u_max_depth;\n${shader.vertexShader}`
+    shader.vertexShader = shader.vertexShader.replace(
+      'vec3 transformed = vec3( position );',
+      'vec3 transformed = vec3( position );\ntransformed.z += aRedshift * u_redshift_scale * u_max_depth;'
+    )
+
+    _macroRedshiftShader = shader
+  }
+  material.needsUpdate = true
+
   const mesh = markRaw(new THREE.InstancedMesh(geometry, material, count))
 
+  const redshift = new Float32Array(count)
   const tmp = new THREE.Object3D()
   for (let i = 0; i < count; i += 1) {
     const t = i / count
@@ -85,10 +119,304 @@ function _buildMacroScene(scene) {
     tmp.position.set(Math.cos(angle) * radius, (t - 0.5) * 1.2, Math.sin(angle) * radius)
     tmp.updateMatrix()
     mesh.setMatrixAt(i, tmp.matrix)
+
+    // Mock redshift values in [0,1]; later replaced by AION output.
+    redshift[i] = Math.min(1, Math.max(0, t + (Math.sin(i * 0.015) * 0.08)))
+  }
+
+  try {
+    mesh.geometry.setAttribute('aRedshift', new THREE.InstancedBufferAttribute(redshift, 1))
+  } catch (_) {
+    // ignore
   }
 
   scene.add(mesh)
   macroMesh = mesh
+
+  // Stage 2 Demo 3: modal inpaint shader plane (disabled by default; action-driven).
+  try {
+    const baseTex = _makeNebulaTexture({
+      w: 768,
+      h: 512,
+      palette: ['#07152e', '#0b2a5a', '#7dd3fc', '#a78bfa'],
+      bloomBias: 0.35,
+    })
+    const predTex = _makeNebulaTexture({
+      w: 768,
+      h: 512,
+      palette: ['#06010f', '#3b0764', '#ec4899', '#fef3c7'],
+      bloomBias: 0.85,
+    })
+
+    _inpaintUniforms = {
+      u_texA: { value: baseTex },
+      u_texB: { value: predTex },
+      u_center: { value: new THREE.Vector2(0.5, 0.5) },
+      u_radius: { value: 0.0 },
+      u_edge: { value: 0.06 },
+      u_time: { value: 0.0 },
+      u_enabled: { value: 0.0 },
+    }
+
+    const inpaintMat = new THREE.ShaderMaterial({
+      uniforms: _inpaintUniforms,
+      transparent: true,
+      depthWrite: false,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+        uniform sampler2D u_texA;
+        uniform sampler2D u_texB;
+        uniform vec2 u_center;
+        uniform float u_radius;
+        uniform float u_edge;
+        uniform float u_time;
+        uniform float u_enabled;
+        varying vec2 vUv;
+
+        float hash21(vec2 p) {
+          p = fract(p * vec2(123.34, 345.45));
+          p += dot(p, p + 34.345);
+          return fract(p.x * p.y);
+        }
+
+        void main() {
+          vec4 a = texture2D(u_texA, vUv);
+          vec4 b = texture2D(u_texB, vUv);
+
+          float d = distance(vUv, u_center);
+          float edge = max(0.002, u_edge);
+          float mask = smoothstep(u_radius + edge, u_radius - edge, d);
+
+          // Scanline ring + noisy boundary to avoid a hard cut.
+          float ring = smoothstep(0.02, 0.0, abs(d - u_radius));
+          float n = hash21(vUv * 1200.0 + u_time * 0.13);
+          float spark = ring * (0.55 + 0.45 * n);
+
+          vec4 mixed = mix(a, b, mask);
+          mixed.rgb += spark * vec3(0.35, 0.85, 1.25);
+
+          float alpha = clamp(u_enabled, 0.0, 1.0);
+          gl_FragColor = vec4(mixed.rgb, alpha);
+        }
+      `,
+    })
+
+    const inpaintGeo = new THREE.PlaneGeometry(32, 18, 1, 1)
+    _inpaintMesh = markRaw(new THREE.Mesh(inpaintGeo, inpaintMat))
+    _inpaintMesh.visible = false
+    _inpaintMesh.renderOrder = 999
+    scene.add(_inpaintMesh)
+  } catch (_) {
+    _inpaintMesh = null
+    _inpaintUniforms = null
+  }
+}
+
+function _makeNebulaTexture({ w = 512, h = 512, palette = [], bloomBias = 0.5 } = {}) {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(64, Math.floor(w))
+  canvas.height = Math.max(64, Math.floor(h))
+  const ctx = canvas.getContext('2d')
+
+  const p = Array.isArray(palette) && palette.length ? palette : ['#050816', '#0b2a5a', '#7dd3fc', '#a78bfa']
+  const g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
+  for (let i = 0; i < p.length; i += 1) {
+    g.addColorStop(i / Math.max(1, p.length - 1), p[i])
+  }
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  // Add soft blobs + stars (procedural; no external assets).
+  for (let i = 0; i < 140; i += 1) {
+    const x = Math.random() * canvas.width
+    const y = Math.random() * canvas.height
+    const r = 18 + Math.random() * 140
+    const a = (0.03 + Math.random() * 0.12) * (0.5 + bloomBias)
+    const blob = ctx.createRadialGradient(x, y, 0, x, y, r)
+    blob.addColorStop(0, `rgba(255,255,255,${a})`)
+    blob.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = blob
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  for (let i = 0; i < 2600; i += 1) {
+    const x = (Math.random() * canvas.width) | 0
+    const y = (Math.random() * canvas.height) | 0
+    const v = 180 + Math.random() * 75
+    const a = (0.12 + Math.random() * 0.65) * (0.4 + bloomBias)
+    ctx.fillStyle = `rgba(${v},${v},${v},${a})`
+    ctx.fillRect(x, y, 1, 1)
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.needsUpdate = true
+  tex.minFilter = THREE.LinearFilter
+  tex.magFilter = THREE.LinearFilter
+  tex.generateMipmaps = true
+  return tex
+}
+
+function _setMacroRedshiftScale(v) {
+  _macroRedshiftScale = Math.max(0, Math.min(1, Number(v) || 0))
+  if (_macroRedshiftShader?.uniforms?.u_redshift_scale) {
+    _macroRedshiftShader.uniforms.u_redshift_scale.value = _macroRedshiftScale
+    return
+  }
+  _macroRedshiftPending = _macroRedshiftScale
+}
+
+function _setMacroRedshiftMaxDepth(v) {
+  const n = Number(v)
+  _macroRedshiftMaxDepth = Number.isFinite(n) ? Math.max(1, Math.min(240, n)) : 42
+  if (_macroRedshiftShader?.uniforms?.u_max_depth) {
+    _macroRedshiftShader.uniforms.u_max_depth.value = _macroRedshiftMaxDepth
+  }
+}
+
+async function _executeRedshiftBurst(payload = null) {
+  if (!macroMesh) return
+
+  try {
+    _macroRedshiftTween?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    astroStore.setGenerating(true)
+  } catch (_) {
+    // ignore
+  }
+
+  _setMacroRedshiftMaxDepth(payload?.maxDepth)
+
+  const state = { v: _macroRedshiftScale }
+  await new Promise((resolve) => {
+    _macroRedshiftTween = gsap.to(state, {
+      v: 1,
+      duration: 1.35,
+      ease: 'power2.out',
+      onUpdate: () => _setMacroRedshiftScale(state.v),
+      onComplete: resolve,
+    })
+  })
+
+  try {
+    astroStore.setGenerating(false)
+  } catch (_) {
+    // ignore
+  }
+
+  // Add a subtle bloom lift during the burst.
+  try {
+    const u = bloomPass
+    if (u) {
+      gsap.to(u, { strength: Math.min(2.2, (u.strength || 1.1) + 0.35), duration: 0.35, ease: 'power2.out' })
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _startModalInpaint() {
+  if (!_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return
+
+  _inpaintActive = true
+  _inpaintMesh.visible = true
+  _inpaintUniforms.u_enabled.value = 1.0
+  _inpaintUniforms.u_radius.value = 0.0
+
+  if (_inpaintClickHandler) return
+  _inpaintClickHandler = (ev) => {
+    try {
+      if (!_inpaintActive || !_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      const x = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1
+      const y = -(((ev.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1)
+
+      _inpaintMouse.set(x, y)
+      _inpaintRaycaster.setFromCamera(_inpaintMouse, camera)
+      const hits = _inpaintRaycaster.intersectObject(_inpaintMesh, false)
+      const hit = hits && hits.length ? hits[0] : null
+      if (!hit?.uv) return
+
+      _inpaintUniforms.u_center.value.set(hit.uv.x, hit.uv.y)
+      _inpaintUniforms.u_radius.value = 0.0
+
+      try {
+        _inpaintRadiusTween?.kill?.()
+      } catch (_) {
+        // ignore
+      }
+
+      const s = { r: 0 }
+      _inpaintRadiusTween = gsap.to(s, {
+        r: 0.55,
+        duration: 1.1,
+        ease: 'power2.out',
+        onUpdate: () => {
+          try {
+            _inpaintUniforms.u_radius.value = s.r
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  try {
+    renderer.domElement.addEventListener('pointerdown', _inpaintClickHandler, { passive: true })
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _stopModalInpaint() {
+  _inpaintActive = false
+  try {
+    _inpaintRadiusTween?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+
+  if (_inpaintUniforms) {
+    try {
+      _inpaintUniforms.u_enabled.value = 0.0
+      _inpaintUniforms.u_radius.value = 0.0
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (_inpaintMesh) {
+    try {
+      _inpaintMesh.visible = false
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (_inpaintClickHandler && renderer?.domElement) {
+    try {
+      renderer.domElement.removeEventListener('pointerdown', _inpaintClickHandler)
+    } catch (_) {
+      // ignore
+    }
+  }
+  _inpaintClickHandler = null
 }
 
 function _buildMicroScene(scene) {
@@ -517,6 +845,33 @@ function animate() {
   }
   try {
     if (renderPass) renderPass.scene = activeScene
+
+    if (_macroRedshiftPending !== null && _macroRedshiftShader?.uniforms?.u_redshift_scale) {
+      _macroRedshiftShader.uniforms.u_redshift_scale.value = _macroRedshiftPending
+      _macroRedshiftPending = null
+    }
+
+    // Keep the inpaint plane in front of the camera (screen-aligned quad).
+    if (_inpaintActive && _inpaintMesh && camera) {
+      const fwd = new THREE.Vector3(0, 0, -1)
+      try {
+        fwd.applyQuaternion(camera.quaternion)
+      } catch (_) {
+        // ignore
+      }
+      try {
+        _inpaintMesh.position.copy(camera.position).add(fwd.multiplyScalar(12))
+        _inpaintMesh.quaternion.copy(camera.quaternion)
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    if (_inpaintUniforms) {
+      _inpaintTime += 1 / 60
+      _inpaintUniforms.u_time.value = _inpaintTime
+    }
+
     if (composer) composer.render()
     else renderer?.render?.(activeScene, camera)
   } catch (_) {
@@ -527,6 +882,14 @@ function animate() {
 onMounted(() => {
   initEngine()
   _applyThreeLayerMapping(props.layers)
+
+  // Dev-only manual testing hook (no production dependency).
+  try {
+    if (import.meta?.env?.DEV) window.__oneearthAstro = astroStore
+  } catch (_) {
+    // ignore
+  }
+
   animate()
   emit('ready')
 })
@@ -561,6 +924,33 @@ watch(
   }
 )
 
+watch(
+  () => astroStore.currentAgentAction.value?.actionId,
+  (id) => {
+    if (!id) return
+    const action = astroStore.currentAgentAction.value
+    const type = String(action?.type || '').trim()
+
+    // Stage 2: run only in macro scene.
+    const scale = String(store.currentScale.value || '').trim().toLowerCase()
+    if (scale !== 'macro') return
+
+    if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
+      void _executeRedshiftBurst(action?.payload || null)
+      return
+    }
+
+    if (type === ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT) {
+      _startModalInpaint(action?.payload || null)
+      return
+    }
+
+    if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
+      _stopModalInpaint()
+    }
+  }
+)
+
 defineExpose({
   highlightMacroCluster,
   spinMacroCamera,
@@ -575,11 +965,17 @@ onBeforeUnmount(() => {
     // ignore
   }
 
+  try {
+    _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+
   disposeThreeEngine({
     renderer,
     controls,
     scenes: [macroScene, microScene],
-    disposables: [composer, bloomPass],
+    disposables: [composer, bloomPass, _inpaintMesh?.material, _inpaintMesh?.geometry],
     animationId,
     cancelAnimationFrameFn: cancelAnimationFrame,
   })
@@ -601,6 +997,17 @@ onBeforeUnmount(() => {
   microBondLines = null
   microMaterial = null
   microMaterialO = null
+
+  _macroRedshiftTween = null
+  _macroRedshiftShader = null
+  _macroRedshiftPending = null
+  _macroRedshiftScale = 0
+
+  _inpaintMesh = null
+  _inpaintUniforms = null
+  _inpaintActive = false
+  _inpaintClickHandler = null
+  _inpaintRadiusTween = null
 })
 </script>
 

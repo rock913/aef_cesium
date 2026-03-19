@@ -1,10 +1,11 @@
 Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范
 
-状态：M1 In Progress | 阶段：Phase 2.0 (Deep Space & WebGPU)
+状态：Stage 2 Complete | 阶段：Phase 2.0 (Deep Space & WebGPU)
 
 最近更新：
 - 2026-03-19：M0 已提交并推送到 zero2x-v7.5（AI_CONTEXT.md、astroStore.js、v7.5 文档口径统一）
 - 2026-03-19：M1 启动（astronomy 工具函数、EngineScaleRouter 双引擎常驻叠画 + opacity 交接、earth→deep space 相机同步）
+- 2026-03-19：阶段 2 完成（Demo 1 红移拉伸：InstancedMesh + aRedshift + uniform 动画；Demo 3 模态 Inpaint：shader 扫描线扩散 + 点击选点）
 
 1. 架构统合：双模态引擎底座的无缝切换
 
