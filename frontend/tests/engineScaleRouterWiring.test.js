@@ -7,14 +7,15 @@ function read(file) {
   return fs.readFileSync(p, 'utf-8')
 }
 
-describe('EngineScaleRouter wiring (v7 mutual exclusivity)', () => {
-  it('uses v-if/v-else mutual mount between Cesium and Three', () => {
+describe('EngineScaleRouter wiring (v7.5 dual engine overlay)', () => {
+  it('keeps Cesium + Three mounted and crossfades visibility', () => {
     const s = read('../src/views/workbench/EngineScaleRouter.vue')
 
-    expect(s).toContain("currentScale")
-    expect(s).toContain("v-if=\"isEarth\"")
-    expect(s).toContain("v-else")
+    expect(s).toContain('currentScale')
     expect(s).toContain('ThreeTwin')
     expect(s).toContain('EngineRouter')
+    expect(s).toContain('earthWrap')
+    expect(s).toContain('threeWrap')
+    expect(s).toContain('applyEngineVisibility')
   })
 })

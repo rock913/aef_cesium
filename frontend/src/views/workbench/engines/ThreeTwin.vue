@@ -565,6 +565,7 @@ defineExpose({
   highlightMacroCluster,
   spinMacroCamera,
   rebuildMicroLattice,
+  getCamera: () => camera,
 })
 
 onBeforeUnmount(() => {

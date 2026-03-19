@@ -1,29 +1,28 @@
 <template>
   <div class="engine-scale-router absolute inset-0 z-0 bg-black">
-    <EngineRouter
-      v-if="isEarth"
-      ref="earthTwin"
-      class="absolute inset-0"
-      :scenario="scenario"
-      :layers="earthLayers"
-      @viewer-ready="$emit('viewer-ready', $event)"
-    />
+    <div ref="earthWrap" class="engine-wrap absolute inset-0">
+      <EngineRouter
+        ref="earthTwin"
+        class="absolute inset-0"
+        :scenario="scenario"
+        :layers="earthLayers"
+        @viewer-ready="onCesiumViewerReady"
+      />
+    </div>
 
-    <ThreeTwin
-      v-else
-      ref="threeTwin"
-      class="absolute inset-0"
-      :layers="layers"
-      @ready="onThreeReady"
-    />
+    <div ref="threeWrap" class="engine-wrap absolute inset-0">
+      <ThreeTwin ref="threeTwin" class="absolute inset-0" :layers="layers" @ready="onThreeReady" />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { gsap } from 'gsap'
 import { useResearchStore } from '../../stores/researchStore.js'
 import EngineRouter from './EngineRouter.vue'
 import ThreeTwin from './engines/ThreeTwin.vue'
+import { syncCesiumToThreeCamera } from '../../utils/astronomy/engineHandover.js'
 
 const props = defineProps({
   scenario: { type: Object, default: null },
@@ -33,7 +32,8 @@ const props = defineProps({
 const emit = defineEmits(['viewer-ready'])
 
 const store = useResearchStore()
-const isEarth = computed(() => store.currentScale.value === 'earth')
+const currentScale = computed(() => store.currentScale.value)
+const isEarth = computed(() => currentScale.value === 'earth')
 
 const earthLayers = computed(() => {
   const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-imagery', 'ai-vector'])
@@ -43,6 +43,51 @@ const earthLayers = computed(() => {
 const earthTwin = ref(null)
 const threeTwin = ref(null)
 
+const earthWrap = ref(null)
+const threeWrap = ref(null)
+
+const cesiumViewerRef = ref(null)
+
+function applyEngineVisibility({ earthActive, instant = false } = {}) {
+  if (!earthWrap.value || !threeWrap.value) return
+
+  const duration = instant ? 0 : 0.65
+  const ease = 'power2.out'
+
+  earthWrap.value.style.pointerEvents = earthActive ? 'auto' : 'none'
+  threeWrap.value.style.pointerEvents = earthActive ? 'none' : 'auto'
+
+  gsap.to(earthWrap.value, { opacity: earthActive ? 1 : 0, duration, ease })
+  gsap.to(threeWrap.value, { opacity: earthActive ? 0 : 1, duration, ease })
+}
+
+function tryHandoverEarthToThree() {
+  try {
+    const viewer =
+      cesiumViewerRef.value || earthTwin.value?.cesiumViewerInstance || earthTwin.value?.cesiumViewer || null
+    const cesiumCamera = viewer?.camera
+    const threeCamera = threeTwin.value?.getCamera?.() || null
+    if (!cesiumCamera || !threeCamera) return
+    syncCesiumToThreeCamera(cesiumCamera, threeCamera)
+  } catch (_) {
+    // ignore
+  }
+}
+
+function onCesiumViewerReady(viewer) {
+  try {
+    cesiumViewerRef.value = viewer
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    emit('viewer-ready', viewer)
+  } catch (_) {
+    // ignore
+  }
+}
+
 function onThreeReady() {
   try {
     emit('viewer-ready')
@@ -50,6 +95,27 @@ function onThreeReady() {
     // ignore
   }
 }
+
+watch(
+  () => currentScale.value,
+  async (next, prev) => {
+    await nextTick()
+    const earthActive = next === 'earth'
+    if (prev === 'earth' && next !== 'earth') {
+      tryHandoverEarthToThree()
+    }
+    applyEngineVisibility({ earthActive })
+  },
+  { immediate: true }
+)
+
+onMounted(() => {
+  try {
+    applyEngineVisibility({ earthActive: isEarth.value, instant: true })
+  } catch (_) {
+    // ignore
+  }
+})
 
 function flyToScenario() {
   try {
@@ -261,3 +327,9 @@ defineExpose({
   rebuildMicroLattice,
 })
 </script>
+
+<style scoped>
+.engine-wrap {
+  opacity: 0;
+}
+</style>
