@@ -948,7 +948,8 @@ watch(
     if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
       _stopModalInpaint()
     }
-  }
+  },
+  { immediate: true }
 )
 
 defineExpose({

@@ -40,5 +40,6 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('EXECUTE_REDSHIFT_PREDICTION')
     expect(s).toContain('START_MODAL_INPAINT')
     expect(s).toContain('STOP_MODAL_INPAINT')
+    expect(s).toContain('{ immediate: true }')
   })
 })
