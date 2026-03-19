@@ -695,12 +695,14 @@ const LOCAL_COPILOT_PRESETS = Object.freeze([
   {
     id: 'demo:oneastro_redshift',
     label: '[v7.5] OneAstronomy · Redshift Burst (Demo 1)',
-    prompt: '切到 Sky(macro)，执行红移预测并触发红移拉伸动画。'
+    hint: '本地确定性动作：切到 Sky(macro) 并触发红移拉伸（不走后端执行）',
+    prompt: ''
   },
   {
     id: 'demo:oneastro_inpaint',
     label: '[v7.5] OneAstronomy · Modal Inpaint (Demo 3)',
-    prompt: '切到 Sky(macro)，进入模态 inpaint，并提示用户点击画布触发扫描线扩散。'
+    hint: '本地确定性动作：切到 Sky(macro) 并开启模态 inpaint（点击画布触发扩散）',
+    prompt: ''
   },
 ])
 
@@ -720,9 +722,14 @@ function _mergeCopilotPresets(remotePresets) {
     out.push(p)
   }
 
+  // UX: pin OneAstronomy demos to the top so they never get lost.
+  const featured = local.filter((p) => String(p?.id || '').toLowerCase().includes('demo:oneastro'))
+  const restLocal = local.filter((p) => !String(p?.id || '').toLowerCase().includes('demo:oneastro'))
+
+  for (const p of featured) pushUnique(p)
   // Prefer remote order (team-configurable), but never drop local demo gates.
   for (const p of remote) pushUnique(p)
-  for (const p of local) pushUnique(p)
+  for (const p of restLocal) pushUnique(p)
 
   return out
 }
