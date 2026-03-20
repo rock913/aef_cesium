@@ -1,11 +1,12 @@
 Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范
 
-状态：Stage 2 Complete | 阶段：Phase 2.0 (Deep Space & WebGPU)
+状态：Stage 2 Complete (Stabilized) | 阶段：Phase 2.1（Deep Space Demo Stabilization）
 
 最近更新：
 - 2026-03-19：M0 已提交并推送到 zero2x-v7.5（AI_CONTEXT.md、astroStore.js、v7.5 文档口径统一）
 - 2026-03-19：M1 启动（astronomy 工具函数、EngineScaleRouter 双引擎常驻叠画 + opacity 交接、earth→deep space 相机同步）
 - 2026-03-19：阶段 2 完成（Demo 1 红移拉伸：InstancedMesh + aRedshift + uniform 动画；Demo 3 模态 Inpaint：shader 扫描线扩散 + 点击选点）
+- 2026-03-20：阶段 2 可靠性加固（“场景霸权 2.0”+ 边缘羽化：Demo 3 触发时强制收缩 Demo 1 红移爆裂；inpaint vignette/edge feather 消除方形边界；离开 macro 自动 stop inpaint，避免 micro 下潜穿帮）
 
 1. 架构统合：双模态引擎底座的无缝切换
 
@@ -276,6 +277,8 @@ curl -fsS http://127.0.0.1:8405/health
 
 - 出现带边缘噪声/扫描线的“模态替换”视窗
 - 点击后扫描中心移动，替换区域从点击点向外扩散
+- 视觉不应出现“长方形截图边界”（inpaint 边缘应羽化融入深空）
+- 若先触发 Demo 1 再触发 Demo 3：底层爆裂应自动收缩回 0（避免粒子刺穿/穿插）
 
 退出方式（两种任选其一）：
 
@@ -287,6 +290,24 @@ curl -fsS http://127.0.0.1:8405/health
 - 页面打不开/空白：先执行 `make docker-dev-ps` 与 `make docker-dev-logs` 查看容器是否正常启动
 - 前端能开但 /api 502：确认后端健康 `curl -fsS http://127.0.0.1:8405/health`
 - 公网访问 HMR 失效：按仓库口径可先禁用 HMR：`VITE_DISABLE_HMR=1 ONEEARTH_BIND_IP=0.0.0.0 make docker-dev-up`
+
+---
+
+## 下一步计划（Phase 2.2 → Stage 3）
+
+目标：在保持 Stage 2 Demo 1&3 稳定可验收的前提下，推进 Stage 3（Demo 2 & Demo 4）并补齐“工程化可回归”的验收机制。
+
+1) Stage 2 稳定性收尾（短迭代）
+- 增加“视觉回归检查清单”：Demo 1 → Demo 3 → micro 下潜 → 回 macro 的顺序切换，确认无残留、无遮挡、无穿帮
+- 将关键场景状态（inpaint enabled、macro opacity、redshift scale）写入一个只读 debug 面板或日志点（仅 DEV），便于 Docker Dev 排障
+
+2) Stage 3 / Demo 2（检索 + 运镜）
+- 定义 Demo 2 的 action contract（输入/输出字段、失败兜底、延迟策略），并在前端用 mock/placeholder 保持可演示
+- 落地样条运镜骨架（CatmullRomCurve3 + timeline），并在 Vitest 中新增最小 wiring 测试（不追求像素级）
+
+3) Stage 3 / Demo 4（WebGPU Compute 预研）
+- 建立 Compute 运行能力探测与“降级路径”（无 WebGPU 时自动回退为 Instancing 静态演示）
+- 先跑通 2–5 万粒子验证 pipeline 与性能基线，再扩展到目标规模
 
 ---
 
