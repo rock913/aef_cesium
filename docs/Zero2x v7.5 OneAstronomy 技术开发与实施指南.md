@@ -70,7 +70,7 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 | Demo | 任务名 | Action（建议/目标） | 当前状态（2026-03-20） |
 |---|---|---|---|
-| Demo 1 | CSST 复杂星系精细结构分解 | `DECOMPOSE_CSST_GALAXY` | Not Started（规划中） |
+| Demo 1 | CSST 复杂星系精细结构分解 | `DECOMPOSE_CSST_GALAXY` / `STOP_CSST_DECOMPOSITION` | Implemented（已落地：可触发/可清理/可验收） |
 | Demo 2 | 红移立体爆裂（Cosmic Web / Redshift Burst） | `EXECUTE_REDSHIFT_PREDICTION` | Implemented（Stage 2 已落地） |
 | Demo 3 | GOTTA 瞬变源捕获（样条跃迁 + 时域 HUD） | `CAPTURE_TRANSIENT_EVENT` | Not Started（规划中） |
 | Demo 4 | 模态互生 Inpaint（扫描扩散） | `START_MODAL_INPAINT` / `STOP_MODAL_INPAINT` | Implemented（Stage 2 已落地） |
@@ -90,6 +90,11 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 ### 任务 1：CSST 复杂星系精细结构分解（DECOMPOSE_CSST_GALAXY）
 
 目标：相机推进到目标，出现可读的三层分解图（Bulge/Disk/Bar），并能在任务切换时被清理。
+
+验收（Docker Dev / E2E）：
+- Workbench → Presets 选择 `[v7.5] OneAstronomy · CSST Galaxy Decompose (Demo 1)`：画布内出现三层分解面片（Bulge/Disk/Bar）且边缘无方形截图边界。
+- 触发 `redshift` 或 `inpaint start`：CSST 分解面片必须自动清理（Scene Authority）。
+- 运行代码指令 `csst stop`：必须能显式清理 CSST 图层并恢复 macro 亮度。
 
 ### 任务 2：精密宇宙学与红移立体爆裂（EXECUTE_REDSHIFT_PREDICTION）
 
@@ -141,40 +146,9 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
     json.dump(output_data, f)
 ```
 
-1. 序幕 & 任务 2：SDSS 星系与红移数据 (Python 抓取脚本)
+输出路径约定：`frontend/public/data/astronomy/sdss_micro_sample.json`
 
-目的：抓取约 2 万个真实星系，用于构建初始二维星空及后续的立体红移爆裂。
-依赖：pip install astroquery pandas
-
-# fetch_sdss_micro_data.py
-from astroquery.sdss import SDSS
-import pandas as pd
-import json
-
-# 使用 SQL 查询 SDSS DR18 数据库：获取 20000 个星系的赤经、赤纬、红移和分类
-query = """
-SELECT TOP 20000
-    p.ra, p.dec, s.z as redshift, s.class
-FROM PhotoObj AS p
-JOIN SpecObj AS s ON s.bestobjid = p.objid
-WHERE s.class = 'GALAXY' AND s.z > 0.01 AND s.z < 0.5
-"""
-print("Fetching real SDSS data...")
-res = SDSS.query_sql(query)
-df = res.to_pandas()
-
-# 转换为极简的前端 JSON 格式以减小体积
-output_data = []
-for _, row in df.iterrows():
-    # 格式: [ra, dec, redshift]
-    output_data.append([round(row['ra'], 4), round(row['dec'], 4), round(row['redshift'], 4)])
-
-with open('public/data/astronomy/sdss_micro_sample.json', 'w') as f:
-    json.dump(output_data, f)
-print("Data saved: 20000 real galaxies ready for WebGPU!")
-
-
-2. 任务 3：GOTTA 瞬变源光变曲线 (Mock JSON)
+### 3.2 GOTTA 瞬变源光变曲线 (Mock JSON)
 
 格式：gotta_transient_event.json
 
@@ -194,12 +168,17 @@ print("Data saved: 20000 real galaxies ready for WebGPU!")
 - Demo 1 / Demo 3 场景霸权：互斥、退让、离开 macro 自动清理
 - inpaint 无边界：Additive + vignette/edge feather
 
-### Phase 2.2（下一步）：Micro-Real-Data 注入（替换随机宇宙）
+### Phase 2.2（已完成）：Micro-Real-Data 注入（替换随机宇宙）
 - 把宏观点云从 `Math.random()` 迁移到 `sdss_micro_sample.json`
 - 保持 `aRedshift` attribute 结构不变，保证 Demo 1 动画仍可用
 - 约束：新增数据加载不得破坏现有 `threeTwinWiring.test.js` 门禁
 
-### Phase 2.3（目标态预研）：One Universe（单场景）重构
+### Phase 2.3（已完成）：Demo 1（CSST）分解最小闭环
+- Action：`DECOMPOSE_CSST_GALAXY` / `STOP_CSST_DECOMPOSITION`
+- 入口：Workbench Preset + run-code 命令通道（`csst` / `csst stop`）
+- 霸权：触发 redshift / inpaint 必须清理 CSST 图层
+
+### Phase 2.4（目标态预研）：One Universe（单场景）重构
 - 将 macro/micro 双场景切换收敛为单场景树 + 任务层级管理
 - 把 quantumDive 从“切 scene”演进为“相机尺度变换 + 任务清理”
 

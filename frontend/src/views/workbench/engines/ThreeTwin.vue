@@ -71,6 +71,15 @@ function _tryRunAstroAction(action) {
     return true
   }
 
+  if (type === ASTRO_AGENT_ACTION_TYPES.STOP_CSST_DECOMPOSITION) {
+    try {
+      _stopCsstDecomposition({ restoreCamera: true })
+    } catch (_) {
+      // ignore
+    }
+    return true
+  }
+
   // Stage 2: run only in macro scene.
   const scale = String(store.currentScale.value || '').trim().toLowerCase()
   if (scale !== 'macro') return false
@@ -78,6 +87,12 @@ function _tryRunAstroAction(action) {
   if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
     if (!macroMesh) return false
     void _executeRedshiftBurst(action?.payload || null)
+    return true
+  }
+
+  if (type === ASTRO_AGENT_ACTION_TYPES.DECOMPOSE_CSST_GALAXY) {
+    if (!macroScene || !renderer || !camera) return false
+    _startCsstDecomposition(action?.payload || null)
     return true
   }
 
@@ -103,6 +118,15 @@ let _inpaintRadiusTween = null
 let _inpaintTime = 0
 const _inpaintRaycaster = new THREE.Raycaster()
 const _inpaintMouse = new THREE.Vector2()
+
+let _csstGroup = null
+let _csstPlanes = null
+let _csstActive = false
+let _csstTimeline = null
+let _csstTargetPos = null
+let _csstPrevCamPos = null
+let _csstPrevTarget = null
+let _csstTextures = []
 
 const MICRO_MAX_INSTANCES = 12000
 
@@ -468,12 +492,330 @@ function _setMacroRedshiftMaxDepth(v) {
   if (u?.u_max_depth) u.u_max_depth.value = _macroRedshiftMaxDepth
 }
 
+function _makeCsstDecomposeTexture({ kind = 'disk', w = 768, h = 512 } = {}) {
+  const k = String(kind || 'disk').trim().toLowerCase()
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(256, Math.floor(Number(w) || 768))
+  canvas.height = Math.max(256, Math.floor(Number(h) || 512))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+
+  const cx = canvas.width / 2
+  const cy = canvas.height / 2
+
+  ctx.fillStyle = '#000000'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  const diskBoost = k === 'disk' ? 1.25 : 0.85
+  const bulgeBoost = k === 'bulge' ? 1.35 : 0.85
+  const barBoost = k === 'bar' ? 1.30 : 0.90
+
+  // Disk glow (elliptical)
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.scale(1.55, 0.82)
+  const disk = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.min(cx, cy) * 0.92)
+  disk.addColorStop(0.0, `rgba(125, 211, 252, ${0.22 * diskBoost})`)
+  disk.addColorStop(0.35, `rgba(56, 189, 248, ${0.14 * diskBoost})`)
+  disk.addColorStop(0.75, `rgba(167, 139, 250, ${0.06 * diskBoost})`)
+  disk.addColorStop(1.0, 'rgba(0,0,0,0)')
+  ctx.fillStyle = disk
+  ctx.beginPath()
+  ctx.arc(0, 0, Math.min(cx, cy) * 0.92, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+
+  // Bulge core
+  const bulge = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(cx, cy) * 0.38)
+  bulge.addColorStop(0.0, `rgba(254, 243, 199, ${0.32 * bulgeBoost})`)
+  bulge.addColorStop(0.35, `rgba(251, 191, 36, ${0.10 * bulgeBoost})`)
+  bulge.addColorStop(1.0, 'rgba(0,0,0,0)')
+  ctx.fillStyle = bulge
+  ctx.beginPath()
+  ctx.arc(cx, cy, Math.min(cx, cy) * 0.38, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Bar (rotated rectangle glow)
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate(-Math.PI * 0.18)
+  ctx.globalAlpha = 0.22 * barBoost
+  ctx.fillStyle = '#f472b6'
+  const bw = canvas.width * 0.52
+  const bh = canvas.height * 0.08
+  ctx.fillRect(-bw / 2, -bh / 2, bw, bh)
+  ctx.globalAlpha = 0.10 * barBoost
+  ctx.fillRect(-bw / 2, -bh / 2 - bh * 0.85, bw, bh * 2.7)
+  ctx.restore()
+  ctx.globalAlpha = 1.0
+
+  // Mild annotation (kept subtle; black stays transparent under additive blending).
+  try {
+    ctx.font = '600 22px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto'
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.70)'
+    const label = k === 'bulge' ? 'Bulge' : k === 'bar' ? 'Bar' : 'Disk'
+    ctx.fillText(`CSST · ${label}`, 22, 36)
+  } catch (_) {
+    // ignore
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.needsUpdate = true
+  tex.minFilter = THREE.LinearFilter
+  tex.magFilter = THREE.LinearFilter
+  tex.generateMipmaps = true
+  return tex
+}
+
+function _makeFeatheredAdditivePlaneMaterial(tex, { opacity = 0.95, edge = 0.09 } = {}) {
+  if (!tex) return null
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      u_tex: { value: tex },
+      u_opacity: { value: Math.max(0, Math.min(1, Number(opacity) || 0.95)) },
+      u_edge: { value: Math.max(0.001, Math.min(0.25, Number(edge) || 0.09)) },
+    },
+    vertexShader: [
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vUv = uv;',
+      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+      '}',
+    ].join('\n'),
+    fragmentShader: [
+      'precision highp float;',
+      'uniform sampler2D u_tex;',
+      'uniform float u_opacity;',
+      'uniform float u_edge;',
+      'varying vec2 vUv;',
+      '',
+      'float edgeFeather(vec2 uv, float edge) {',
+      '  vec2 a = smoothstep(vec2(0.0), vec2(edge), uv);',
+      '  vec2 b = smoothstep(vec2(0.0), vec2(edge), 1.0 - uv);',
+      '  return a.x * a.y * b.x * b.y;',
+      '}',
+      '',
+      'float vignette(vec2 uv) {',
+      '  float d = distance(uv, vec2(0.5));',
+      '  return smoothstep(0.72, 0.22, d);',
+      '}',
+      '',
+      'void main() {',
+      '  vec4 t = texture2D(u_tex, vUv);',
+      '  float m = edgeFeather(vUv, u_edge) * vignette(vUv);',
+      '  vec3 rgb = t.rgb * m * clamp(u_opacity, 0.0, 1.0);',
+      '  float a = clamp(t.a * m * clamp(u_opacity, 0.0, 1.0), 0.0, 1.0);',
+      '  gl_FragColor = vec4(rgb, a);',
+      '}',
+    ].join('\n'),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+}
+
+function _ensureCsstGroup() {
+  if (_csstGroup && _csstPlanes && macroScene) return
+  if (!macroScene) return
+
+  const g = markRaw(new THREE.Group())
+  g.visible = false
+  g.renderOrder = 25
+
+  const textures = [
+    _makeCsstDecomposeTexture({ kind: 'disk' }),
+    _makeCsstDecomposeTexture({ kind: 'bulge' }),
+    _makeCsstDecomposeTexture({ kind: 'bar' }),
+  ].filter(Boolean)
+  _csstTextures = [...(_csstTextures || []), ...textures]
+
+  const diskMat = _makeFeatheredAdditivePlaneMaterial(textures[0], { opacity: 0.85, edge: 0.10 })
+  const bulgeMat = _makeFeatheredAdditivePlaneMaterial(textures[1], { opacity: 0.95, edge: 0.10 })
+  const barMat = _makeFeatheredAdditivePlaneMaterial(textures[2], { opacity: 0.90, edge: 0.10 })
+
+  const planeGeo = new THREE.PlaneGeometry(7.2, 4.6, 1, 1)
+  const disk = markRaw(new THREE.Mesh(planeGeo, diskMat))
+  const bulge = markRaw(new THREE.Mesh(planeGeo, bulgeMat))
+  const bar = markRaw(new THREE.Mesh(planeGeo, barMat))
+
+  disk.renderOrder = 25
+  bulge.renderOrder = 26
+  bar.renderOrder = 27
+
+  g.add(disk)
+  g.add(bulge)
+  g.add(bar)
+
+  macroScene.add(g)
+  _csstGroup = g
+  _csstPlanes = { disk, bulge, bar }
+}
+
+function _startCsstDecomposition(payload = null) {
+  if (!macroScene || !camera) return
+
+  // Scene Authority: CSST overlay must not overlap modal inpaint and should collapse any redshift burst.
+  try {
+    _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _macroRedshiftTween?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _setMacroRedshiftScale(0)
+  } catch (_) {
+    // ignore
+  }
+
+  _ensureCsstGroup()
+  if (!_csstGroup || !_csstPlanes) return
+
+  const ra = Number(payload?.ra)
+  const dec = Number(payload?.dec)
+  const radius = Number.isFinite(Number(payload?.radius)) ? Number(payload?.radius) : 12.5
+  const useDefault = !(Number.isFinite(ra) && Number.isFinite(dec))
+  const baseRa = useDefault ? 150.1 : ra
+  const baseDec = useDefault ? 2.22 : dec
+
+  const dir = coordinateMath.raDecToUnitVector(baseRa, baseDec)
+  const v = new THREE.Vector3(dir.x, dir.y, dir.z).multiplyScalar(Math.max(4, Math.min(40, radius)))
+  _csstTargetPos = v.clone()
+
+  _csstActive = true
+  _csstGroup.visible = true
+  _csstGroup.position.copy(v)
+  _csstGroup.scale.set(0.01, 0.01, 0.01)
+
+  // Reset local offsets so repeated triggers remain deterministic.
+  try {
+    _csstPlanes.disk.position.set(0, 0, 0)
+    _csstPlanes.bulge.position.set(0, 0, 0)
+    _csstPlanes.bar.position.set(0, 0, 0)
+  } catch (_) {
+    // ignore
+  }
+
+  // Dim macro stars slightly so the decomposition reads clearly.
+  try {
+    const u = macroMesh?.material?.uniforms
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.25, duration: 0.7, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    _csstTimeline?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+
+  _csstTimeline = gsap.timeline({ defaults: { ease: 'power2.out' } })
+  _csstTimeline.to(_csstGroup.scale, { x: 1, y: 1, z: 1, duration: 0.65 }, 0)
+  _csstTimeline.to(_csstPlanes.disk.position, { z: -1.25, duration: 0.95 }, 0.10)
+  _csstTimeline.to(_csstPlanes.bulge.position, { z: 0.0, duration: 0.95 }, 0.10)
+  _csstTimeline.to(_csstPlanes.bar.position, { z: 1.25, duration: 0.95 }, 0.10)
+
+  // Camera choreography: fly to a stable offset and lock gaze to the target.
+  try {
+    if (camera?.position && controls) {
+      _csstPrevCamPos = camera.position.clone()
+      _csstPrevTarget = controls.target?.clone?.() || new THREE.Vector3(0, 0, 0)
+
+      const dirV = v.clone().normalize()
+      const camPos = v.clone().add(dirV.clone().multiplyScalar(7.5)).add(new THREE.Vector3(0, 1.8, 0))
+
+      gsap.to(camera.position, {
+        x: camPos.x,
+        y: camPos.y,
+        z: camPos.z,
+        duration: 1.8,
+        ease: 'power2.inOut',
+        onUpdate: () => {
+          try {
+            controls.target.copy(v)
+            controls.update?.()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _stopCsstDecomposition({ restoreCamera = false } = {}) {
+  _csstActive = false
+
+  try {
+    _csstTimeline?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+  _csstTimeline = null
+
+  if (_csstGroup) {
+    try {
+      _csstGroup.visible = false
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Restore macro brightness when leaving CSST overlay.
+  try {
+    const u = macroMesh?.material?.uniforms
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.9, duration: 0.6, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
+
+  if (restoreCamera && _csstPrevCamPos && camera?.position && controls) {
+    try {
+      const prevPos = _csstPrevCamPos
+      const prevTarget = _csstPrevTarget || new THREE.Vector3(0, 0, 0)
+      gsap.to(camera.position, {
+        x: prevPos.x,
+        y: prevPos.y,
+        z: prevPos.z,
+        duration: 1.2,
+        ease: 'power2.inOut',
+        onUpdate: () => {
+          try {
+            controls.target.copy(prevTarget)
+            controls.update?.()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+    } catch (_) {
+      // ignore
+    }
+  }
+}
+
 async function _executeRedshiftBurst(payload = null) {
   if (!macroMesh) return
 
   // Scene dominance: redshift burst should never be occluded by modal inpaint.
   try {
     _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+
+  // Scene dominance: redshift burst should not overlap CSST overlays.
+  try {
+    _stopCsstDecomposition({ restoreCamera: false })
   } catch (_) {
     // ignore
   }
@@ -561,6 +903,13 @@ function _startModalInpaint() {
   // Ensure a clean state (prevents lingering listeners/tweens across rapid switches).
   try {
     _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+
+  // Scene dominance: modal inpaint owns the screen; clear CSST overlays.
+  try {
+    _stopCsstDecomposition({ restoreCamera: false })
   } catch (_) {
     // ignore
   }
@@ -1127,6 +1476,14 @@ function animate() {
       }
     }
 
+    if (_csstActive && _csstGroup && camera) {
+      try {
+        _csstGroup.quaternion.copy(camera.quaternion)
+      } catch (_) {
+        // ignore
+      }
+    }
+
     if (_inpaintUniforms) {
       _inpaintTime += 1 / 60
       _inpaintUniforms.u_time.value = _inpaintTime
@@ -1173,6 +1530,12 @@ watch(
     if (String(next || '').trim().toLowerCase() !== 'macro') {
       try {
         if (_inpaintActive) _stopModalInpaint()
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        if (_csstActive) _stopCsstDecomposition({ restoreCamera: false })
       } catch (_) {
         // ignore
       }
@@ -1236,11 +1599,17 @@ onBeforeUnmount(() => {
     // ignore
   }
 
+  try {
+    _stopCsstDecomposition({ restoreCamera: false })
+  } catch (_) {
+    // ignore
+  }
+
   disposeThreeEngine({
     renderer,
     controls,
     scenes: [macroScene, microScene],
-    disposables: [composer, bloomPass, _inpaintMesh?.material, _inpaintMesh?.geometry],
+    disposables: [composer, bloomPass, _inpaintMesh?.material, _inpaintMesh?.geometry, ...(_csstTextures || [])],
     animationId,
     cancelAnimationFrameFn: cancelAnimationFrame,
   })
@@ -1272,6 +1641,15 @@ onBeforeUnmount(() => {
   _inpaintActive = false
   _inpaintClickHandler = null
   _inpaintRadiusTween = null
+
+  _csstGroup = null
+  _csstPlanes = null
+  _csstActive = false
+  _csstTimeline = null
+  _csstTargetPos = null
+  _csstPrevCamPos = null
+  _csstPrevTarget = null
+  _csstTextures = []
 })
 </script>
 

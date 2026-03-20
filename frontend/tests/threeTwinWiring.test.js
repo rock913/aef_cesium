@@ -43,6 +43,19 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('{ immediate: true }')
   })
 
+  it('wires OneAstronomy Demo 1 (CSST decomposition) actions', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    expect(s).toContain('DECOMPOSE_CSST_GALAXY')
+    expect(s).toContain('STOP_CSST_DECOMPOSITION')
+    expect(s).toContain('_startCsstDecomposition')
+    expect(s).toContain('_stopCsstDecomposition')
+
+    // CSST overlay should follow the same anti-screenshot rules (feather + vignette).
+    expect(s).toContain('edgeFeather')
+    expect(s).toContain('vignette')
+  })
+
   it('enforces Scene Authority 2.0 for modal inpaint (no occlusion, no screenshot edge)', () => {
     const s = read('../src/views/workbench/engines/ThreeTwin.vue')
 

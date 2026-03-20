@@ -272,12 +272,15 @@ async function handleRunCode(codeContent) {
   // Stage 2 (OneAstronomy macro): allow a no-UI command channel via the editor.
   // Examples:
   // - "astro redshift" / "redshift"
+  // - "astro csst" / "csst decompose"
   // - "astro inpaint start" / "inpaint start"
   // - "astro inpaint stop" / "inpaint stop"
   try {
     const scale = String(researchStore.currentScale.value || '').trim().toLowerCase()
     if (scale === 'macro') {
       const wantsRedshift = /\bredshift\b|execute_redshift_prediction|oneastronomy\s+redshift/i.test(src)
+      const wantsCsstStart = /(\bcsst\b|decompose\s+csst|decompose\s+galaxy|galaxy\s+decompose|bulge\s+disk\s+bar)/i.test(src)
+      const wantsCsstStop = /(\bcsst\b).*(\bstop\b|\boff\b|\bclear\b|\breset\b)/i.test(src)
       const wantsInpaintStart = /(modal\s+inpaint|\binpaint\b).*\b(start|on)\b/i.test(src)
       const wantsInpaintStop = /(modal\s+inpaint|\binpaint\b).*\b(stop|off)\b/i.test(src)
 
@@ -287,6 +290,21 @@ async function handleRunCode(codeContent) {
           payload: { maxDepth: 52 },
         })
         theaterReport.value = '✅ OneAstronomy: 已触发 Demo 1 红移拉伸（macro）。'
+        return
+      }
+
+      if (wantsCsstStop) {
+        astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.STOP_CSST_DECOMPOSITION, payload: null })
+        theaterReport.value = '✅ OneAstronomy: 已清理 CSST 分解图层。'
+        return
+      }
+
+      if (wantsCsstStart) {
+        astroStore.dispatchAgentAction({
+          type: ASTRO_AGENT_ACTION_TYPES.DECOMPOSE_CSST_GALAXY,
+          payload: { ra: 150.1, dec: 2.22, radius: 12.5 },
+        })
+        theaterReport.value = '✅ OneAstronomy: 已触发 Demo 1 CSST 星系结构分解（macro）。'
         return
       }
 
@@ -691,6 +709,12 @@ const LOCAL_COPILOT_PRESETS = Object.freeze([
     id: 'demo:wormhole_micro',
     label: '[演示] 宏微虫洞跃迁',
     prompt: '触发虫洞动画并切换到 micro，生成 SiO2 分子晶格。'
+  },
+  {
+    id: 'demo:oneastro_csst',
+    label: '[v7.5] OneAstronomy · CSST Galaxy Decompose (Demo 1)',
+    hint: '本地确定性动作：切到 Sky(macro) 并弹出 Bulge/Disk/Bar 三层分解图（支持 stop）',
+    prompt: ''
   },
   {
     id: 'demo:oneastro_redshift',
@@ -1840,6 +1864,16 @@ function onCopilotSelectPreset(preset) {
 
   // Stage 2: fire deterministic macro actions from presets (no buttons on canvas).
   try {
+    if (id.includes('oneastro_csst')) {
+      _scheduleOneAstroAction({
+        label: preset?.label || '[v7.5] OneAstronomy · CSST Galaxy Decompose (Demo 1)',
+        action: {
+          type: ASTRO_AGENT_ACTION_TYPES.DECOMPOSE_CSST_GALAXY,
+          payload: { ra: 150.1, dec: 2.22, radius: 12.5 },
+        },
+      })
+    }
+
     if (id.includes('oneastro_redshift')) {
       _scheduleOneAstroAction({
         label: preset?.label || '[v7.5] OneAstronomy · Redshift Burst (Demo 1)',
