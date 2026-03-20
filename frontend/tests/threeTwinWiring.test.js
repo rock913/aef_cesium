@@ -42,4 +42,22 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('STOP_MODAL_INPAINT')
     expect(s).toContain('{ immediate: true }')
   })
+
+  it('enforces Scene Authority 2.0 for modal inpaint (no occlusion, no screenshot edge)', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    // Inpaint must be additive + no depth test/write, and placed in front of macro content.
+    expect(s).toContain('AdditiveBlending')
+    expect(s).toContain('depthTest: false')
+    expect(s).toContain('depthWrite: false')
+    expect(s).toContain('.position.set(0, 0, 15)')
+
+    // Shader must include edge feather / vignette to avoid a rectangular billboard boundary.
+    expect(s).toContain('edgeFeather')
+    expect(s).toContain('vignette')
+
+    // Starting inpaint should collapse any redshift burst back to 0 (prevents particle-plane intersection chaos).
+    expect(s).toContain('u_redshift_scale')
+    expect(s).toContain('_setMacroRedshiftScale(0)')
+  })
 })

@@ -3,7 +3,8 @@
 This folder is the primary documentation hub for the `zero2x-v7.5` branch.
 
 ## Main spec (Stage 2 baseline)
-- `Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范.md` (authoritative for Stage 2 Demo 1 & Demo 3)
+- Main execution standard: `../Zero2x v7.5 OneAstronomy 技术开发与实施指南.md`
+- Stage 2 acceptance spec: `Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范.md` (authoritative for Docker Dev Demo 1 & Demo 3)
 
 ## Supporting v7.5 docs
 - `Zero2x v7.5 架构蓝图：基于 HEALPix与大模型的下一代天文数字孪生工作台.md`
