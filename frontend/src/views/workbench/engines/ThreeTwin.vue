@@ -285,14 +285,23 @@ function _buildMacroScene(scene) {
           mixed.rgb += spark * vec3(0.35, 0.85, 1.25);
 
           float alpha = clamp(u_enabled, 0.0, 1.0);
-          gl_FragColor = vec4(mixed.rgb * alpha, alpha);
+
+          // Edge feather + vignette: kill the rectangular "screenshot" boundary.
+          float edgeDist = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+          float edgeFeather = smoothstep(0.0, 0.06, edgeDist);
+          float distToCenter = distance(vUv, vec2(0.5, 0.5));
+          float vignette = smoothstep(0.55, 0.35, distToCenter);
+
+          float finalAlpha = alpha * edgeFeather * vignette;
+          gl_FragColor = vec4(mixed.rgb * finalAlpha, finalAlpha);
         }
       `,
     })
 
     const inpaintGeo = new THREE.PlaneGeometry(120, 80, 1, 1)
     _inpaintMesh = markRaw(new THREE.Mesh(inpaintGeo, inpaintMat))
-    _inpaintMesh.position.set(0, 0, 0)
+    // Put it in front of the macro spiral to reduce spatial intersection artifacts.
+    _inpaintMesh.position.set(0, 0, 15)
     _inpaintMesh.visible = false
     _inpaintMesh.renderOrder = 999
     scene.add(_inpaintMesh)
@@ -480,6 +489,21 @@ function _startModalInpaint() {
   try {
     const u = macroMesh?.material?.uniforms
     if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.15, duration: 1.5, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
+
+  // Scene dominance 2.0: collapse any existing redshift burst back to 0
+  // so expanded particles don't visually "pierce" the inpaint plane.
+  try {
+    _macroRedshiftTween?.kill?.()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _setMacroRedshiftScale(0)
+    const u = macroMesh?.material?.uniforms
+    if (u?.u_redshift_scale) gsap.to(u.u_redshift_scale, { value: 0.0, duration: 1.5, ease: 'power2.inOut' })
   } catch (_) {
     // ignore
   }
