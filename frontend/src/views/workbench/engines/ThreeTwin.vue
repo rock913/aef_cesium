@@ -142,9 +142,6 @@ function _buildMacroScene(scene) {
     },
     vertexShader: [
       'attribute float aRedshift;',
-      '#ifdef USE_INSTANCING',
-      'attribute mat4 instanceMatrix;',
-      '#endif',
       'uniform float u_redshift_scale;',
       'uniform float u_max_depth;',
       'varying float vRedshift;',
@@ -167,8 +164,8 @@ function _buildMacroScene(scene) {
       '    localPos.z += dir.y * burst * u_max_depth * 0.35;',
       '  }',
       '',
-      '  vec4 worldPos = modelMatrix * localPos;',
-      '  gl_Position = projectionMatrix * viewMatrix * worldPos;',
+      '  vec4 mvPosition = modelViewMatrix * localPos;',
+      '  gl_Position = projectionMatrix * mvPosition;',
       '}',
     ].join('\n'),
     fragmentShader: [
