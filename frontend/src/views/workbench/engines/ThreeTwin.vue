@@ -133,54 +133,62 @@ function _buildMacroScene(scene) {
   const count = 100000
   const geometry = new THREE.SphereGeometry(0.04, 4, 4)
 
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+  // Stage 2 Demo 1 (volumetric burst): ShaderMaterial to fully own the pipeline.
+  // This guarantees `aRedshift` is actually bound and used.
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      u_redshift_scale: { value: 0.0 },
+      u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 42.0 },
+    },
+    vertexShader: [
+      'attribute float aRedshift;',
+      '#ifdef USE_INSTANCING',
+      'attribute mat4 instanceMatrix;',
+      '#endif',
+      'uniform float u_redshift_scale;',
+      'uniform float u_max_depth;',
+      'varying float vRedshift;',
+      'void main() {',
+      '  vRedshift = aRedshift;',
+      '  vec4 localPos = vec4(position, 1.0);',
+      '  #ifdef USE_INSTANCING',
+      '  localPos = instanceMatrix * localPos;',
+      '  #endif',
+      '',
+      '  float s = clamp(u_redshift_scale, 0.0, 1.0);',
+      '  float burst = clamp(aRedshift, 0.0, 1.0) * s;',
+      '',
+      '  // Volumetric burst: lift along world Y and expand radially in XZ.',
+      '  localPos.y += (aRedshift - 0.5) * s * u_max_depth;',
+      '  float dist = length(localPos.xz);',
+      '  if (dist > 0.0005) {',
+      '    vec2 dir = localPos.xz / dist;',
+      '    localPos.x += dir.x * burst * u_max_depth * 0.35;',
+      '    localPos.z += dir.y * burst * u_max_depth * 0.35;',
+      '  }',
+      '',
+      '  vec4 worldPos = modelMatrix * localPos;',
+      '  gl_Position = projectionMatrix * viewMatrix * worldPos;',
+      '}',
+    ].join('\n'),
+    fragmentShader: [
+      'precision highp float;',
+      'varying float vRedshift;',
+      'uniform float u_redshift_scale;',
+      'void main() {',
+      '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
+      '  vec3 baseColor = vec3(0.85, 0.95, 1.0);',
+      '  vec3 burstColor = vec3(1.0, 0.15, 0.85);',
+      '  vec3 finalColor = mix(baseColor, burstColor, zBurst);',
+      '  finalColor += zBurst * 0.65;',
+      '  gl_FragColor = vec4(finalColor, 0.9);',
+      '}',
+    ].join('\n'),
     transparent: true,
-    opacity: 0.9,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
   })
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.u_redshift_scale = { value: Number(_macroRedshiftScale) || 0 }
-    shader.uniforms.u_max_depth = { value: Number(_macroRedshiftMaxDepth) || 42 }
-
-    // NOTE: do NOT just stretch the tiny sphere geometry; it's nearly invisible.
-    // Instead, displace the whole instance along view-space +Z (camera axis)
-    // and add a strong tint so the burst is unmissable.
-    shader.vertexShader = `attribute float aRedshift;\nuniform float u_redshift_scale;\nuniform float u_max_depth;\nvarying float vRedshift;\n${shader.vertexShader}`
-
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\nvRedshift = aRedshift;'
-    )
-
-    if (shader.vertexShader.includes('#include <project_vertex>')) {
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <project_vertex>',
-        [
-          'vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4( transformed, 1.0 );',
-          // In view space, camera looks down -Z; subtracting Z pushes particles deeper.
-          'mvPosition.z -= (aRedshift * u_redshift_scale * u_max_depth);',
-          'gl_Position = projectionMatrix * mvPosition;',
-        ].join('\n')
-      )
-    }
-
-    shader.fragmentShader = `uniform float u_redshift_scale;\nvarying float vRedshift;\n${shader.fragmentShader}`
-    if (shader.fragmentShader.includes('#include <color_fragment>')) {
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <color_fragment>',
-        [
-          '#include <color_fragment>',
-          'float zBurst = clamp(vRedshift * u_redshift_scale, 0.0, 1.0);',
-          'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.15, 0.85), zBurst);',
-          'diffuseColor.rgb += zBurst * 0.65;',
-        ].join('\n')
-      )
-    }
-
-    _macroRedshiftShader = shader
-  }
-  material.needsUpdate = true
+  _macroRedshiftShader = material
 
   const mesh = markRaw(new THREE.InstancedMesh(geometry, material, count))
 
@@ -342,19 +350,15 @@ function _makeNebulaTexture({ w = 512, h = 512, palette = [], bloomBias = 0.5 } 
 
 function _setMacroRedshiftScale(v) {
   _macroRedshiftScale = Math.max(0, Math.min(1, Number(v) || 0))
-  if (_macroRedshiftShader?.uniforms?.u_redshift_scale) {
-    _macroRedshiftShader.uniforms.u_redshift_scale.value = _macroRedshiftScale
-    return
-  }
-  _macroRedshiftPending = _macroRedshiftScale
+  const u = macroMesh?.material?.uniforms || _macroRedshiftShader?.uniforms
+  if (u?.u_redshift_scale) u.u_redshift_scale.value = _macroRedshiftScale
 }
 
 function _setMacroRedshiftMaxDepth(v) {
   const n = Number(v)
   _macroRedshiftMaxDepth = Number.isFinite(n) ? Math.max(1, Math.min(240, n)) : 42
-  if (_macroRedshiftShader?.uniforms?.u_max_depth) {
-    _macroRedshiftShader.uniforms.u_max_depth.value = _macroRedshiftMaxDepth
-  }
+  const u = macroMesh?.material?.uniforms || _macroRedshiftShader?.uniforms
+  if (u?.u_max_depth) u.u_max_depth.value = _macroRedshiftMaxDepth
 }
 
 async function _executeRedshiftBurst(payload = null) {
@@ -374,12 +378,37 @@ async function _executeRedshiftBurst(payload = null) {
 
   _setMacroRedshiftMaxDepth(payload?.maxDepth)
 
+  // Camera choreography: lift up for a more volumetric read, and orbit a bit.
+  try {
+    void spinMacroCamera({ duration: 6.0, revolutions: 0.5 })
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (camera?.position) {
+      gsap.to(camera.position, {
+        y: Math.max(Number(camera.position.y) || 0, 20),
+        duration: 3.5,
+        ease: 'power2.out',
+        onUpdate: () => {
+          try {
+            controls?.update?.()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+    }
+  } catch (_) {
+    // ignore
+  }
+
   const state = { v: _macroRedshiftScale }
   await new Promise((resolve) => {
     _macroRedshiftTween = gsap.to(state, {
       v: 1,
-      duration: 1.35,
-      ease: 'power2.out',
+      duration: 3.5,
+      ease: 'power2.inOut',
       onUpdate: () => _setMacroRedshiftScale(state.v),
       onComplete: resolve,
     })
@@ -395,7 +424,7 @@ async function _executeRedshiftBurst(payload = null) {
   try {
     const u = bloomPass
     if (u) {
-      gsap.to(u, { strength: Math.min(2.2, (u.strength || 1.1) + 0.35), duration: 0.35, ease: 'power2.out' })
+      gsap.to(u, { strength: Math.min(2.5, (u.strength || 1.1) + 0.8), duration: 0.5, ease: 'power2.out' })
     }
   } catch (_) {
     // ignore
