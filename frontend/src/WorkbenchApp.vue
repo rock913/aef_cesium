@@ -1824,6 +1824,20 @@ function onCopilotSelectPreset(preset) {
   else if (id.includes('oneastro') || id.includes('astronomy') || id.includes('redshift') || id.includes('inpaint'))
     setContextScale(contextId.value || 'poyang', 'macro')
 
+  // OneAstronomy demos are narrative + exclusive: take full control of layers.
+  // (No mixing with unrelated micro lattice visuals.)
+  if (id.includes('oneastro')) {
+    try {
+      layers.value = _normalizeLayers([
+        { id: 'bloom', enabled: true, params: { strength: 1.7, threshold: 0.55, radius: 0.25 } },
+        { id: 'macro-spiral', enabled: true, params: {} },
+        { id: 'micro-atoms', enabled: false, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
+      ])
+    } catch (_) {
+      // ignore
+    }
+  }
+
   // Stage 2: fire deterministic macro actions from presets (no buttons on canvas).
   try {
     if (id.includes('oneastro_redshift')) {

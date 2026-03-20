@@ -100,10 +100,36 @@ function _buildMacroScene(scene) {
     shader.uniforms.u_redshift_scale = { value: Number(_macroRedshiftScale) || 0 }
     shader.uniforms.u_max_depth = { value: Number(_macroRedshiftMaxDepth) || 42 }
 
-    shader.vertexShader = `attribute float aRedshift;\nuniform float u_redshift_scale;\nuniform float u_max_depth;\n${shader.vertexShader}`
+    // NOTE: do NOT just stretch the tiny sphere geometry; it's nearly invisible.
+    // Instead, displace the whole instance along view-space +Z (camera axis)
+    // and add a strong tint so the burst is unmissable.
+    shader.vertexShader = `attribute float aRedshift;\nuniform float u_redshift_scale;\nuniform float u_max_depth;\nvarying float vRedshift;\n${shader.vertexShader}`
+
     shader.vertexShader = shader.vertexShader.replace(
-      'vec3 transformed = vec3( position );',
-      'vec3 transformed = vec3( position );\ntransformed.z += aRedshift * u_redshift_scale * u_max_depth;'
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\nvRedshift = aRedshift;'
+    )
+
+    if (shader.vertexShader.includes('#include <project_vertex>')) {
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        [
+          'vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4( transformed, 1.0 );',
+          'mvPosition.xyz += vec3(0.0, 0.0, aRedshift * u_redshift_scale * u_max_depth);',
+          'gl_Position = projectionMatrix * mvPosition;',
+        ].join('\n')
+      )
+    }
+
+    shader.fragmentShader = `uniform float u_redshift_scale;\nvarying float vRedshift;\n${shader.fragmentShader}`
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'vec4 diffuseColor = vec4( diffuse, opacity );',
+      [
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        'float z = clamp(vRedshift * u_redshift_scale, 0.0, 1.0);',
+        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.25, 0.85), z);',
+        'diffuseColor.rgb += z * 0.25;',
+      ].join('\n')
     )
 
     _macroRedshiftShader = shader
