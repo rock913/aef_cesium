@@ -49,7 +49,6 @@ let microMaterialO = null
 
 let _macroRedshiftTween = null
 let _macroRedshiftShader = null
-let _macroRedshiftPending = null
 let _macroRedshiftMaxDepth = 42
 let _macroRedshiftScale = 0
 
@@ -139,6 +138,7 @@ function _buildMacroScene(scene) {
     uniforms: {
       u_redshift_scale: { value: 0.0 },
       u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 42.0 },
+      u_opacity: { value: 0.9 },
     },
     vertexShader: [
       'attribute float aRedshift;',
@@ -172,13 +172,14 @@ function _buildMacroScene(scene) {
       'precision highp float;',
       'varying float vRedshift;',
       'uniform float u_redshift_scale;',
+      'uniform float u_opacity;',
       'void main() {',
       '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
       '  vec3 baseColor = vec3(0.85, 0.95, 1.0);',
       '  vec3 burstColor = vec3(1.0, 0.15, 0.85);',
       '  vec3 finalColor = mix(baseColor, burstColor, zBurst);',
       '  finalColor += zBurst * 0.65;',
-      '  gl_FragColor = vec4(finalColor, 0.9);',
+      '  gl_FragColor = vec4(finalColor, clamp(u_opacity, 0.0, 1.0));',
       '}',
     ].join('\n'),
     transparent: true,
@@ -240,7 +241,9 @@ function _buildMacroScene(scene) {
     const inpaintMat = new THREE.ShaderMaterial({
       uniforms: _inpaintUniforms,
       transparent: true,
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
+      depthTest: false,
       vertexShader: `
         varying vec2 vUv;
         void main() {
@@ -282,13 +285,14 @@ function _buildMacroScene(scene) {
           mixed.rgb += spark * vec3(0.35, 0.85, 1.25);
 
           float alpha = clamp(u_enabled, 0.0, 1.0);
-          gl_FragColor = vec4(mixed.rgb, alpha);
+          gl_FragColor = vec4(mixed.rgb * alpha, alpha);
         }
       `,
     })
 
-    const inpaintGeo = new THREE.PlaneGeometry(32, 18, 1, 1)
+    const inpaintGeo = new THREE.PlaneGeometry(120, 80, 1, 1)
     _inpaintMesh = markRaw(new THREE.Mesh(inpaintGeo, inpaintMat))
+    _inpaintMesh.position.set(0, 0, 0)
     _inpaintMesh.visible = false
     _inpaintMesh.renderOrder = 999
     scene.add(_inpaintMesh)
@@ -304,37 +308,49 @@ function _makeNebulaTexture({ w = 512, h = 512, palette = [], bloomBias = 0.5 } 
   canvas.height = Math.max(64, Math.floor(h))
   const ctx = canvas.getContext('2d')
 
-  const p = Array.isArray(palette) && palette.length ? palette : ['#050816', '#0b2a5a', '#7dd3fc', '#a78bfa']
-  const g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
-  for (let i = 0; i < p.length; i += 1) {
-    g.addColorStop(i / Math.max(1, p.length - 1), p[i])
-  }
-  ctx.fillStyle = g
+  // Black background so the inpaint plane (AdditiveBlending) has no "billboard rectangle" edge.
+  ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  // Add soft blobs + stars (procedural; no external assets).
-  for (let i = 0; i < 140; i += 1) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const r = 18 + Math.random() * 140
-    const a = (0.03 + Math.random() * 0.12) * (0.5 + bloomBias)
+  // Use additive composition in the generator to build organic clouds.
+  try {
+    ctx.globalCompositeOperation = 'lighter'
+  } catch (_) {
+    // ignore
+  }
+
+  const p = Array.isArray(palette) && palette.length ? palette : ['#050816', '#0b2a5a', '#7dd3fc', '#a78bfa']
+  const cx = canvas.width / 2
+  const cy = canvas.height / 2
+
+  // Nebula body: many soft blobs.
+  for (let i = 0; i < 220; i += 1) {
+    const x = cx + (Math.random() - 0.5) * canvas.width * 0.75
+    const y = cy + (Math.random() - 0.5) * canvas.height * 0.75
+    const r = 20 + Math.random() * 200
+    const color = p[Math.floor(Math.random() * p.length)]
+    ctx.globalAlpha = (0.02 + Math.random() * 0.08) * (0.5 + bloomBias)
     const blob = ctx.createRadialGradient(x, y, 0, x, y, r)
-    blob.addColorStop(0, `rgba(255,255,255,${a})`)
-    blob.addColorStop(1, 'rgba(0,0,0,0)')
+    blob.addColorStop(0, color)
+    blob.addColorStop(1, '#000000')
     ctx.fillStyle = blob
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 2600; i += 1) {
-    const x = (Math.random() * canvas.width) | 0
-    const y = (Math.random() * canvas.height) | 0
-    const v = 180 + Math.random() * 75
-    const a = (0.12 + Math.random() * 0.65) * (0.4 + bloomBias)
-    ctx.fillStyle = `rgba(${v},${v},${v},${a})`
-    ctx.fillRect(x, y, 1, 1)
+  // Star dust: higher-frequency specks with center bias.
+  ctx.globalAlpha = 0.8
+  for (let i = 0; i < 2000; i += 1) {
+    const x = cx + (Math.random() - 0.5) * canvas.width * 0.85
+    const y = cy + (Math.random() - 0.5) * canvas.height * 0.85
+    const dist = Math.hypot(x - cx, y - cy)
+    if (dist > canvas.height * 0.45 && Math.random() > 0.15) continue
+    const v = 150 + Math.random() * 105
+    ctx.fillStyle = `rgb(${v},${v},${v})`
+    ctx.fillRect(x, y, 1.2, 1.2)
   }
+  ctx.globalAlpha = 1.0
 
   const tex = new THREE.CanvasTexture(canvas)
   tex.colorSpace = THREE.SRGBColorSpace
@@ -361,6 +377,13 @@ function _setMacroRedshiftMaxDepth(v) {
 async function _executeRedshiftBurst(payload = null) {
   if (!macroMesh) return
 
+  // Scene dominance: redshift burst should never be occluded by modal inpaint.
+  try {
+    _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+
   try {
     _macroRedshiftTween?.kill?.()
   } catch (_) {
@@ -374,6 +397,16 @@ async function _executeRedshiftBurst(payload = null) {
   }
 
   _setMacroRedshiftMaxDepth(payload?.maxDepth)
+
+  // Ensure every trigger is visually obvious.
+  _setMacroRedshiftScale(0)
+
+  try {
+    const u = macroMesh?.material?.uniforms
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.9, duration: 0.45, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
 
   // Camera choreography: lift up for a more volumetric read, and orbit a bit.
   try {
@@ -431,10 +464,25 @@ async function _executeRedshiftBurst(payload = null) {
 function _startModalInpaint() {
   if (!_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return
 
+  // Ensure a clean state (prevents lingering listeners/tweens across rapid switches).
+  try {
+    _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+
   _inpaintActive = true
   _inpaintMesh.visible = true
   _inpaintUniforms.u_enabled.value = 1.0
   _inpaintUniforms.u_radius.value = 0.0
+
+  // Scene dominance: dim the macro spiral so the nebula scan reads clearly.
+  try {
+    const u = macroMesh?.material?.uniforms
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.15, duration: 1.5, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
 
   if (_inpaintClickHandler) return
   _inpaintClickHandler = (ev) => {
@@ -517,6 +565,14 @@ function _stopModalInpaint() {
     }
   }
   _inpaintClickHandler = null
+
+  // Restore macro brightness when leaving inpaint.
+  try {
+    const u = macroMesh?.material?.uniforms
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.9, duration: 0.6, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
 }
 
 function _buildMicroScene(scene) {
@@ -953,21 +1009,9 @@ function animate() {
   try {
     if (renderPass) renderPass.scene = activeScene
 
-    if (_macroRedshiftPending !== null && _macroRedshiftShader?.uniforms?.u_redshift_scale) {
-      _macroRedshiftShader.uniforms.u_redshift_scale.value = _macroRedshiftPending
-      _macroRedshiftPending = null
-    }
-
-    // Keep the inpaint plane in front of the camera (screen-aligned quad).
+    // World-space billboard: keep orientation camera-facing, but do not parent to camera position.
     if (_inpaintActive && _inpaintMesh && camera) {
-      const fwd = new THREE.Vector3(0, 0, -1)
       try {
-        fwd.applyQuaternion(camera.quaternion)
-      } catch (_) {
-        // ignore
-      }
-      try {
-        _inpaintMesh.position.copy(camera.position).add(fwd.multiplyScalar(12))
         _inpaintMesh.quaternion.copy(camera.quaternion)
       } catch (_) {
         // ignore
@@ -1016,6 +1060,14 @@ watch(
 watch(
   () => store.currentScale.value,
   (next, prev) => {
+    // Scene dominance: inpaint is macro-only; kill it before switching scenes.
+    if (String(next || '').trim().toLowerCase() !== 'macro') {
+      try {
+        if (_inpaintActive) _stopModalInpaint()
+      } catch (_) {
+        // ignore
+      }
+    }
     if (prev === 'macro' && next === 'micro') {
       executeQuantumDive({
         camera,
@@ -1104,7 +1156,6 @@ onBeforeUnmount(() => {
 
   _macroRedshiftTween = null
   _macroRedshiftShader = null
-  _macroRedshiftPending = null
   _macroRedshiftScale = 0
 
   _inpaintMesh = null
