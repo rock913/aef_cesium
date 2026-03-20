@@ -12,6 +12,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import gsap from 'gsap'
 import { useResearchStore } from '../../../stores/researchStore.js'
 import { ASTRO_AGENT_ACTION_TYPES, useAstroStore } from '../../../stores/astroStore.js'
+import * as coordinateMath from '../../../utils/astronomy/coordinateMath.js'
 import { disposeThreeEngine } from './threeDispose.js'
 import { executeQuantumDive } from './quantumDive.js'
 import { createBloomPipeline, updateBloomParams } from './threePostprocessing.js'
@@ -51,6 +52,8 @@ let _macroRedshiftTween = null
 let _macroRedshiftShader = null
 let _macroRedshiftMaxDepth = 42
 let _macroRedshiftScale = 0
+
+let _sdssInjected = false
 
 let _pendingAstroAction = null
 
@@ -213,6 +216,20 @@ function _buildMacroScene(scene) {
   scene.add(mesh)
   macroMesh = mesh
 
+  // Best-effort: inject a small real-data sample into the macro instancing.
+  // Never block rendering; always fall back to the procedural spiral if anything fails.
+  try {
+    queueMicrotask(() => {
+      try {
+        void _tryInjectSdssMicroSample()
+      } catch (_) {
+        // ignore
+      }
+    })
+  } catch (_) {
+    // ignore
+  }
+
   // Stage 2 Demo 3: modal inpaint shader plane (disabled by default; action-driven).
   try {
     const baseTex = _makeNebulaTexture({
@@ -308,6 +325,74 @@ function _buildMacroScene(scene) {
   } catch (_) {
     _inpaintMesh = null
     _inpaintUniforms = null
+  }
+}
+
+async function _tryInjectSdssMicroSample() {
+  if (_sdssInjected) return
+  if (!macroMesh || !macroMesh.geometry) return
+  if (typeof fetch !== 'function') return
+
+  _sdssInjected = true
+
+  let data
+  try {
+    const res = await fetch('/data/astronomy/sdss_micro_sample.json', { cache: 'no-cache' })
+    if (!res?.ok) return
+    data = await res.json()
+  } catch (_) {
+    return
+  }
+
+  if (!Array.isArray(data) || data.length < 1) return
+
+  const capacity = Number(macroMesh.count) || 100000
+  const n = Math.max(1, Math.min(capacity, data.length))
+  const radius = 20
+
+  // Normalize redshift into [0,1] while keeping a stable baseline even for tiny samples.
+  let zMax = 0
+  for (let i = 0; i < n; i += 1) {
+    const z = Number(data[i]?.[2])
+    if (Number.isFinite(z)) zMax = Math.max(zMax, z)
+  }
+  zMax = zMax > 0 ? zMax : 1
+
+  const tmp = new THREE.Object3D()
+  const redshiftAttr = macroMesh.geometry.getAttribute('aRedshift')
+  for (let i = 0; i < n; i += 1) {
+    const row = data[i]
+    const ra = Number(row?.[0])
+    const dec = Number(row?.[1])
+    const z = Number(row?.[2])
+    if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
+
+    const dir = coordinateMath.raDecToUnitVector(ra, dec)
+    tmp.position.set(dir.x * radius, dir.z * radius * 0.35, dir.y * radius)
+    tmp.updateMatrix()
+    macroMesh.setMatrixAt(i, tmp.matrix)
+
+    if (redshiftAttr?.array) {
+      redshiftAttr.array[i] = Number.isFinite(z) ? Math.max(0, Math.min(1, z / zMax)) : 0
+    }
+  }
+
+  // Only draw the real-data instances.
+  try {
+    macroMesh.count = n
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    macroMesh.instanceMatrix.needsUpdate = true
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (redshiftAttr) redshiftAttr.needsUpdate = true
+  } catch (_) {
+    // ignore
   }
 }
 

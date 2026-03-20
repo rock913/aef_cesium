@@ -8,6 +8,10 @@ Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范
 - 2026-03-19：阶段 2 完成（Demo 1 红移拉伸：InstancedMesh + aRedshift + uniform 动画；Demo 3 模态 Inpaint：shader 扫描线扩散 + 点击选点）
 - 2026-03-20：阶段 2 可靠性加固（“场景霸权 2.0”+ 边缘羽化：Demo 3 触发时强制收缩 Demo 1 红移爆裂；inpaint vignette/edge feather 消除方形边界；离开 macro 自动 stop inpaint，避免 micro 下潜穿帮）
 
+编号说明（避免 Demo 混用）：
+- 本文档的验收步骤沿用 Stage 2 的历史编号与 Command Palette 文案：Redshift Burst = Demo 1，Modal Inpaint = Demo 3。
+- 若以“新的四大任务=四个 Demo（Demo1–Demo4）”口径，则对应关系是：本文 Demo 1 ≈ 新口径 Demo 2；本文 Demo 3 ≈ 新口径 Demo 4。
+
 1. 架构统合：双模态引擎底座的无缝切换
 
 为保持与 v6.0 中规划的“双模态底座”架构连续性，我们将沿用 /workbench 路由架构，并在 EngineRouter.vue 中实现地学（Cesium）与天文（Three/WebGPU）的平滑切换。

@@ -60,4 +60,15 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('u_redshift_scale')
     expect(s).toContain('_setMacroRedshiftScale(0)')
   })
+
+  it('supports Micro-Real-Data injection (SDSS sample) with safe fallback', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    // The dataset path is part of the public contract.
+    expect(s).toContain('/data/astronomy/sdss_micro_sample.json')
+
+    // Coordinate mapping should rely on the shared astronomy helpers.
+    expect(s).toContain('coordinateMath')
+    expect(s).toContain('raDecToUnitVector')
+  })
 })

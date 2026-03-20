@@ -66,6 +66,19 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 四个任务以“科学叙事”为主线，工程上统一映射为：Copilot 指令 → `astroStore` action → `ThreeTwin.vue` 执行。
 
+### 2.0 Demo 映射与状态（四大任务 = 四个 Demo）
+
+| Demo | 任务名 | Action（建议/目标） | 当前状态（2026-03-20） |
+|---|---|---|---|
+| Demo 1 | CSST 复杂星系精细结构分解 | `DECOMPOSE_CSST_GALAXY` | Not Started（规划中） |
+| Demo 2 | 红移立体爆裂（Cosmic Web / Redshift Burst） | `EXECUTE_REDSHIFT_PREDICTION` | Implemented（Stage 2 已落地） |
+| Demo 3 | GOTTA 瞬变源捕获（样条跃迁 + 时域 HUD） | `CAPTURE_TRANSIENT_EVENT` | Not Started（规划中） |
+| Demo 4 | 模态互生 Inpaint（扫描扩散） | `START_MODAL_INPAINT` / `STOP_MODAL_INPAINT` | Implemented（Stage 2 已落地） |
+
+说明：
+- 旧文档中曾以“Demo 1 红移 / Demo 3 Inpaint”作为 Stage 2 验收编号；为了与“四大任务=四个 Demo”一致，本主文档采用 Demo 1–4 的新映射。
+- 代码与 Command Palette 的展示文案若仍沿用旧编号，视为 UI 命名债（后续统一）。
+
 ### 序幕：宇宙基底的唤醒（The Data Fabric）
 
 目标：进入 workbench 后，看到“真实数据驱动”的二维天球基底，而不是纯随机点。
