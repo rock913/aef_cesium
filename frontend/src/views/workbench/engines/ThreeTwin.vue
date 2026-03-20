@@ -55,6 +55,44 @@ let _macroRedshiftScale = 0
 
 let _pendingAstroAction = null
 
+function _tryRunAstroAction(action) {
+  if (!action || typeof action !== 'object') return false
+  const type = String(action?.type || '').trim()
+
+  // Stop should work regardless of the current scale.
+  if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
+    try {
+      _stopModalInpaint()
+    } catch (_) {
+      // ignore
+    }
+    return true
+  }
+
+  // Stage 2: run only in macro scene.
+  const scale = String(store.currentScale.value || '').trim().toLowerCase()
+  if (scale !== 'macro') return false
+
+  if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
+    if (!macroMesh) return false
+    void _executeRedshiftBurst(action?.payload || null)
+    return true
+  }
+
+  if (type === ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT) {
+    if (!_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return false
+    _startModalInpaint(action?.payload || null)
+    return true
+  }
+
+  return false
+}
+
+function _flushPendingAstroAction() {
+  if (!_pendingAstroAction) return
+  if (_tryRunAstroAction(_pendingAstroAction)) _pendingAstroAction = null
+}
+
 let _inpaintMesh = null
 let _inpaintUniforms = null
 let _inpaintActive = false
@@ -93,9 +131,14 @@ function _buildMacroScene(scene) {
   // Minimal procedural cosmic web using InstancedMesh.
   // Stage 2 Demo 1: add per-instance redshift attribute + uniform-driven stretch along +Z.
   const count = 100000
-  const geometry = new THREE.SphereGeometry(0.02, 4, 4)
+  const geometry = new THREE.SphereGeometry(0.04, 4, 4)
 
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff })
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+  })
   material.onBeforeCompile = (shader) => {
     shader.uniforms.u_redshift_scale = { value: Number(_macroRedshiftScale) || 0 }
     shader.uniforms.u_max_depth = { value: Number(_macroRedshiftMaxDepth) || 42 }
@@ -115,22 +158,25 @@ function _buildMacroScene(scene) {
         '#include <project_vertex>',
         [
           'vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4( transformed, 1.0 );',
-          'mvPosition.xyz += vec3(0.0, 0.0, aRedshift * u_redshift_scale * u_max_depth);',
+          // In view space, camera looks down -Z; subtracting Z pushes particles deeper.
+          'mvPosition.z -= (aRedshift * u_redshift_scale * u_max_depth);',
           'gl_Position = projectionMatrix * mvPosition;',
         ].join('\n')
       )
     }
 
     shader.fragmentShader = `uniform float u_redshift_scale;\nvarying float vRedshift;\n${shader.fragmentShader}`
-    shader.fragmentShader = shader.fragmentShader.replace(
-      'vec4 diffuseColor = vec4( diffuse, opacity );',
-      [
-        'vec4 diffuseColor = vec4( diffuse, opacity );',
-        'float z = clamp(vRedshift * u_redshift_scale, 0.0, 1.0);',
-        'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.25, 0.85), z);',
-        'diffuseColor.rgb += z * 0.25;',
-      ].join('\n')
-    )
+    if (shader.fragmentShader.includes('#include <color_fragment>')) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        [
+          '#include <color_fragment>',
+          'float zBurst = clamp(vRedshift * u_redshift_scale, 0.0, 1.0);',
+          'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.15, 0.85), zBurst);',
+          'diffuseColor.rgb += zBurst * 0.65;',
+        ].join('\n')
+      )
+    }
 
     _macroRedshiftShader = shader
   }
@@ -855,45 +901,6 @@ function initEngine() {
   } catch (_) {
     // ignore
   }
-
-
-function _tryRunAstroAction(action) {
-  if (!action || typeof action !== 'object') return false
-  const type = String(action?.type || '').trim()
-
-  // Stop should work regardless of the current scale.
-  if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
-    try {
-      _stopModalInpaint()
-    } catch (_) {
-      // ignore
-    }
-    return true
-  }
-
-  // Stage 2: run only in macro scene.
-  const scale = String(store.currentScale.value || '').trim().toLowerCase()
-  if (scale !== 'macro') return false
-
-  if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
-    if (!macroMesh) return false
-    void _executeRedshiftBurst(action?.payload || null)
-    return true
-  }
-
-  if (type === ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT) {
-    if (!_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return false
-    _startModalInpaint(action?.payload || null)
-    return true
-  }
-
-  return false
-}
-
-function _flushPendingAstroAction() {
-  if (!_pendingAstroAction) return
-  if (_tryRunAstroAction(_pendingAstroAction)) _pendingAstroAction = null
-}
   onResize = () => {
     if (!renderer || !camera || !container.value) return
     const w = container.value.clientWidth || window.innerWidth
