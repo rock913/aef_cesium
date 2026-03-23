@@ -94,10 +94,10 @@ docker-dev-ps:
 	$(_DEV_COMPOSE) ps
 
 docker-dev-pytest:
-	$(_DEV_COMPOSE) run --rm backend_test
+	$(_DEV_COMPOSE) run --rm --build backend_test
 
 docker-dev-vitest:
-	$(_DEV_COMPOSE) run --rm frontend_test
+	$(_DEV_COMPOSE) run --rm --build frontend_test
 
 docker-dev-check:
 	@echo "==> Smoke: backend /health"

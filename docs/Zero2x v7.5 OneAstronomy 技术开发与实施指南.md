@@ -60,6 +60,22 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 视觉无界融合（Anti-screenshot rule）：
 - 所有二维面片必须：纯黑底 + `AdditiveBlending` + 边缘羽化（edge feather / vignette），消灭任何“方形截图边界”。
 
+### 1.4 视觉可读性门禁（Graphics & Visuals Gates）
+
+当工程链路已经打通（Action/Preset/TDD/E2E），下一阶段的核心风险会转移到“看起来不对”。本项目把关键视觉问题也纳入可回归的工程约束：
+
+1) 宏观宇宙“尺度失真”必须被避免
+- 症状：InstancedMesh 的球体过小 + 相机默认距离过远 → 星系点变成 sub-pixel，画面像“几颗暗点”。
+- 约束：宏观星海实例的几何半径必须保证在默认相机距离下仍可见（工程上以 ThreeTwin 的 SphereGeometry 半径门禁约束）。
+
+2) CSST 分解必须“强制圆形裁切”，彻底消灭方形边缘
+- 症状：即使有 vignette/edge feather，如果纹理边缘不够黑或裁切不够狠，Additive 仍可能露出四角。
+- 约束：CSST plane 的 fragment shader 必须包含 circle mask（基于 UV 距离的 `smoothstep(0.45, 0.25, d)`）并与 edge feather / vignette 相乘。
+
+3) CSST 分解必须具备空间感（避免 2D 贴纸感）
+- 症状：三层面片正对相机，只做 z 轴轻微错开，会读成“叠放卡片”。
+- 约束：三层 plane 必须带倾斜角（例如 `rotation.x = PI/5`）并以 y+z 组合拉开；相机运镜必须带侧向偏移（dir×up 的 side 向量）形成“解剖视角”。
+
 ---
 
 ## 2) 科学示范任务（从蓝图整合为工程任务书）
@@ -92,7 +108,8 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 目标：相机推进到目标，出现可读的三层分解图（Bulge/Disk/Bar），并能在任务切换时被清理。
 
 验收（Docker Dev / E2E）：
-- Workbench → Presets 选择 `[v7.5] OneAstronomy · CSST Galaxy Decompose (Demo 1)`：画布内出现三层分解面片（Bulge/Disk/Bar）且边缘无方形截图边界。
+- Workbench → Presets 选择 `[v7.5] OneAstronomy · CSST Galaxy Decompose (Demo 1)`：画布内出现三层分解面片（Bulge/Disk/Bar），边缘无方形截图边界（circle mask + vignette + edge feather）。
+- 运镜与层次：相机以侧上方“解剖视角”推进，三层面片具备明显空间分离（倾斜 + y/z 拉开），不应读成三张重叠卡片。
 - 触发 `redshift` 或 `inpaint start`：CSST 分解面片必须自动清理（Scene Authority）。
 - 运行代码指令 `csst stop`：必须能显式清理 CSST 图层并恢复 macro 亮度。
 
