@@ -17,12 +17,14 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 宏观天球基底：Sky-Sphere（`MACRO_SKY_RADIUS = 100`），并禁止螺旋盘默认分布与 RA/Dec 压扁系数
 - 红移爆裂：真·径向膨胀（Radial Expansion）+ `depthFade` 抑制远处过曝
 - Cosmic Web 视觉重构：宏观渲染从 `InstancedMesh(SphereGeometry)` → `THREE.Points`（soft-particle shader）
+- 电影级渲染特调门禁（Cinematic Polish）：Overlap Trick（大光晕+低透明度）+ Heatmap Palette + Dolly Zoom + Bloom tighten/restore
 - GOTTA 捕获：网络 schema + Spline Dive（CatmullRomCurve3）
 - Inpaint：World Anchor（payload/world-pos 或 ra/dec；可回退 GOTTA 最近目标）
 - Astro-GIS Phase 1–3：图层状态树（layer store）+ HiPS 底图（Aladin Lite best-effort）+ SIMBAD Catalog Points 叠加 + 后端契约测试/Dev&Prod smoke
 
 下一步（必须先写 Gate 再改实现）：
 - Astro-GIS（增强）：Catalog online provider 扩展（VizieR / 更多 band）+ label/hover/pick + 性能剖析（大视场点数上限与抽样策略）
+- Cinematic Polish（增强）：把关键调参（`u_size/u_opacity/heatmap`、Dolly Zoom、Bloom tighten）纳入 layer store / preset，并补齐“恢复基线”的门禁（避免长期状态漂移）
 
 ## 0) 核心设计哲学（从蓝图整合而来）
 
@@ -86,8 +88,8 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 约束（必须同时满足）：
   - tiny sample 禁止收缩宏观 draw count（保留程序化星海作为底座）。
   - 宏观粒子必须“沙子化”：实例半径收敛到高密度安全区（当前实现为 `SphereGeometry(0.015, ...)`；下一步将迁移到 `THREE.Points` 的 soft-particle）。
-  - 宏观 Shader 底色必须极暗，透明度必须收敛（默认 `u_opacity ≈ 0.35`），高光交给叠加与 Bloom。
-  - 红移爆裂期间的 Bloom 上限必须受控（当前实现上限 `≤ 1.8`）。
+  - 宏观 Shader 底色必须极暗，透明度必须收敛（当前实现默认 `u_opacity ≈ 0.15`），高光交给叠加与 Bloom。
+  - 红移爆裂期间 Bloom 必须“tighten → restore”（示例：burst 时 `threshold≈0.4, strength≈2.2`，结束后恢复到基线），避免长期过曝与状态漂移。
 
 1.2) 宏观天球基底必须符合物理常识（Sky-Sphere Baseline）
 - 症状：默认画面出现“规则的螺旋圆盘/飞碟盘”，会让红移爆裂读成“圆柱体/拉面”。
@@ -365,6 +367,24 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - Cosmic Web 已切换为 `THREE.Points` soft-particle 路径，并由 Vitest wiring gate 防回归。
 - Astro-GIS layer store + UI（LayerTree）已落地，并与 ThreeTwin 的运行态映射闭环。
 - Astro-GIS Phase 2（HiPS）与 Phase 3（Catalog）已落地；后端有 pytest 契约门禁，Makefile 含 dev/prod smoke。
+
+### Phase 2.7（下一步 / TDD 驱动）：Cinematic Polish 工程化 + Astro-GIS 交互能力
+
+目标 A：Cinematic Polish 工程化（从“硬编码调参”到“可控 + 可恢复 + 可验收”）
+- Gate（先写）：
+  - 断言宏观 Points Shader 的“Overlap Trick”默认值存在（`u_opacity≈0.15`、`u_size≈45`、`exp(-r * 5.0)`）
+  - 断言 Heatmap Palette 三段插值存在（Near/Mid/Far + `smoothstep` 两段）
+  - 断言 Redshift Burst 包含 Dolly Zoom（`fov→95` + `updateProjectionMatrix`）
+  - 断言 Bloom tighten 必须 restore（burst 中 `threshold≈0.4,strength≈2.2`，结束恢复到初始化值）
+- Green：
+  - 将 `u_size/u_opacity/palette` 做成 layer store 可控项（可按 preset 设定），并提供“恢复基线”动作或在 STOP 时统一回滚。
+
+目标 B：Astro-GIS Phase 3+（可用性增强）
+- Gate（先写）：
+  - 断言 Catalog overlay 支持 hover/pick（至少有 raycast / closest-point 的最小路径），并能在 UI 显示 name/mag/otype。
+  - 断言大视场点数上限与抽样策略存在（避免一次画 5–10 万条导致卡顿）。
+- Green：
+  - 增加 label/hover/pick（先最小 HUD/tooltip），并为 SIMBAD/VizieR 扩展 provider/波段提供接口位。
 
 ---
 
