@@ -55,6 +55,10 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('function _startModalInpaint(payload')
     expect(s).toContain('payload?.ra')
     expect(s).toContain('_gottaLastTargetPos')
+
+    // Astro-GIS Phase 1: layer state store should be mapped inside ThreeTwin.
+    expect(s).toContain('ASTRO_GIS_LAYER_IDS')
+    expect(s).toContain('astroStore.astroGis.value?.version')
   })
 
   it('wires OneAstronomy Demo 1 (CSST decomposition) actions', () => {
@@ -90,6 +94,9 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Shader must include edge feather / vignette to avoid a rectangular billboard boundary.
     expect(s).toContain('edgeFeather')
     expect(s).toContain('vignette')
+
+    // Astro-GIS Phase 1: inpaint layer opacity must be controllable.
+    expect(s).toContain('u_layer_opacity')
 
     // Starting inpaint should collapse any redshift burst back to 0 (prevents particle-plane intersection chaos).
     expect(s).toContain('u_redshift_scale')
@@ -141,5 +148,15 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('gl_PointCoord')
     expect(s).toContain('discard')
     expect(s).toContain('gl_PointSize')
+
+    // Astro-GIS Phase 2: HiPS underlay should be present and adapter-driven.
+    expect(s).toContain('HiPS Underlay')
+    expect(s).toContain('initAladinLiteV3')
+    expect(s).toContain('setAladinView')
+
+    // Astro-GIS Phase 3: catalog SIMBAD overlay should be wired (backend endpoint + points material).
+    expect(s).toContain('/api/astro-gis/catalog/simbad')
+    expect(s).toContain('CATALOG_SIMBAD')
+    expect(s).toContain('aMag')
   })
 })

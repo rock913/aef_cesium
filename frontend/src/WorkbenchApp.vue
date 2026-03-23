@@ -147,7 +147,7 @@ import { applyCopilotArtifacts } from './utils/copilotArtifacts.js'
 import { apiService } from './services/api.js'
 import EngineScaleRouter from './views/workbench/EngineScaleRouter.vue'
 import { useResearchStore } from './stores/researchStore.js'
-import { ASTRO_AGENT_ACTION_TYPES, useAstroStore } from './stores/astroStore.js'
+import { ASTRO_AGENT_ACTION_TYPES, ASTRO_GIS_LAYER_IDS, useAstroStore } from './stores/astroStore.js'
 import { TaskQueue } from './utils/taskQueue.js'
 import TimelineHUD from './views/workbench/components/TimelineHUD.vue'
 import SwipeHUD from './views/workbench/components/SwipeHUD.vue'
@@ -939,6 +939,14 @@ const layers = ref([
   { id: 'bloom', name: 'Bloom FX', enabled: true, params: { strength: 1.1, threshold: 0.65, radius: 0.15 } },
   { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} },
   { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
+
+  // Astro-GIS (Sky) layers (Phase 1-3).
+  { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, name: 'Astro · Macro SDSS', enabled: true, params: { opacity: 1.0, pointSize: 15.0 } },
+  { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } },
+  { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } },
+  { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } },
+  { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · HiPS Background', enabled: false, params: { opacity: 1.0, survey: 'P/DSS2/color', fovSync: true } },
+  { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } },
 ])
 
 const charts = ref([])
@@ -973,7 +981,17 @@ function _normalizeTabs(arr) {
 
 function _normalizeLayers(arr) {
   const a = Array.isArray(arr) ? arr : []
-  const allowed = new Set(['gee-heatmap', 'boundaries', 'anomaly-mask', 'ai-imagery', 'ai-vector', 'bloom', 'macro-spiral', 'micro-atoms'])
+  const allowed = new Set([
+    'gee-heatmap',
+    'boundaries',
+    'anomaly-mask',
+    'ai-imagery',
+    'ai-vector',
+    'bloom',
+    'macro-spiral',
+    'micro-atoms',
+    ...Object.values(ASTRO_GIS_LAYER_IDS),
+  ])
   const defaults = new Map([
     ['gee-heatmap', { id: 'gee-heatmap', name: 'GEE Heatmap', enabled: false, params: { opacity: 0.78 } }],
     ['boundaries', { id: 'boundaries', name: 'Vector Boundaries', enabled: false, params: { opacity: 0.90 } }],
@@ -983,6 +1001,13 @@ function _normalizeLayers(arr) {
     ['bloom', { id: 'bloom', name: 'Bloom FX', enabled: true, params: { strength: 1.1, threshold: 0.65, radius: 0.15 } }],
     ['macro-spiral', { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} }],
     ['micro-atoms', { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } }],
+
+    [ASTRO_GIS_LAYER_IDS.MACRO_SDSS, { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, name: 'Astro · Macro SDSS', enabled: true, params: { opacity: 1.0, pointSize: 15.0 } }],
+    [ASTRO_GIS_LAYER_IDS.DEMO_CSST, { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } }],
+    [ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } }],
+    [ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } }],
+    [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · HiPS Background', enabled: false, params: { opacity: 1.0, survey: 'P/DSS2/color', fovSync: true } }],
+    [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } }],
   ])
 
   const out = []
@@ -1027,6 +1052,23 @@ function _normalizeLayers(arr) {
       const ior = Number(nextParams.ior)
       if (Number.isFinite(ior)) nextParams.ior = Math.max(1, Math.min(2, ior))
     }
+
+    if (String(id || '').startsWith('astro-')) {
+      const op = Number(nextParams.opacity)
+      if (Number.isFinite(op)) nextParams.opacity = Math.max(0, Math.min(1, op))
+      if (id === ASTRO_GIS_LAYER_IDS.MACRO_SDSS) {
+        const ps = Number(nextParams.pointSize)
+        if (Number.isFinite(ps)) nextParams.pointSize = Math.max(1, Math.min(64, ps))
+      }
+      if (id === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND) {
+        if (nextParams.survey !== undefined) nextParams.survey = String(nextParams.survey || '').trim()
+        nextParams.fovSync = nextParams.fovSync === undefined ? true : !!nextParams.fovSync
+      }
+      if (id === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
+        const mr = Number(nextParams.maxRows)
+        if (Number.isFinite(mr)) nextParams.maxRows = Math.max(50, Math.min(2000, Math.floor(mr)))
+      }
+    }
     out.push({
       id,
       name: String(l?.name || base?.name || id),
@@ -1040,6 +1082,54 @@ function _normalizeLayers(arr) {
   }
   return out
 }
+
+function _syncAstroGisFromLayers(nextLayers) {
+  const a = Array.isArray(nextLayers) ? nextLayers : []
+  const ids = new Set(Object.values(ASTRO_GIS_LAYER_IDS))
+  for (const l of a) {
+    const id = String(l?.id || '').trim()
+    if (!ids.has(id)) continue
+
+    const opacity = Number(l?.params?.opacity)
+    const patch = {
+      visible: !!l?.enabled,
+      opacity: Number.isFinite(opacity) ? opacity : undefined,
+      style: {},
+    }
+
+    if (id === ASTRO_GIS_LAYER_IDS.MACRO_SDSS) {
+      const ps = Number(l?.params?.pointSize)
+      if (Number.isFinite(ps)) patch.style.pointSize = ps
+    }
+    if (id === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND) {
+      const survey = String(l?.params?.survey || '').trim()
+      if (survey) patch.style.survey = survey
+      patch.style.fovSync = l?.params?.fovSync === undefined ? true : !!l.params.fovSync
+    }
+    if (id === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
+      const mr = Number(l?.params?.maxRows)
+      if (Number.isFinite(mr)) patch.style.maxRows = mr
+    }
+
+    try {
+      astroStore.patchAstroGisLayer(id, patch)
+    } catch (_) {
+      // ignore
+    }
+  }
+}
+
+watch(
+  () => layers.value,
+  (next) => {
+    try {
+      _syncAstroGisFromLayers(next)
+    } catch (_) {
+      // ignore
+    }
+  },
+  { deep: true, immediate: true }
+)
 
 const tableRows = computed(() => {
   const sc = scenario.value
@@ -1879,6 +1969,13 @@ function onCopilotSelectPreset(preset) {
         { id: 'bloom', enabled: true, params: { strength: 1.7, threshold: 0.55, radius: 0.25 } },
         { id: 'macro-spiral', enabled: true, params: {} },
         { id: 'micro-atoms', enabled: false, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
+
+        { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, enabled: true, params: { opacity: 1.0, pointSize: 15.0 } },
+        { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, enabled: true, params: { opacity: 1.0 } },
+        { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, enabled: true, params: { opacity: 1.0 } },
+        { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, enabled: true, params: { opacity: 1.0 } },
+        { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, enabled: false, params: { opacity: 1.0, survey: 'P/DSS2/color', fovSync: true } },
+        { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, enabled: false, params: { opacity: 1.0, maxRows: 600 } },
       ])
     } catch (_) {
       // ignore

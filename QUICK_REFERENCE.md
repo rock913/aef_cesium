@@ -31,6 +31,8 @@ make docker-prod-check
 - `docker-dev-check`：包含 smoke + pytest + vitest（容器内），并检查关键静态资源存在
 - `docker-prod-check`：验证 nginx 静态 + 同源 `/api` 反代 + `/health` 可用
 
+Astro‑GIS 端到端测试说明见：`docs/astro_gis_e2e.md`（包含 HiPS + Catalog/SIMBAD）。
+
 ## 🐳 Docker Dev（推荐开发路径）
 
 ```bash

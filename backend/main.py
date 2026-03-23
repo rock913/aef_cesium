@@ -38,6 +38,7 @@ from llm_service import (
     generate_agent_analysis_openai_compatible,
 )
 from v7_copilot import router as v7_router
+from astro_gis_catalog import query_simbad_catalog
 from gee_service import (
     smart_load,
     get_tile_url,
@@ -1636,6 +1637,27 @@ async def get_missions():
     该端点不依赖 GEE 初始化，主要用于前端叙事流程与任务面板渲染。
     """
     return settings.missions
+
+
+@app.get("/api/astro-gis/catalog/simbad")
+async def astro_gis_catalog_simbad(
+    ra: float = Query(..., description="Right ascension (deg), will be normalized into [0,360)"),
+    dec: float = Query(..., description="Declination (deg), must be within [-90,90]"),
+    radius: float = Query(..., description="Search radius (deg), (0, 90]"),
+    maxRows: int = Query(600, description="Max number of rows to return"),
+):
+    """Astro-GIS Phase 3: SIMBAD catalog query.
+
+    Default behavior is a deterministic offline fixture so unit tests and
+    air-gapped deployments remain stable.
+    """
+
+    try:
+        return query_simbad_catalog(ra_deg=ra, dec_deg=dec, radius_deg=radius, max_rows=maxRows)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="catalog_query_failed")
 
 
 @app.post("/api/stats")

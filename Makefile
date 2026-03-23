@@ -118,6 +118,10 @@ docker-dev-check:
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ frontend /api/locations proxy not ready"; exit 1; fi
+	@echo "==> Smoke: astro catalog /api/astro-gis/catalog/simbad (proxy -> backend)"
+	@if ! curl -fsS "http://127.0.0.1:8404/api/astro-gis/catalog/simbad?ra=150.1&dec=2.22&radius=12.5&maxRows=5" | tr -d '\n' | grep -Eqi '"sources"\s*:\s*\['; then \
+		echo "❌ astro catalog endpoint not ready"; exit 1; \
+	fi
 	@echo "==> Smoke: static assets (posters)"
 	@if ! curl -fsSI http://127.0.0.1:8404/zero2x/ui/act2_geogpt.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
 		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_geogpt.webp"; exit 1; \
@@ -188,6 +192,10 @@ docker-prod-check:
 		sleep 0.3; \
 	done; \
 	if [ $$ok -ne 1 ]; then echo "❌ prod frontend /api/locations proxy not ready"; exit 1; fi
+	@echo "==> Smoke: prod astro catalog /api/astro-gis/catalog/simbad (proxy -> backend)"
+	@if ! curl -fsS "http://127.0.0.1:8406/api/astro-gis/catalog/simbad?ra=150.1&dec=2.22&radius=12.5&maxRows=5" | tr -d '\n' | grep -Eqi '"sources"\s*:\s*\['; then \
+		echo "❌ prod astro catalog endpoint not ready"; exit 1; \
+	fi
 	@echo "==> Smoke: prod static assets (posters)"
 	@if ! curl -fsSI http://127.0.0.1:8406/zero2x/ui/act2_geogpt.webp | tr -d '\r' | grep -Eqi 'content-type:.*image/webp'; then \
 		echo "❌ missing/incorrect content-type: /zero2x/ui/act2_geogpt.webp"; exit 1; \

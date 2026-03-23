@@ -1,5 +1,8 @@
 <template>
-  <div ref="container" class="three-twin w-full h-full" aria-label="Three Twin"></div>
+  <div class="three-twin-root w-full h-full" aria-label="Three Twin">
+    <div ref="aladinUnderlay" class="aladin-underlay" aria-label="HiPS Underlay"></div>
+    <div ref="container" class="three-twin w-full h-full" aria-label="Three WebGL"></div>
+  </div>
 </template>
 
 <script setup>
@@ -11,13 +14,14 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import gsap from 'gsap'
 import { useResearchStore } from '../../../stores/researchStore.js'
-import { ASTRO_AGENT_ACTION_TYPES, useAstroStore } from '../../../stores/astroStore.js'
+import { ASTRO_AGENT_ACTION_TYPES, ASTRO_GIS_LAYER_IDS, useAstroStore } from '../../../stores/astroStore.js'
 import * as coordinateMath from '../../../utils/astronomy/coordinateMath.js'
 import { normalizeSdssTriples } from '../../../utils/astronomy/sdssData.js'
 import { disposeThreeEngine } from './threeDispose.js'
 import { executeQuantumDive } from './quantumDive.js'
 import { createBloomPipeline, updateBloomParams } from './threePostprocessing.js'
 import { mapLayersToThreeParams } from './threeLayerMapping.js'
+import { destroyAladin, initAladinLiteV3, setAladinSurvey, setAladinView } from '../../../utils/astronomy/aladinLiteAdapter.js'
 
 const emit = defineEmits(['ready'])
 
@@ -26,6 +30,7 @@ const props = defineProps({
 })
 
 const container = ref(null)
+const aladinUnderlay = ref(null)
 const store = useResearchStore()
 const astroStore = useAstroStore()
 
@@ -40,6 +45,18 @@ let renderPass = null
 let bloomPass = null
 let animationId = null
 let onResize = null
+
+let _aladin = null
+let _hipsWantedVisible = false
+let _hipsLastSyncAt = 0
+let _hipsLastSurvey = ''
+
+let _catalogMesh = null
+let _catalogUniforms = null
+let _catalogWantedVisible = false
+let _catalogLastQueryKey = ''
+let _catalogLastFetchAt = 0
+let _catalogAbort = null
 
 let macroMesh = null
 let microRoot = null
@@ -258,6 +275,345 @@ const _inpaintRaycaster = new THREE.Raycaster()
 const _inpaintMouse = new THREE.Vector2()
 
 let _csstGroup = null
+
+function _abortCatalogFetch() {
+  if (!_catalogAbort) return
+  try {
+    _catalogAbort.abort()
+  } catch (_) {
+    // ignore
+  }
+  _catalogAbort = null
+}
+
+function _ensureCatalogLayer() {
+  if (_catalogMesh || !macroScene) return
+  if (!THREE) return
+
+  try {
+    const geom = new THREE.BufferGeometry()
+    geom.setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+    geom.setAttribute('aMag', new THREE.Float32BufferAttribute([], 1))
+
+    _catalogUniforms = {
+      u_opacity: { value: 1.0 },
+    }
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: _catalogUniforms,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        attribute float aMag;
+        uniform float u_opacity;
+        varying float vAlpha;
+        void main() {
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          // Map V-mag into a readable size range.
+          float mag = clamp(aMag, -1.0, 22.0);
+          float size = mix(6.0, 1.6, clamp((mag - 2.0) / 16.0, 0.0, 1.0));
+          gl_PointSize = size;
+          vAlpha = clamp(u_opacity, 0.0, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        varying float vAlpha;
+        void main() {
+          vec2 p = gl_PointCoord - vec2(0.5);
+          float r = length(p);
+          float a = smoothstep(0.5, 0.0, r);
+          if (a < 0.02) discard;
+          vec3 col = vec3(0.35, 0.85, 1.0);
+          float alpha = a * vAlpha;
+          gl_FragColor = vec4(col * alpha, alpha);
+        }
+      `,
+    })
+
+    _catalogMesh = markRaw(new THREE.Points(geom, mat))
+    _catalogMesh.frustumCulled = false
+    _catalogMesh.visible = false
+    _catalogMesh.renderOrder = 990
+    macroScene.add(_catalogMesh)
+  } catch (_) {
+    _catalogMesh = null
+    _catalogUniforms = null
+  }
+}
+
+function _updateCatalogSources(sources) {
+  if (!_catalogMesh) _ensureCatalogLayer()
+  if (!_catalogMesh?.geometry) return
+
+  const list = Array.isArray(sources) ? sources : []
+  const n = Math.max(0, Math.min(2000, list.length))
+  const radius = MACRO_SKY_RADIUS + 0.8
+
+  const pos = new Float32Array(n * 3)
+  const mags = new Float32Array(n)
+
+  for (let i = 0; i < n; i += 1) {
+    const s = list[i] || null
+    const ra = Number(s?.ra_deg)
+    const dec = Number(s?.dec_deg)
+    const mag = Number(s?.mag_v)
+    if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
+
+    const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
+    pos[i * 3] = dir.x * radius
+    pos[i * 3 + 1] = dir.z * radius
+    pos[i * 3 + 2] = dir.y * radius
+    mags[i] = Number.isFinite(mag) ? mag : 12.0
+  }
+
+  try {
+    _catalogMesh.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    _catalogMesh.geometry.setAttribute('aMag', new THREE.BufferAttribute(mags, 1))
+    _catalogMesh.geometry.setDrawRange(0, n)
+    _catalogMesh.geometry.computeBoundingSphere?.()
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _catalogQueryKey({ raDeg, decDeg, radiusDeg, maxRows }) {
+  // Quantize to avoid refetching on tiny camera jitter.
+  const q = (x, step) => Math.round(Number(x) / step) * step
+  const raQ = q(raDeg, 0.5)
+  const decQ = q(decDeg, 0.5)
+  const rQ = q(radiusDeg, 0.5)
+  const mQ = Math.max(1, Math.min(2000, Math.floor(Number(maxRows) || 600)))
+  return `${raQ}|${decQ}|${rQ}|${mQ}`
+}
+
+async function _maybeFetchCatalog(layer, view, nowMs) {
+  if (!_catalogWantedVisible) return
+  if (typeof fetch !== 'function') return
+
+  const endpoint = String(layer?.source?.endpoint || '/api/astro-gis/catalog/simbad').trim() || '/api/astro-gis/catalog/simbad'
+  const maxRows = Math.max(1, Math.min(2000, Math.floor(Number(layer?.style?.maxRows) || 600)))
+  const radiusDeg = Math.max(0.5, Math.min(45, Number(view?.fovDeg || 60) * 0.55))
+  const key = _catalogQueryKey({ raDeg: view.raDeg, decDeg: view.decDeg, radiusDeg, maxRows })
+  if (key === _catalogLastQueryKey) return
+
+  // Rate limit.
+  if (nowMs - _catalogLastFetchAt < 450) return
+  _catalogLastFetchAt = nowMs
+
+  _abortCatalogFetch()
+  _catalogAbort = new AbortController()
+
+  const url = `${endpoint}?ra=${encodeURIComponent(view.raDeg)}&dec=${encodeURIComponent(view.decDeg)}&radius=${encodeURIComponent(radiusDeg)}&maxRows=${encodeURIComponent(maxRows)}`
+
+  let data = null
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: _catalogAbort.signal })
+    if (!res?.ok) return
+    data = await res.json()
+  } catch (_) {
+    return
+  } finally {
+    _catalogAbort = null
+  }
+
+  const sources = Array.isArray(data?.sources) ? data.sources : []
+  _catalogLastQueryKey = key
+  _updateCatalogSources(sources)
+}
+
+function _applyAstroGisLayerState(astroGis) {
+  const layers = astroGis?.layers || null
+  if (!layers || typeof layers !== 'object') return
+
+  const macroL = layers[ASTRO_GIS_LAYER_IDS.MACRO_SDSS] || null
+  const csstL = layers[ASTRO_GIS_LAYER_IDS.DEMO_CSST] || null
+  const gottaL = layers[ASTRO_GIS_LAYER_IDS.DEMO_GOTTA] || null
+  const inpaintL = layers[ASTRO_GIS_LAYER_IDS.DEMO_INPAINT] || null
+  const hipsL = layers[ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND] || null
+  const catalogL = layers[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
+
+  if (macroMesh) {
+    try {
+      macroMesh.visible = macroL ? !!macroL.visible : true
+    } catch (_) {
+      // ignore
+    }
+    try {
+      const u = macroMesh?.material?.uniforms || _macroRedshiftShader?.uniforms
+      const op = macroL ? Number(macroL.opacity) : 1
+      const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+      if (u?.u_opacity) u.u_opacity.value = 0.55 * clamped
+      if (u?.u_size) {
+        const ps = Number(macroL?.style?.pointSize)
+        if (Number.isFinite(ps)) u.u_size.value = Math.max(1, Math.min(64, ps))
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (_csstGroup) {
+    try {
+      _csstGroup.visible = csstL ? !!csstL.visible : true
+    } catch (_) {
+      // ignore
+    }
+  }
+  try {
+    const op = csstL ? Number(csstL.opacity) : 1
+    const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+    if (Array.isArray(_csstPlanes)) {
+      for (const p of _csstPlanes) {
+        const u = p?.material?.uniforms
+        if (u?.u_opacity) u.u_opacity.value = clamped
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  if (_gottaGroup) {
+    try {
+      _gottaGroup.visible = gottaL ? !!gottaL.visible : true
+    } catch (_) {
+      // ignore
+    }
+    try {
+      const op = gottaL ? Number(gottaL.opacity) : 1
+      const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+      _gottaGroup.traverse?.((o) => {
+        const m = o?.material
+        if (m && typeof m === 'object' && 'opacity' in m) {
+          m.transparent = true
+          const ud = (m.userData && typeof m.userData === 'object') ? m.userData : (m.userData = {})
+          if (ud.__astroBaseOpacity === undefined) ud.__astroBaseOpacity = Number(m.opacity)
+          const base = Number(ud.__astroBaseOpacity)
+          const baseOp = Number.isFinite(base) ? base : 1
+          m.opacity = Math.max(0, Math.min(1, baseOp * clamped))
+          m.needsUpdate = true
+        }
+      })
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  if (_inpaintMesh && _inpaintUniforms) {
+    try {
+      const visible = inpaintL ? !!inpaintL.visible : true
+      _inpaintMesh.visible = !!_inpaintActive && visible
+    } catch (_) {
+      // ignore
+    }
+    try {
+      const op = inpaintL ? Number(inpaintL.opacity) : 1
+      const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+      if (_inpaintUniforms.u_layer_opacity) _inpaintUniforms.u_layer_opacity.value = clamped
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Phase 2: HiPS background underlay (Aladin Lite v3) - best effort.
+  try {
+    const wanted = hipsL ? !!hipsL.visible : false
+    _hipsWantedVisible = wanted
+
+    if (aladinUnderlay.value) {
+      const op = hipsL ? Number(hipsL.opacity) : 1
+      const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+      aladinUnderlay.value.style.opacity = wanted ? String(clamped) : '0'
+    }
+
+    if (wanted) {
+      void _ensureHiPSUnderlay(hipsL)
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Phase 3: SIMBAD catalog overlay (best-effort; backend defaults to offline fixtures).
+  try {
+    const wanted = catalogL ? !!catalogL.visible : false
+    _catalogWantedVisible = wanted
+    if (wanted) {
+      _ensureCatalogLayer()
+      if (_catalogMesh) _catalogMesh.visible = true
+    } else {
+      if (_catalogMesh) _catalogMesh.visible = false
+      _abortCatalogFetch()
+    }
+
+    const op = catalogL ? Number(catalogL.opacity) : 1
+    const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+    if (_catalogUniforms?.u_opacity) _catalogUniforms.u_opacity.value = 0.9 * clamped
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _computeMacroViewRaDecFov() {
+  if (!camera) return null
+  try {
+    const d = new THREE.Vector3()
+    camera.getWorldDirection(d)
+    const astroDir = { x: d.x, y: d.z, z: d.y }
+    const { raDeg, decDeg } = coordinateMath.unitVectorToRaDec(astroDir)
+    const raAligned = coordinateMath.normalizeAngle0To360(raDeg - MACRO_RA_OFFSET_DEG)
+    const fovDeg = Number(camera.fov)
+    return {
+      raDeg: raAligned,
+      decDeg: Number(decDeg) || 0,
+      fovDeg: Number.isFinite(fovDeg) ? fovDeg : 60,
+    }
+  } catch (_) {
+    return null
+  }
+}
+
+async function _ensureHiPSUnderlay(hipsLayer) {
+  if (!_hipsWantedVisible) return
+  if (!aladinUnderlay.value) return
+
+  if (!_aladin) {
+    const view = _computeMacroViewRaDecFov() || { raDeg: 0, decDeg: 0, fovDeg: 60 }
+    const survey = String(hipsLayer?.style?.survey || 'P/DSS2/color').trim() || 'P/DSS2/color'
+    try {
+      _aladin = await initAladinLiteV3({
+        container: aladinUnderlay.value,
+        raDeg: view.raDeg,
+        decDeg: view.decDeg,
+        fovDeg: view.fovDeg,
+        survey,
+      })
+      _hipsLastSurvey = survey
+    } catch (_) {
+      _aladin = null
+    }
+  }
+
+  if (!_aladin) return
+
+  try {
+    const survey = String(hipsLayer?.style?.survey || '').trim()
+    if (survey && survey !== _hipsLastSurvey) {
+      setAladinSurvey(_aladin, survey)
+      _hipsLastSurvey = survey
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    const view = _computeMacroViewRaDecFov()
+    if (view) setAladinView(_aladin, view)
+  } catch (_) {
+    // ignore
+  }
+}
 let _csstPlanes = null
 let _csstActive = false
 let _csstTimeline = null
@@ -444,6 +800,7 @@ function _buildMacroScene(scene) {
       u_edge: { value: 0.06 },
       u_time: { value: 0.0 },
       u_enabled: { value: 0.0 },
+      u_layer_opacity: { value: 1.0 },
     }
 
     const inpaintMat = new THREE.ShaderMaterial({
@@ -468,6 +825,7 @@ function _buildMacroScene(scene) {
         uniform float u_edge;
         uniform float u_time;
         uniform float u_enabled;
+        uniform float u_layer_opacity;
         varying vec2 vUv;
 
         float hash21(vec2 p) {
@@ -500,7 +858,7 @@ function _buildMacroScene(scene) {
           float distToCenter = distance(vUv, vec2(0.5, 0.5));
           float vignette = smoothstep(0.55, 0.35, distToCenter);
 
-          float finalAlpha = alpha * edgeFeather * vignette;
+          float finalAlpha = alpha * clamp(u_layer_opacity, 0.0, 1.0) * edgeFeather * vignette;
           gl_FragColor = vec4(mixed.rgb * finalAlpha, finalAlpha);
         }
       `,
@@ -2034,6 +2392,44 @@ function animate() {
   } catch (_) {
     // ignore
   }
+
+  // Phase 2: debounce-sync HiPS underlay to the current Three camera.
+  try {
+    const astro = astroStore.astroGis.value
+    const hipsL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND] || null
+    const wanted = !!hipsL?.visible
+    const sync = hipsL?.style?.fovSync !== false
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    if (wanted && sync) {
+      _hipsWantedVisible = true
+      if (!_aladin) {
+        // Try to init lazily when toggled on.
+        void _ensureHiPSUnderlay(hipsL)
+      } else if (now - _hipsLastSyncAt > 260) {
+        _hipsLastSyncAt = now
+        const view = _computeMacroViewRaDecFov()
+        if (view) setAladinView(_aladin, view)
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Phase 3: debounce-fetch SIMBAD catalog points for the current view.
+  try {
+    const astro = astroStore.astroGis.value
+    const catL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
+    const wanted = !!catL?.visible
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    if (wanted) {
+      _catalogWantedVisible = true
+      if (!_catalogMesh) _ensureCatalogLayer()
+      const view = _computeMacroViewRaDecFov()
+      if (view) void _maybeFetchCatalog(catL, view, now)
+    }
+  } catch (_) {
+    // ignore
+  }
   try {
     if (renderPass) renderPass.scene = activeScene
 
@@ -2064,6 +2460,11 @@ function animate() {
 onMounted(() => {
   initEngine()
   _applyThreeLayerMapping(props.layers)
+  try {
+    _applyAstroGisLayerState(astroStore.astroGis.value)
+  } catch (_) {
+    // ignore
+  }
 
   // Dev-only manual testing hook (no production dependency).
   try {
@@ -2075,6 +2476,18 @@ onMounted(() => {
   animate()
   emit('ready')
 })
+
+watch(
+  () => astroStore.astroGis.value?.version,
+  () => {
+    try {
+      _applyAstroGisLayerState(astroStore.astroGis.value)
+    } catch (_) {
+      // ignore
+    }
+  },
+  { immediate: true }
+)
 
 watch(
   () => props.layers,
@@ -2186,11 +2599,32 @@ onBeforeUnmount(() => {
     // ignore
   }
 
+  try {
+    destroyAladin(_aladin, aladinUnderlay.value)
+  } catch (_) {
+    // ignore
+  }
+  _aladin = null
+
+  try {
+    _abortCatalogFetch()
+  } catch (_) {
+    // ignore
+  }
+
   disposeThreeEngine({
     renderer,
     controls,
     scenes: [macroScene, microScene],
-    disposables: [composer, bloomPass, _inpaintMesh?.material, _inpaintMesh?.geometry, ...(_csstTextures || [])],
+    disposables: [
+      composer,
+      bloomPass,
+      _inpaintMesh?.material,
+      _inpaintMesh?.geometry,
+      _catalogMesh?.material,
+      _catalogMesh?.geometry,
+      ...(_csstTextures || []),
+    ],
     animationId,
     cancelAnimationFrameFn: cancelAnimationFrame,
   })
@@ -2231,11 +2665,31 @@ onBeforeUnmount(() => {
   _csstPrevCamPos = null
   _csstPrevTarget = null
   _csstTextures = []
+
+  _catalogMesh = null
+  _catalogUniforms = null
+  _catalogWantedVisible = false
+  _catalogLastQueryKey = ''
+  _catalogLastFetchAt = 0
+  _catalogAbort = null
 })
 </script>
 
 <style scoped>
+.three-twin-root {
+  position: relative;
+}
+
+.aladin-underlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .three-twin {
   position: relative;
+  z-index: 1;
 }
 </style>

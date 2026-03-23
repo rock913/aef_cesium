@@ -117,6 +117,71 @@
             <span class="pv">{{ fmtNum(l.params.radius) }}</span>
           </div>
 
+          <div class="param" v-if="String(l.id).startsWith('astro-')">
+            <span class="pk">Opacity</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              :value="Number(l.params.opacity ?? 1)"
+              @input="setParam(l.id, 'opacity', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtPct(l.params.opacity) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.MACRO_SDSS">
+            <span class="pk">Point Size</span>
+            <input
+              class="rng"
+              type="range"
+              min="1"
+              max="64"
+              step="1"
+              :value="Number(l.params.pointSize ?? 15)"
+              @input="setParam(l.id, 'pointSize', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.pointSize) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND">
+            <span class="pk">Survey</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.survey || '')"
+              placeholder="P/DSS2/color"
+              @change="setParam(l.id, 'survey', $event?.target?.value)"
+            />
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND">
+            <span class="pk">FOV Sync</span>
+            <input
+              class="chk"
+              type="checkbox"
+              :checked="l.params.fovSync === undefined ? true : !!l.params.fovSync"
+              @change="setParam(l.id, 'fovSync', $event?.target?.checked)"
+            />
+            <span class="pv">{{ (l.params.fovSync === false) ? 'OFF' : 'ON' }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD">
+            <span class="pk">Max Rows</span>
+            <input
+              class="rng"
+              type="range"
+              min="50"
+              max="2000"
+              step="50"
+              :value="Number(l.params.maxRows ?? 600)"
+              @input="setParam(l.id, 'maxRows', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.maxRows) }}</span>
+          </div>
+
           <div class="param" v-if="String(l.id) === 'micro-atoms'">
             <span class="pk">Opacity</span>
             <input
@@ -268,6 +333,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { ASTRO_GIS_LAYER_IDS } from '../../../stores/astroStore.js'
 
 const props = defineProps({
   layers: { type: Array, default: () => [] },
@@ -287,12 +353,26 @@ const earthLayers = computed(() => {
 })
 
 const threeLayers = computed(() => {
-  const ids = new Set(['bloom', 'macro-spiral', 'micro-atoms'])
+  const ids = new Set([
+    'bloom',
+    'macro-spiral',
+    'micro-atoms',
+    ...Object.values(ASTRO_GIS_LAYER_IDS),
+  ])
   return (props.layers || []).filter((l) => ids.has(String(l?.id || '')))
 })
 
 const macroLayers = computed(() => {
-  const ids = new Set(['bloom', 'macro-spiral'])
+  const ids = new Set([
+    'bloom',
+    'macro-spiral',
+    ASTRO_GIS_LAYER_IDS.MACRO_SDSS,
+    ASTRO_GIS_LAYER_IDS.DEMO_CSST,
+    ASTRO_GIS_LAYER_IDS.DEMO_GOTTA,
+    ASTRO_GIS_LAYER_IDS.DEMO_INPAINT,
+    ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND,
+    ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD,
+  ])
   return threeLayers.value.filter((l) => ids.has(String(l?.id || '')))
 })
 
@@ -327,13 +407,21 @@ function setParam(id, key, raw) {
   const next = (props.layers || []).map((l) => {
     if (l.id !== id) return l
     const params = { ...(l.params || {}) }
-    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior') {
+    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior' || k === 'pointSize' || k === 'maxRows') {
       const n = Number(raw)
       if (Number.isFinite(n)) params[k] = n
       return { ...l, params }
     }
     if (k === 'palette') {
       params.palette = String(raw || '').trim()
+      return { ...l, params }
+    }
+    if (k === 'survey') {
+      params.survey = String(raw || '').trim()
+      return { ...l, params }
+    }
+    if (k === 'fovSync') {
+      params.fovSync = !!raw
       return { ...l, params }
     }
     return l

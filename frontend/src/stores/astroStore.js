@@ -41,6 +41,18 @@ export const ASTRO_AGENT_ACTION_TYPES = Object.freeze({
   SIMULATE_GALAXY_COLLISION: 'SIMULATE_GALAXY_COLLISION',
 })
 
+// Astro-GIS layer ids (Phase 1-3).
+// Keep them stringly-typed and stable: they are referenced by the LayerTree UI,
+// ThreeTwin mappings, and tests.
+export const ASTRO_GIS_LAYER_IDS = Object.freeze({
+  MACRO_SDSS: 'astro-macro-sdss',
+  DEMO_CSST: 'astro-demo-csst',
+  DEMO_GOTTA: 'astro-demo-gotta',
+  DEMO_INPAINT: 'astro-demo-inpaint',
+  HIPS_BACKGROUND: 'astro-hips-background',
+  CATALOG_SIMBAD: 'astro-catalog-simbad',
+})
+
 let _nextActionId = 1
 
 const state = reactive({
@@ -56,6 +68,67 @@ const state = reactive({
   aionModelState: {
     isGenerating: false,
     lastError: '',
+  },
+
+  // Astro-GIS: Layer state tree (Foundation for Phase 1-3).
+  // ThreeTwin should treat this as the source of truth for sky-layer authority.
+  astroGis: {
+    // A bump-only value that watchers can use to cheaply detect changes.
+    version: 1,
+    layers: {
+      [ASTRO_GIS_LAYER_IDS.MACRO_SDSS]: {
+        id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS,
+        name: 'Macro SDSS (Cosmic Web)',
+        visible: true,
+        opacity: 1.0,
+        style: { pointSize: 15.0 },
+        source: { kind: 'sdss_micro_sample', path: '/data/astronomy/sdss_micro_sample.json' },
+      },
+      [ASTRO_GIS_LAYER_IDS.DEMO_CSST]: {
+        id: ASTRO_GIS_LAYER_IDS.DEMO_CSST,
+        name: 'Demo CSST',
+        visible: true,
+        opacity: 1.0,
+        style: {},
+        source: { kind: 'internal' },
+      },
+      [ASTRO_GIS_LAYER_IDS.DEMO_GOTTA]: {
+        id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA,
+        name: 'Demo GOTTA',
+        visible: true,
+        opacity: 1.0,
+        style: {},
+        source: { kind: 'mock', path: '/data/astronomy/gotta_transient_event.json' },
+      },
+      [ASTRO_GIS_LAYER_IDS.DEMO_INPAINT]: {
+        id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT,
+        name: 'Demo Inpaint',
+        visible: true,
+        opacity: 1.0,
+        style: {},
+        source: { kind: 'internal' },
+      },
+      [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND]: {
+        id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND,
+        name: 'HiPS Background',
+        visible: false,
+        opacity: 1.0,
+        style: {
+          // Best-effort; concrete mapping lives in the Aladin adapter.
+          survey: 'P/DSS2/color',
+          fovSync: true,
+        },
+        source: { kind: 'hips', provider: 'aladin-lite-v3' },
+      },
+      [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD]: {
+        id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD,
+        name: 'Catalog: SIMBAD',
+        visible: false,
+        opacity: 1.0,
+        style: { maxRows: 600, minMag: null },
+        source: { kind: 'catalog', provider: 'simbad', endpoint: '/api/astro-gis/catalog/simbad' },
+      },
+    },
   },
 })
 
@@ -82,7 +155,7 @@ function _normalizeAction(action) {
 }
 
 export function useAstroStore() {
-  const { mode, maxComputeInvocationsPerWorkgroup, currentAgentAction, aionModelState } = toRefs(state)
+  const { mode, maxComputeInvocationsPerWorkgroup, currentAgentAction, aionModelState, astroGis } = toRefs(state)
 
   function setMode(nextMode) {
     mode.value = _assertMode(nextMode)
@@ -110,11 +183,59 @@ export function useAstroStore() {
     aionModelState.value.lastError = String(msg || '')
   }
 
+  function _bumpAstroGisVersion() {
+    try {
+      astroGis.value.version = (Number(astroGis.value.version) || 0) + 1
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function getAstroGisLayer(id) {
+    const key = String(id || '').trim()
+    if (!key) return null
+    const layers = astroGis.value?.layers || null
+    return (layers && typeof layers === 'object') ? (layers[key] || null) : null
+  }
+
+  function setAstroGisLayerVisible(id, visible) {
+    const layer = getAstroGisLayer(id)
+    if (!layer) return false
+    layer.visible = !!visible
+    _bumpAstroGisVersion()
+    return true
+  }
+
+  function setAstroGisLayerOpacity(id, opacity) {
+    const layer = getAstroGisLayer(id)
+    if (!layer) return false
+    const n = Number(opacity)
+    layer.opacity = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : layer.opacity
+    _bumpAstroGisVersion()
+    return true
+  }
+
+  function patchAstroGisLayer(id, patch) {
+    const layer = getAstroGisLayer(id)
+    if (!layer) return false
+    if (!patch || typeof patch !== 'object') return false
+    if (patch.visible !== undefined) layer.visible = !!patch.visible
+    if (patch.opacity !== undefined) {
+      const n = Number(patch.opacity)
+      if (Number.isFinite(n)) layer.opacity = Math.max(0, Math.min(1, n))
+    }
+    if (patch.style && typeof patch.style === 'object') layer.style = { ...(layer.style || {}), ...patch.style }
+    if (patch.source && typeof patch.source === 'object') layer.source = { ...(layer.source || {}), ...patch.source }
+    _bumpAstroGisVersion()
+    return true
+  }
+
   return {
     mode,
     maxComputeInvocationsPerWorkgroup,
     currentAgentAction,
     aionModelState,
+    astroGis,
 
     setMode,
     setMaxComputeInvocationsPerWorkgroup,
@@ -123,6 +244,12 @@ export function useAstroStore() {
 
     setGenerating,
     setLastError,
+
+    // Astro-GIS layer store (Phase 1-3)
+    getAstroGisLayer,
+    setAstroGisLayerVisible,
+    setAstroGisLayerOpacity,
+    patchAstroGisLayer,
   }
 }
 
@@ -132,4 +259,24 @@ export function __resetAstroStoreForTests() {
   state.currentAgentAction = null
   state.aionModelState.isGenerating = false
   state.aionModelState.lastError = ''
+
+  // Reset Astro-GIS layer state.
+  try {
+    const layers = state.astroGis?.layers
+    if (layers && typeof layers === 'object') {
+      for (const k of Object.keys(layers)) {
+        const l = layers[k]
+        if (!l || typeof l !== 'object') continue
+        if (k === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND || k === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
+          l.visible = false
+        } else {
+          l.visible = true
+        }
+        l.opacity = 1.0
+      }
+    }
+    state.astroGis.version = 1
+  } catch (_) {
+    // ignore
+  }
 }

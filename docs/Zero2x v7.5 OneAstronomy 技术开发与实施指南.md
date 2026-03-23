@@ -16,12 +16,13 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 四幕剧“一键剧本”（`demo:oneastro_story` + `EXECUTE_ONEASTRO_STORY_FLOW` / `STOP_ONEASTRO_STORY_FLOW`）
 - 宏观天球基底：Sky-Sphere（`MACRO_SKY_RADIUS = 100`），并禁止螺旋盘默认分布与 RA/Dec 压扁系数
 - 红移爆裂：真·径向膨胀（Radial Expansion）+ `depthFade` 抑制远处过曝
+- Cosmic Web 视觉重构：宏观渲染从 `InstancedMesh(SphereGeometry)` → `THREE.Points`（soft-particle shader）
 - GOTTA 捕获：网络 schema + Spline Dive（CatmullRomCurve3）
 - Inpaint：World Anchor（payload/world-pos 或 ra/dec；可回退 GOTTA 最近目标）
+- Astro-GIS Phase 1–3：图层状态树（layer store）+ HiPS 底图（Aladin Lite best-effort）+ SIMBAD Catalog Points 叠加 + 后端契约测试/Dev&Prod smoke
 
 下一步（必须先写 Gate 再改实现）：
-- Cosmic Web 视觉重构：宏观渲染从 `InstancedMesh(SphereGeometry)` → `THREE.Points`（soft-particle shader）
-- Astro-GIS Phase 1：引入图层状态树（layer store），把宏观/CSST/GOTTA/Inpaint 的可见性与 opacity 统一托管
+- Astro-GIS（增强）：Catalog online provider 扩展（VizieR / 更多 band）+ label/hover/pick + 性能剖析（大视场点数上限与抽样策略）
 
 ## 0) 核心设计哲学（从蓝图整合而来）
 
@@ -312,7 +313,7 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - 新增“一键四幕剧本” preset + action runner，并支持 STOP 取消
 - 修复宏观 SDSS 默认“螺旋圆盘”假象：宏观基底改为 sky-sphere；禁用 RA/Dec 压扁系数
 
-### Phase 2.6（下一步 / TDD 驱动）：Cosmic Web 视觉重构 + Astro-GIS Phase 1
+### Phase 2.6（已完成 / TDD 驱动）：Cosmic Web 视觉重构 + Astro-GIS Phase 1
 
 目标 A：Cosmic Web 视觉重构（从“散点糖果”到“丝状宇宙网”）
 - 现状问题：球形实例在高密度 Additive 下仍容易读成“独立彩色小球”，难以形成星系团/纤维网的亮度融合。
@@ -332,6 +333,11 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
   - `layer:demo_csst`（CSST 分解面片组）
   - `layer:demo_gotta`（GOTTA transient group）
   - `layer:demo_inpaint`（modal inpaint plane）
+
+当前实现状态（2026-03-23）：
+- Cosmic Web 已切换为 `THREE.Points` soft-particle 路径，并由 Vitest wiring gate 防回归。
+- Astro-GIS layer store + UI（LayerTree）已落地，并与 ThreeTwin 的运行态映射闭环。
+- Astro-GIS Phase 2（HiPS）与 Phase 3（Catalog）已落地；后端有 pytest 契约门禁，Makefile 含 dev/prod smoke。
 
 ---
 
@@ -561,9 +567,9 @@ START_MODAL_INPAINT
 
 愿景：把 OneAstronomy 从“特效 Demo”升级为可扩展的虚拟天文台：HiPS（影像底图）+ TAP/SIMBAD/VizieR（星表要素）+ Three.js（业务 3D 图层）。
 
-Phase 1（Foundation / 下一步落地）：图层状态树（Astro Layer Store）
+Phase 1（Foundation / 已完成）：图层状态树（Astro Layer Store）
 - 目标：在 `astroStore` 建立标准的 layer state（visible/opacity/style/source），并由 `ThreeTwin.vue` 将其映射到 Three.js 资产。
-- 最小交付：为 `MACRO_SDSS / DEMO_CSST / DEMO_GOTTA / DEMO_INPAINT` 建立图层条目；不接外部数据也要能控制显隐与退让。
+- 当前落地：LayerTree UI 可控显隐/透明度；并与 Demo 场景霸权规则兼容。
 
 Phase 2（Deep Sky Background / 里程碑）：HiPS 影像底图 + 视场同步
 - 推荐方案：集成 Aladin Lite v3 作为底层 Canvas（Z-index: 0），Three.js 作为上层透明业务层（Z-index: 1）。
@@ -571,3 +577,14 @@ Phase 2（Deep Sky Background / 里程碑）：HiPS 影像底图 + 视场同步
 
 Phase 3（Vector Features / 里程碑）：Catalog 要素层（SIMBAD/VizieR）
 - 目标：视场停止（debounce）后请求当前 FOV 区域的星表数据，渲染为 Instanced/Sprite/Label，并可被图层状态树统一管理。
+
+后端接口与模式约定（Catalog / SIMBAD）：
+- Endpoint：`GET /api/astro-gis/catalog/simbad?ra_deg=...&dec_deg=...&radius_deg=...&max_rows=...`
+- 默认模式：离线 deterministic fixture（CI/离线环境稳定，且契约可回归）
+- Online 模式（显式开启才走网络；失败默认回退 fixture）：
+  - `ASTRO_GIS_CATALOG_MODE=online`（否则默认 `fixture`）
+  - `ASTRO_GIS_CATALOG_ONLINE_TIMEOUT_S=8`（秒，默认 8）
+  - `ASTRO_GIS_CATALOG_ONLINE_FALLBACK=1`（默认 1；设 0 则 online 失败直接抛错）
+  - `ASTRO_GIS_SIMBAD_TAP_SYNC_URL=https://simbad.cds.unistra.fr/simbad/sim-tap/sync`（可覆写）
+  - `ASTRO_GIS_CATALOG_CACHE_TTL_S=30`（秒，默认 30）
+  - `ASTRO_GIS_CATALOG_CACHE_MAX_ITEMS=256`（默认 256）
