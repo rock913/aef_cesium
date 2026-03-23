@@ -1,12 +1,27 @@
 Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
-版本：v1.4 | 状态：主开发执行标准（Main）| 更新时间：2026-03-23
+版本：v1.5 | 状态：主开发执行标准（Main）| 更新时间：2026-03-23
 
 文档关系（请以本文件为主）：
 - 科学叙事/愿景蓝图：`docs/Zero2x v7.5：OneAstronomy 驱动的数字孪生宇宙与科学示范蓝图.md`
 - Stage 2 验收规范（Docker Dev、Demo 1–4）：`docs/zero2x/Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范.md`
 
 ---
+
+## -1) 当前状态总览（必须保持“进度清晰、可回归”）
+
+说明：本节用于快速判断“现在能演什么 / 下一步该做什么”，并与 Vitest / Docker Dev 门禁对齐。
+
+已完成（代码已落地 + Vitest 门禁已存在）：
+- 四幕剧“一键剧本”（`demo:oneastro_story` + `EXECUTE_ONEASTRO_STORY_FLOW` / `STOP_ONEASTRO_STORY_FLOW`）
+- 宏观天球基底：Sky-Sphere（`MACRO_SKY_RADIUS = 100`），并禁止螺旋盘默认分布与 RA/Dec 压扁系数
+- 红移爆裂：真·径向膨胀（Radial Expansion）+ `depthFade` 抑制远处过曝
+- GOTTA 捕获：网络 schema + Spline Dive（CatmullRomCurve3）
+- Inpaint：World Anchor（payload/world-pos 或 ra/dec；可回退 GOTTA 最近目标）
+
+下一步（必须先写 Gate 再改实现）：
+- Cosmic Web 视觉重构：宏观渲染从 `InstancedMesh(SphereGeometry)` → `THREE.Points`（soft-particle shader）
+- Astro-GIS Phase 1：引入图层状态树（layer store），把宏观/CSST/GOTTA/Inpaint 的可见性与 opacity 统一托管
 
 ## 0) 核心设计哲学（从蓝图整合而来）
 
@@ -298,8 +313,25 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - 修复宏观 SDSS 默认“螺旋圆盘”假象：宏观基底改为 sky-sphere；禁用 RA/Dec 压扁系数
 
 ### Phase 2.6（下一步 / TDD 驱动）：Cosmic Web 视觉重构 + Astro-GIS Phase 1
-- 宏观渲染从 `InstancedMesh(SphereGeometry)` 迁移到 `THREE.Points`（soft-particle shader，利用 Additive 自融合出“丝状密度感”）
-- Astro-GIS Phase 1：引入图层状态树（layer store），把宏观/CSST/GOTTA/Inpaint 资产显隐与 opacity 纳入统一控制
+
+目标 A：Cosmic Web 视觉重构（从“散点糖果”到“丝状宇宙网”）
+- 现状问题：球形实例在高密度 Additive 下仍容易读成“独立彩色小球”，难以形成星系团/纤维网的亮度融合。
+- 方案：废弃 `InstancedMesh(SphereGeometry)`，采用 `THREE.Points` + soft-particle shader（`gl_PointCoord` 数学光晕），靠 Additive 自融合出密度感。
+
+验收约束（必须满足，且应纳入 Vitest wiring gate）：
+- 宏观渲染对象必须是 `new THREE.Points(geometry, material)`；几何必须是 `THREE.BufferGeometry`。
+- 必须包含 attribute：`position`（Float32Array）与 `aRedshift`（Float32Array），并在 shader 中读取。
+- fragment 必须包含“切角”逻辑（`if (r > 1.0) discard;`），保证点精灵无方形边界。
+- vertex 必须包含基于距离衰减的 `gl_PointSize`（近大远小），并做最小像素钳制。
+- 红移爆裂仍必须是径向膨胀（Radial Expansion），且仍受 Scene Authority 管控（inpaint 启动会把爆裂收回 0）。
+
+目标 B：Astro-GIS Phase 1（Foundation / 图层状态树）
+- 交付物：在 `astroStore` 引入 layer state（visible/opacity/style/source），并由 `ThreeTwin.vue` watch 进行实时映射。
+- 最小范围（先不接外部数据源也必须可用）：
+  - `layer:macro_sdss`（宏观宇宙网/天球底座）
+  - `layer:demo_csst`（CSST 分解面片组）
+  - `layer:demo_gotta`（GOTTA transient group）
+  - `layer:demo_inpaint`（modal inpaint plane）
 
 ---
 
@@ -316,7 +348,6 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - 断言 “霸权 2.0”存在：`u_redshift_scale` 在 `_startModalInpaint()` 内被 tween 回 0
 - Phase 2.5：断言红移爆裂为径向膨胀（Shader 内出现 `baseDist` / `currentDist` / `dir` 逻辑）
 - Phase 2.5：断言 GOTTA 使用 `CatmullRomCurve3` 做 Spline Dive
-- Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
 - Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
 - 反回归：断言宏观天球基底为 sky-sphere（包含 `MACRO_SKY_RADIUS = 100`），并禁止出现螺旋盘种子与 RA/Dec 压扁系数（例如 `* 0.35`）
 
