@@ -273,6 +273,7 @@ async function handleRunCode(codeContent) {
   // Examples:
   // - "astro redshift" / "redshift"
   // - "astro csst" / "csst decompose"
+  // - "astro gotta" / "gotta" / "transient"
   // - "astro inpaint start" / "inpaint start"
   // - "astro inpaint stop" / "inpaint stop"
   try {
@@ -281,6 +282,7 @@ async function handleRunCode(codeContent) {
       const wantsRedshift = /\bredshift\b|execute_redshift_prediction|oneastronomy\s+redshift/i.test(src)
       const wantsCsstStart = /(\bcsst\b|decompose\s+csst|decompose\s+galaxy|galaxy\s+decompose|bulge\s+disk\s+bar)/i.test(src)
       const wantsCsstStop = /(\bcsst\b).*(\bstop\b|\boff\b|\bclear\b|\breset\b)/i.test(src)
+      const wantsGotta = /(\bgotta\b|\btransient\b|capture_transient_event|transient\s+capture)/i.test(src)
       const wantsInpaintStart = /(modal\s+inpaint|\binpaint\b).*\b(start|on)\b/i.test(src)
       const wantsInpaintStop = /(modal\s+inpaint|\binpaint\b).*\b(stop|off)\b/i.test(src)
 
@@ -289,7 +291,7 @@ async function handleRunCode(codeContent) {
           type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION,
           payload: { maxDepth: 52 },
         })
-        theaterReport.value = '✅ OneAstronomy: 已触发 Demo 1 红移拉伸（macro）。'
+        theaterReport.value = '✅ OneAstronomy: 已触发 Demo 2 红移拉伸（macro）。'
         return
       }
 
@@ -308,15 +310,24 @@ async function handleRunCode(codeContent) {
         return
       }
 
+      if (wantsGotta) {
+        astroStore.dispatchAgentAction({
+          type: ASTRO_AGENT_ACTION_TYPES.CAPTURE_TRANSIENT_EVENT,
+          payload: null,
+        })
+        theaterReport.value = '✅ OneAstronomy: 已触发 Demo 3 GOTTA 瞬变源捕获（macro）。'
+        return
+      }
+
       if (wantsInpaintStart) {
         astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT, payload: null })
-        theaterReport.value = '✅ OneAstronomy: 已进入 Demo 3 模态 Inpaint。请在画布点击选定扫描中心。'
+        theaterReport.value = '✅ OneAstronomy: 已进入 Demo 4 模态 Inpaint。请在画布点击选定扫描中心。'
         return
       }
 
       if (wantsInpaintStop) {
         astroStore.dispatchAgentAction({ type: ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT, payload: null })
-        theaterReport.value = '✅ OneAstronomy: 已退出 Demo 3 模态 Inpaint。'
+        theaterReport.value = '✅ OneAstronomy: 已退出 Demo 4 模态 Inpaint。'
         return
       }
     }
@@ -717,14 +728,26 @@ const LOCAL_COPILOT_PRESETS = Object.freeze([
     prompt: ''
   },
   {
+    id: 'demo:oneastro_story',
+    label: '[v7.5] OneAstronomy · Story Flow (4 Acts) · One Take',
+    hint: '一键四幕：CSST → 红移径向膨胀 → GOTTA 样条跃迁 → Inpaint 就地锚定（连续叙事 / 一镜到底）',
+    prompt: ''
+  },
+  {
     id: 'demo:oneastro_redshift',
-    label: '[v7.5] OneAstronomy · Redshift Burst (Demo 1)',
+    label: '[v7.5] OneAstronomy · Redshift Burst (Demo 2)',
     hint: '本地确定性动作：切到 Sky(macro) 并触发红移拉伸（不走后端执行）',
     prompt: ''
   },
   {
+    id: 'demo:oneastro_gotta',
+    label: '[v7.5] OneAstronomy · GOTTA Transient Capture (Demo 3)',
+    hint: '本地确定性动作：切到 Sky(macro) 并捕获一个瞬变源（默认读取 public/data/astronomy/gotta_transient_event.json）',
+    prompt: ''
+  },
+  {
     id: 'demo:oneastro_inpaint',
-    label: '[v7.5] OneAstronomy · Modal Inpaint (Demo 3)',
+    label: '[v7.5] OneAstronomy · Modal Inpaint (Demo 4)',
     hint: '本地确定性动作：切到 Sky(macro) 并开启模态 inpaint（点击画布触发扩散）',
     prompt: ''
   },
@@ -1845,7 +1868,7 @@ function onCopilotSelectPreset(preset) {
   else if (id.includes('talatan')) setContextScale('talatan', 'earth')
   else if (id.includes('wind') || id.includes('gfs') || id.includes('glsl')) setContextScale('global', 'earth')
   else if (id.includes('wormhole') || id.includes('micro')) setContextScale(contextId.value || 'poyang', 'micro')
-  else if (id.includes('oneastro') || id.includes('astronomy') || id.includes('redshift') || id.includes('inpaint'))
+  else if (id.includes('oneastro') || id.includes('astronomy') || id.includes('redshift') || id.includes('inpaint') || id.includes('gotta') || id.includes('transient'))
     setContextScale(contextId.value || 'poyang', 'macro')
 
   // OneAstronomy demos are narrative + exclusive: take full control of layers.
@@ -1864,6 +1887,21 @@ function onCopilotSelectPreset(preset) {
 
   // Stage 2: fire deterministic macro actions from presets (no buttons on canvas).
   try {
+    if (id.includes('oneastro_story')) {
+      _scheduleOneAstroAction({
+        label: preset?.label || '[v7.5] OneAstronomy · Story Flow (4 Acts) · One Take',
+        action: {
+          type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_ONEASTRO_STORY_FLOW,
+          payload: {
+            csst: { ra: 150.1, dec: 2.22, radius: 12.5 },
+            redshift: { maxDepth: 52 },
+            gotta: null,
+            inpaint: null,
+          },
+        },
+      })
+    }
+
     if (id.includes('oneastro_csst')) {
       _scheduleOneAstroAction({
         label: preset?.label || '[v7.5] OneAstronomy · CSST Galaxy Decompose (Demo 1)',
@@ -1876,7 +1914,7 @@ function onCopilotSelectPreset(preset) {
 
     if (id.includes('oneastro_redshift')) {
       _scheduleOneAstroAction({
-        label: preset?.label || '[v7.5] OneAstronomy · Redshift Burst (Demo 1)',
+        label: preset?.label || '[v7.5] OneAstronomy · Redshift Burst (Demo 2)',
         action: {
           type: ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION,
           payload: { maxDepth: 52 },
@@ -1884,9 +1922,19 @@ function onCopilotSelectPreset(preset) {
       })
     }
 
+    if (id.includes('oneastro_gotta')) {
+      _scheduleOneAstroAction({
+        label: preset?.label || '[v7.5] OneAstronomy · GOTTA Transient Capture (Demo 3)',
+        action: {
+          type: ASTRO_AGENT_ACTION_TYPES.CAPTURE_TRANSIENT_EVENT,
+          payload: null,
+        },
+      })
+    }
+
     if (id.includes('oneastro_inpaint')) {
       _scheduleOneAstroAction({
-        label: preset?.label || '[v7.5] OneAstronomy · Modal Inpaint (Demo 3)',
+        label: preset?.label || '[v7.5] OneAstronomy · Modal Inpaint (Demo 4)',
         action: { type: ASTRO_AGENT_ACTION_TYPES.START_MODAL_INPAINT, payload: null },
       })
     }

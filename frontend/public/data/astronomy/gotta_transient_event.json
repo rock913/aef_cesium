@@ -1,0 +1,19 @@
+{
+  "targetEventId": "GOTTA-2026a",
+  "events": [
+    {
+      "eventId": "GOTTA-2026a",
+      "ra": 83.6331,
+      "dec": 22.0145,
+      "type": "Supernova Ia",
+      "lightcurve": {
+        "time": [0, 1, 2, 3, 4, 5],
+        "flux": [10, 45, 120, 95, 40, 15]
+      }
+    },
+    { "eventId": "GOTTA-bg-01", "ra": 82.95, "dec": 21.62, "type": "Noise" },
+    { "eventId": "GOTTA-bg-02", "ra": 84.12, "dec": 22.55, "type": "Noise" },
+    { "eventId": "GOTTA-bg-03", "ra": 83.25, "dec": 22.38, "type": "Noise" },
+    { "eventId": "GOTTA-bg-04", "ra": 84.55, "dec": 21.88, "type": "Noise" }
+  ]
+}

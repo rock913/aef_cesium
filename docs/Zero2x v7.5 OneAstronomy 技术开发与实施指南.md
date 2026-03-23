@@ -1,10 +1,10 @@
 Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
-版本：v1.1 | 状态：主开发执行标准（Main）| 更新时间：2026-03-20
+版本：v1.3 | 状态：主开发执行标准（Main）| 更新时间：2026-03-23
 
 文档关系（请以本文件为主）：
 - 科学叙事/愿景蓝图：`docs/Zero2x v7.5：OneAstronomy 驱动的数字孪生宇宙与科学示范蓝图.md`
-- Stage 2 验收规范（Docker Dev、Demo 1 & Demo 3）：`docs/zero2x/Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范.md`
+- Stage 2 验收规范（Docker Dev、Demo 1–4）：`docs/zero2x/Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范.md`
 
 ---
 
@@ -64,9 +64,18 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 当工程链路已经打通（Action/Preset/TDD/E2E），下一阶段的核心风险会转移到“看起来不对”。本项目把关键视觉问题也纳入可回归的工程约束：
 
-1) 宏观宇宙“尺度失真”必须被避免
-- 症状：InstancedMesh 的球体过小 + 相机默认距离过远 → 星系点变成 sub-pixel，画面像“几颗暗点”。
-- 约束：宏观星海实例的几何半径必须保证在默认相机距离下仍可见（工程上以 ThreeTwin 的 SphereGeometry 半径门禁约束）。
+1) 宏观宇宙“坍缩 / 过曝”必须被避免
+- 坍缩症状：SDSS 只有个位数/几十条时将 draw count 收缩到样本量 → 画面坍缩成几颗暗点。
+- 过曝症状：数据量暴增到 2–5 万后，`AdditiveBlending` 叠加溢出 → 画面变成粉白糊糊、丢失暗弱层次。
+- 约束（必须同时满足）：
+  - tiny sample 禁止收缩宏观 draw count（保留程序化星海作为底座）。
+  - 宏观粒子必须“沙子化”：实例半径收敛到高密度安全区（当前实现为 `SphereGeometry(0.015, ...)`）。
+  - 宏观 Shader 底色必须极暗，透明度必须收敛（默认 `u_opacity ≈ 0.35`），高光交给叠加与 Bloom。
+  - 红移爆裂期间的 Bloom 上限必须受控（当前实现上限 `≤ 1.8`）。
+
+1.1) 红移爆裂必须是真·径向膨胀（Radial Expansion）
+- 症状：只在单轴（Y 或 Z）做位移，会读成“漂移/抖动”，没有宇宙膨胀感。
+- 约束：顶点着色器必须基于“从原点指向该星系”的方向向量做径向扩张；并加入基于爆裂程度的景深衰减（避免远处过曝）。
 
 2) CSST 分解必须“强制圆形裁切”，彻底消灭方形边缘
 - 症状：即使有 vignette/edge feather，如果纹理边缘不够黑或裁切不够狠，Additive 仍可能露出四角。
@@ -88,7 +97,7 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 |---|---|---|---|
 | Demo 1 | CSST 复杂星系精细结构分解 | `DECOMPOSE_CSST_GALAXY` / `STOP_CSST_DECOMPOSITION` | Implemented（已落地：可触发/可清理/可验收） |
 | Demo 2 | 红移立体爆裂（Cosmic Web / Redshift Burst） | `EXECUTE_REDSHIFT_PREDICTION` | Implemented（Stage 2 已落地） |
-| Demo 3 | GOTTA 瞬变源捕获（样条跃迁 + 时域 HUD） | `CAPTURE_TRANSIENT_EVENT` | Not Started（规划中） |
+| Demo 3 | GOTTA 瞬变源捕获（样条跃迁 + 时域 HUD） | `CAPTURE_TRANSIENT_EVENT` | Implemented（MVP：样条跃迁 + 标记闪烁 + 示例数据；HUD 后续补齐） |
 | Demo 4 | 模态互生 Inpaint（扫描扩散） | `START_MODAL_INPAINT` / `STOP_MODAL_INPAINT` | Implemented（Stage 2 已落地） |
 
 说明：
@@ -102,6 +111,17 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 工程约束：
 - 微型数据池（2–5MB）放在 `frontend/public/data/astronomy/`
 - 首帧渲染必须可用；数据加载可渐进增强。
+
+数据规模策略（来自 update_patch.md 的落地结论）：
+- 若 `sdss_micro_sample.json` 只有个位数/几十条（极小样本），**不得**将宏观 InstancedMesh 的 draw count 收缩到数据条数，否则画面会“坍缩成几颗暗点”。
+- 推荐将 SDSS 数据扩展到 2–5 万条（约 1–2MB）用于演示；仓库内可保留 tiny sample 作为“契约样例”，通过脚本一键替换为大样本。
+
+连续叙事（Phase 2.5 / 四幕剧）：
+- 【序幕】50,000 SDSS 星系加载：作为 2D 天球底座（球壳半径按实现调参；当前宏观用半径约 20–21 的壳层映射）。
+- 【第一幕】CSST 数据降临（Demo 1）：镜头飞近并解剖星系（已落地）。
+- 【第二幕】精密宇宙学红移爆裂（Demo 2 升级）：关闭 CSST 特写，镜头拉远；星系沿径向膨胀，形成 3D 纤维网。
+- 【第三幕】GOTTA 时域网络预警（Demo 3）：远处目标爆闪；相机执行样条弧线跃迁（Spline Dive）。
+- 【第四幕】模态互生 Inpaint（Demo 4 升级）：到达目标附近后，就地展开雷达扫描，将可见光褪变为 X 射线。
 
 ### 任务 1：CSST 复杂星系精细结构分解（DECOMPOSE_CSST_GALAXY）
 
@@ -117,13 +137,38 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 目标：批量红移数据到达后，点云在三维空间“爆裂展开”，并配合运镜形成宏观震撼。
 
+Phase 2.5 数学约束：径向膨胀（Radial Expansion）
+- 核心思想：以观测者（原点）为中心，将每个星系沿其方向向量 `dir` 推远。
+- 着色器最小模型（伪代码）：
+
+```glsl
+float s = clamp(u_redshift_scale, 0.0, 1.0);
+float z = clamp(aRedshift, 0.0, 1.0);
+float baseDist = length(localPos.xyz);
+vec3 dir = baseDist > 0.0001 ? (localPos.xyz / baseDist) : vec3(0.0, 0.0, 1.0);
+float currentDist = baseDist + (z * u_max_depth * s);
+localPos.xyz = dir * currentDist;
+```
+
+- 过曝控制：片元端必须使用极暗底色 + 基于爆裂程度的 `depthFade`，避免 2–5 万点在 Additive 下糊成一坨白光。
+
 ### 任务 3：GOTTA 瞬变源捕获（CAPTURE_TRANSIENT_EVENT）
 
 目标：远处闪烁目标 + 样条曲线跃迁运镜 + 时域 HUD（可先 mock）。
 
+Phase 2.5 约束：Spline Dive（弧线跃迁）
+- 触发 `CAPTURE_TRANSIENT_EVENT` 后，相机必须使用 `THREE.CatmullRomCurve3` 做弧线飞行，而不是直线 tween。
+- 运镜期间相机必须持续 `lookAt(targetPos)`，并同步 `OrbitControls.target`，避免到达后视点漂移。
+
 ### 任务 4：模态互生 Inpaint（START_MODAL_INPAINT / STOP_MODAL_INPAINT）
 
 目标：扫描扩散替换纹理，具备边缘噪声；在 Additive 模式下无方形边界。
+
+Phase 2.5 约束：World Anchor（锚定到 3D 目标）
+- `START_MODAL_INPAINT` 必须允许携带 payload 用于锚定：
+  - `payload.position` 或 `payload.x/y/z`（世界坐标）
+  - 或 `payload.ra/dec`（可选 `payload.z` 用于推深）
+- 若未提供 payload，允许回退到最近一次 GOTTA 目标位置（避免“贴在镜头上”的穿帮感）。
 
 ---
 
@@ -165,16 +210,46 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 
 输出路径约定：`frontend/public/data/astronomy/sdss_micro_sample.json`
 
+格式约定（两种都支持；推荐 flat 更省体积/更快解析）：
+
+1) 2D triples（易读）：
+
+```json
+[[83.6331, 22.0145, 0.0234], [10.6847, 41.2692, 0.0123]]
+```
+
+2) flat array（推荐，体积更小）：
+
+```json
+[83.6331, 22.0145, 0.0234, 10.6847, 41.2692, 0.0123]
+```
+
 ### 3.2 GOTTA 瞬变源光变曲线 (Mock JSON)
 
-格式：gotta_transient_event.json
+输出路径约定：`frontend/public/data/astronomy/gotta_transient_event.json`
 
+格式：`gotta_transient_event.json`
+
+推荐 schema（体现“网络感”）：
+
+```json
 {
-  "eventId": "GOTTA-2026a",
-  "ra": 83.63, "dec": 22.01,
-  "type": "Supernova Ia",
-  "lightcurve": { "time": [0,1,2,3,4,5], "flux": [10, 45, 120, 95, 40, 15] }
+  "targetEventId": "GOTTA-2026a",
+  "events": [
+    {
+      "eventId": "GOTTA-2026a",
+      "ra": 83.63,
+      "dec": 22.01,
+      "type": "Supernova Ia",
+      "lightcurve": { "time": [0, 1, 2, 3, 4, 5], "flux": [10, 45, 120, 95, 40, 15] }
+    },
+    { "eventId": "VAR-0001", "ra": 80.12, "dec": 18.45, "type": "Variable" },
+    { "eventId": "VAR-0002", "ra": 88.76, "dec": 25.31, "type": "Variable" }
+  ]
 }
+```
+
+兼容：也允许旧格式（单个事件对象：`{eventId, ra, dec, ...}`），用于最小样例。
 
 
 ## 4) 研发计划（以 TDD 为中心）
@@ -216,6 +291,9 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - 断言 inpaint plane 处于世界空间（例如 `.position.set(0, 0, 15)`）
 - 断言 shader 内含 edge feather / vignette（避免回归“截图边界”）
 - 断言 “霸权 2.0”存在：`u_redshift_scale` 在 `_startModalInpaint()` 内被 tween 回 0
+- Phase 2.5：断言红移爆裂为径向膨胀（Shader 内出现 `baseDist` / `currentDist` / `dir` 逻辑）
+- Phase 2.5：断言 GOTTA 使用 `CatmullRomCurve3` 做 Spline Dive
+- Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
 
 2) `frontend/tests/engineScaleRouterWiring.test.js`
 - 断言 macro→micro 的切换仍通过 `executeQuantumDive` 路径

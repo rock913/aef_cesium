@@ -23,6 +23,9 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('EffectComposer')
     expect(s).toContain('executeQuantumDive')
     expect(s).toContain("from 'gsap'")
+
+    // Phase 2.5: GOTTA capture should support spline dive choreography.
+    expect(s).toContain('CatmullRomCurve3')
   })
 
   it('matches Milestone 2 baseline scene sizes', () => {
@@ -30,6 +33,11 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
 
     expect(s).toContain('100000')
     expect(s).toContain('2400')
+
+    // Phase 2.5: redshift burst must be true radial expansion (not one-axis drift).
+    expect(s).toContain('true radial expansion')
+    expect(s).toContain('baseDist = length(localPos.xyz)')
+    expect(s).toContain('currentDist')
   })
 
   it('wires OneAstronomy stage2 actions (redshift + modal inpaint)', () => {
@@ -38,9 +46,15 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('useAstroStore')
     expect(s).toContain('ASTRO_AGENT_ACTION_TYPES')
     expect(s).toContain('EXECUTE_REDSHIFT_PREDICTION')
+    expect(s).toContain('CAPTURE_TRANSIENT_EVENT')
     expect(s).toContain('START_MODAL_INPAINT')
     expect(s).toContain('STOP_MODAL_INPAINT')
     expect(s).toContain('{ immediate: true }')
+
+    // Phase 2.5: inpaint should accept an action payload to anchor in world-space.
+    expect(s).toContain('function _startModalInpaint(payload')
+    expect(s).toContain('payload?.ra')
+    expect(s).toContain('_gottaLastTargetPos')
   })
 
   it('wires OneAstronomy Demo 1 (CSST decomposition) actions', () => {
@@ -85,18 +99,40 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
   it('supports Micro-Real-Data injection (SDSS sample) with safe fallback', () => {
     const s = read('../src/views/workbench/engines/ThreeTwin.vue')
 
+    // Macro baseline must be a sky-sphere (not the historical spiral disk).
+    expect(s).toContain('MACRO_SKY_RADIUS')
+    expect(s).toContain('const MACRO_SKY_RADIUS = 100')
+    expect(s).not.toContain('angle = t * Math.PI * 12')
+
     // The dataset path is part of the public contract.
     expect(s).toContain('/data/astronomy/sdss_micro_sample.json')
+
+    // SDSS loader must support both 2D triples and flat-array formats.
+    expect(s).toContain('normalizeSdssTriples')
+
+    // Tiny SDSS samples must not collapse the macro starfield draw-count.
+    expect(s).toContain('PURE_DATA_MIN')
+
+    // Demo 3: GOTTA transient capture uses a public mock JSON contract.
+    expect(s).toContain('/data/astronomy/gotta_transient_event.json')
+
+    // GOTTA should accept the network schema as well as the legacy single-event format.
+    expect(s).toContain('targetEventId')
+    expect(s).toContain('events')
 
     // Coordinate mapping should rely on the shared astronomy helpers.
     expect(s).toContain('coordinateMath')
     expect(s).toContain('raDecToUnitVector')
+
+    // SDSS / GOTTA sky mapping must not flatten declination into a disk.
+    expect(s).not.toContain('dir.z * radius * 0.35')
+    expect(s).not.toContain('dir.z * dist * 0.35')
   })
 
   it('keeps macro stars readable at default camera distances', () => {
     const s = read('../src/views/workbench/engines/ThreeTwin.vue')
 
-    // Prevent scale mismatch where instances become sub-pixel and disappear.
-    expect(s).toContain('SphereGeometry(0.14')
+    // Prevent additive blowout at high densities by keeping instances small.
+    expect(s).toContain('SphereGeometry(0.015')
   })
 })

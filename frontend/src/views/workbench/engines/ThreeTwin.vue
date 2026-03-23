@@ -13,6 +13,7 @@ import gsap from 'gsap'
 import { useResearchStore } from '../../../stores/researchStore.js'
 import { ASTRO_AGENT_ACTION_TYPES, useAstroStore } from '../../../stores/astroStore.js'
 import * as coordinateMath from '../../../utils/astronomy/coordinateMath.js'
+import { normalizeSdssTriples } from '../../../utils/astronomy/sdssData.js'
 import { disposeThreeEngine } from './threeDispose.js'
 import { executeQuantumDive } from './quantumDive.js'
 import { createBloomPipeline, updateBloomParams } from './threePostprocessing.js'
@@ -50,16 +51,60 @@ let microMaterialO = null
 
 let _macroRedshiftTween = null
 let _macroRedshiftShader = null
-let _macroRedshiftMaxDepth = 42
+let _macroRedshiftMaxDepth = 52
 let _macroRedshiftScale = 0
 
 let _sdssInjected = false
 
 let _pendingAstroAction = null
 
+let _storyToken = 0
+
+// Macro (SDSS) baseline should be a sky-sphere (2D celestial sphere) by default.
+// This avoids the historical “spiral disk” artifact and makes radial redshift expansion
+// visually/physically consistent (cosmic web rather than a cylinder).
+const MACRO_SKY_RADIUS = 100
+// Align the injected sky with the default camera facing direction.
+const MACRO_RA_OFFSET_DEG = 180
+
+function _sleep(ms) {
+  const t = Number(ms)
+  const delay = Number.isFinite(t) ? Math.max(0, Math.floor(t)) : 0
+  return new Promise((resolve) => setTimeout(resolve, delay))
+}
+
+function _cancelStoryFlow() {
+  _storyToken += 1
+  try {
+    _stopGottaTransient()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _stopCsstDecomposition({ restoreCamera: true })
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _setMacroRedshiftScale(0)
+  } catch (_) {
+    // ignore
+  }
+}
+
 function _tryRunAstroAction(action) {
   if (!action || typeof action !== 'object') return false
   const type = String(action?.type || '').trim()
+
+  if (type === ASTRO_AGENT_ACTION_TYPES.STOP_ONEASTRO_STORY_FLOW) {
+    _cancelStoryFlow()
+    return true
+  }
 
   // Stop should work regardless of the current scale.
   if (type === ASTRO_AGENT_ACTION_TYPES.STOP_MODAL_INPAINT) {
@@ -84,6 +129,12 @@ function _tryRunAstroAction(action) {
   const scale = String(store.currentScale.value || '').trim().toLowerCase()
   if (scale !== 'macro') return false
 
+  if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_ONEASTRO_STORY_FLOW) {
+    if (!macroScene || !renderer || !camera) return false
+    void _executeOneAstroStoryFlow(action?.payload || null)
+    return true
+  }
+
   if (type === ASTRO_AGENT_ACTION_TYPES.EXECUTE_REDSHIFT_PREDICTION) {
     if (!macroMesh) return false
     void _executeRedshiftBurst(action?.payload || null)
@@ -102,7 +153,94 @@ function _tryRunAstroAction(action) {
     return true
   }
 
+  if (type === ASTRO_AGENT_ACTION_TYPES.CAPTURE_TRANSIENT_EVENT) {
+    if (!macroScene || !renderer || !camera) return false
+    void _captureTransientEvent(action?.payload || null)
+    return true
+  }
+
   return false
+}
+
+async function _executeOneAstroStoryFlow(payload = null) {
+  const token = (_storyToken += 1)
+  const canceled = () => token !== _storyToken
+
+  // Enforce narrative exclusivity: start from a clean macro overlay state.
+  try {
+    _stopGottaTransient()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _stopCsstDecomposition({ restoreCamera: false })
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _setMacroRedshiftScale(0)
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    astroStore.setGenerating(true)
+  } catch (_) {
+    // ignore
+  }
+
+  // Act 1: CSST decomposition (close-up)
+  try {
+    _startCsstDecomposition(payload?.csst || null)
+  } catch (_) {
+    // ignore
+  }
+  await _sleep(1700)
+  if (canceled()) return
+
+  // Clear CSST before going wide.
+  try {
+    _stopCsstDecomposition({ restoreCamera: false })
+  } catch (_) {
+    // ignore
+  }
+  await _sleep(350)
+  if (canceled()) return
+
+  // Act 2: redshift radial expansion (go wide)
+  try {
+    await _executeRedshiftBurst(payload?.redshift || { maxDepth: 52 })
+  } catch (_) {
+    // ignore
+  }
+  if (canceled()) return
+
+  // Act 3: GOTTA transient capture (spline dive)
+  try {
+    await _captureTransientEvent(payload?.gotta || null)
+  } catch (_) {
+    // ignore
+  }
+  if (canceled()) return
+
+  // Act 4: Inpaint, anchored at the GOTTA target.
+  try {
+    const pos = _gottaLastTargetPos ? { x: _gottaLastTargetPos.x, y: _gottaLastTargetPos.y, z: _gottaLastTargetPos.z } : null
+    _startModalInpaint(pos ? { position: pos } : (payload?.inpaint || null))
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    astroStore.setGenerating(false)
+  } catch (_) {
+    // ignore
+  }
 }
 
 function _flushPendingAstroAction() {
@@ -127,6 +265,13 @@ let _csstTargetPos = null
 let _csstPrevCamPos = null
 let _csstPrevTarget = null
 let _csstTextures = []
+
+let _gottaGroup = null
+let _gottaPulseTween = null
+let _gottaMarkerTexture = null
+let _gottaActive = false
+let _gottaDiveTween = null
+let _gottaLastTargetPos = null
 
 const MICRO_MAX_INSTANCES = 12000
 
@@ -157,16 +302,17 @@ function _buildMacroScene(scene) {
   // Minimal procedural cosmic web using InstancedMesh.
   // Stage 2 Demo 1: add per-instance redshift attribute + uniform-driven stretch along +Z.
   const count = 100000
-  // Visual-readability gate: keep instances above ~1px at default camera distances.
-  const geometry = new THREE.SphereGeometry(0.14, 4, 4)
+  // Blowout prevention: keep instances "sand-like" at high densities (50k+).
+  const geometry = new THREE.SphereGeometry(0.015, 4, 4)
 
   // Stage 2 Demo 1 (volumetric burst): ShaderMaterial to fully own the pipeline.
   // This guarantees `aRedshift` is actually bound and used.
   const material = new THREE.ShaderMaterial({
     uniforms: {
       u_redshift_scale: { value: 0.0 },
-      u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 42.0 },
-      u_opacity: { value: 0.9 },
+      u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 52.0 },
+      // Additive blending must start dark; bloom + overlap provide highlights.
+      u_opacity: { value: 0.35 },
     },
     vertexShader: [
       'attribute float aRedshift;',
@@ -181,16 +327,13 @@ function _buildMacroScene(scene) {
       '  #endif',
       '',
       '  float s = clamp(u_redshift_scale, 0.0, 1.0);',
-      '  float burst = clamp(aRedshift, 0.0, 1.0) * s;',
+      '  float z = clamp(aRedshift, 0.0, 1.0);',
       '',
-      '  // Volumetric burst: lift along world Y and expand radially in XZ.',
-      '  localPos.y += (aRedshift - 0.5) * s * u_max_depth;',
-      '  float dist = length(localPos.xz);',
-      '  if (dist > 0.0005) {',
-      '    vec2 dir = localPos.xz / dist;',
-      '    localPos.x += dir.x * burst * u_max_depth * 0.35;',
-      '    localPos.z += dir.y * burst * u_max_depth * 0.35;',
-      '  }',
+      '  // Phase 2.5: true radial expansion (observer at origin).',
+      '  float baseDist = length(localPos.xyz);',
+      '  vec3 dir = baseDist > 0.0001 ? (localPos.xyz / baseDist) : vec3(0.0, 0.0, 1.0);',
+      '  float currentDist = baseDist + (z * u_max_depth * s);',
+      '  localPos.xyz = dir * currentDist;',
       '',
       '  vec4 mvPosition = modelViewMatrix * localPos;',
       '  gl_Position = projectionMatrix * mvPosition;',
@@ -203,11 +346,12 @@ function _buildMacroScene(scene) {
       'uniform float u_opacity;',
       'void main() {',
       '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
-      '  vec3 baseColor = vec3(0.85, 0.95, 1.0);',
-      '  vec3 burstColor = vec3(1.0, 0.15, 0.85);',
+      '  vec3 baseColor = vec3(0.05, 0.10, 0.25);',
+      '  vec3 burstColor = vec3(0.90, 0.10, 0.50);',
       '  vec3 finalColor = mix(baseColor, burstColor, zBurst);',
-      '  finalColor += zBurst * 0.65;',
-      '  gl_FragColor = vec4(finalColor, clamp(u_opacity, 0.0, 1.0));',
+      '  float depthFade = 1.0 - (zBurst * 0.4);',
+      '  finalColor += zBurst * 0.35;',
+      '  gl_FragColor = vec4(finalColor, clamp(u_opacity, 0.0, 1.0) * depthFade);',
       '}',
     ].join('\n'),
     transparent: true,
@@ -220,11 +364,21 @@ function _buildMacroScene(scene) {
 
   const redshift = new Float32Array(count)
   const tmp = new THREE.Object3D()
+
+  const seed = _hashSeed('oneastro:macro-sky:v1')
+  const rng = _mulberry32(seed)
   for (let i = 0; i < count; i += 1) {
+    // Historical note: we used to seed a procedural spiral disk here.
+    // That is physically wrong for a macro SDSS sky and biases the redshift burst into a cylinder.
+    // Use an isotropic sky-sphere distribution as the default baseline.
     const t = i / count
-    const angle = t * Math.PI * 12
-    const radius = 2 + t * 18
-    tmp.position.set(Math.cos(angle) * radius, (t - 0.5) * 1.2, Math.sin(angle) * radius)
+    // Sample dec uniformly by sampling sin(dec) uniformly in [-1,1].
+    const ra = rng() * 360
+    const dec = coordinateMath.radToDeg(Math.asin((rng() * 2 - 1) || 0))
+    const jitter = (rng() - 0.5) * 2.0
+    const radius = MACRO_SKY_RADIUS + jitter
+    const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
+    tmp.position.set(dir.x * radius, dir.z * radius, dir.y * radius)
     tmp.updateMatrix()
     mesh.setMatrixAt(i, tmp.matrix)
 
@@ -371,14 +525,20 @@ async function _tryInjectSdssMicroSample() {
 
   if (!Array.isArray(data) || data.length < 1) return
 
-  const capacity = Number(macroMesh.count) || 100000
-  const n = Math.max(1, Math.min(capacity, data.length))
-  const radius = 20
+  const parsed = normalizeSdssTriples(data)
+  const capacity = Number(macroMesh?.instanceMatrix?.count) || Number(macroMesh.count) || 100000
+  const n = Math.max(1, Math.min(capacity, Number(parsed?.count) || 0))
+  if (n < 1 || !Array.isArray(parsed?.flat) || parsed.flat.length < 3) return
+
+  // Visual stability rule (update_patch.md): tiny real-data samples must not collapse the macro starfield.
+  // Only switch draw-count to "pure data" mode when the dataset is sufficiently large.
+  const PURE_DATA_MIN = 20000
+  const radius = MACRO_SKY_RADIUS
 
   // Normalize redshift into [0,1] while keeping a stable baseline even for tiny samples.
   let zMax = 0
   for (let i = 0; i < n; i += 1) {
-    const z = Number(data[i]?.[2])
+    const z = Number(parsed.flat[i * 3 + 2])
     if (Number.isFinite(z)) zMax = Math.max(zMax, z)
   }
   zMax = zMax > 0 ? zMax : 1
@@ -386,14 +546,14 @@ async function _tryInjectSdssMicroSample() {
   const tmp = new THREE.Object3D()
   const redshiftAttr = macroMesh.geometry.getAttribute('aRedshift')
   for (let i = 0; i < n; i += 1) {
-    const row = data[i]
-    const ra = Number(row?.[0])
-    const dec = Number(row?.[1])
-    const z = Number(row?.[2])
+    const ra = Number(parsed.flat[i * 3])
+    const dec = Number(parsed.flat[i * 3 + 1])
+    const z = Number(parsed.flat[i * 3 + 2])
     if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
 
-    const dir = coordinateMath.raDecToUnitVector(ra, dec)
-    tmp.position.set(dir.x * radius, dir.z * radius * 0.35, dir.y * radius)
+    // Map (ra, dec) onto a constant sky-sphere (no flattening).
+    const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
+    tmp.position.set(dir.x * radius, dir.z * radius, dir.y * radius)
     tmp.updateMatrix()
     macroMesh.setMatrixAt(i, tmp.matrix)
 
@@ -402,9 +562,9 @@ async function _tryInjectSdssMicroSample() {
     }
   }
 
-  // Only draw the real-data instances.
+  // Keep procedural stars unless we have enough real data to fill the scene.
   try {
-    macroMesh.count = n
+    if (n >= PURE_DATA_MIN) macroMesh.count = n
   } catch (_) {
     // ignore
   }
@@ -416,6 +576,331 @@ async function _tryInjectSdssMicroSample() {
   }
   try {
     if (redshiftAttr) redshiftAttr.needsUpdate = true
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _makeGottaMarkerTexture({ w = 512, h = 512 } = {}) {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(128, Math.floor(Number(w) || 512))
+  canvas.height = Math.max(128, Math.floor(Number(h) || 512))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+
+  const cx = canvas.width / 2
+  const cy = canvas.height / 2
+  ctx.fillStyle = '#000000'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  // Soft radial glow
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(cx, cy) * 0.95)
+  glow.addColorStop(0.0, 'rgba(255, 255, 255, 0.95)')
+  glow.addColorStop(0.18, 'rgba(251, 191, 36, 0.65)')
+  glow.addColorStop(0.42, 'rgba(244, 63, 94, 0.25)')
+  glow.addColorStop(1.0, 'rgba(0, 0, 0, 0)')
+  try {
+    ctx.globalCompositeOperation = 'lighter'
+  } catch (_) {
+    // ignore
+  }
+  ctx.fillStyle = glow
+  ctx.beginPath()
+  ctx.arc(cx, cy, Math.min(cx, cy) * 0.58, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Crosshair
+  try {
+    ctx.globalCompositeOperation = 'source-over'
+  } catch (_) {
+    // ignore
+  }
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+  ctx.lineWidth = Math.max(2, Math.floor(canvas.width * 0.006))
+  ctx.beginPath()
+  ctx.arc(cx, cy, Math.min(cx, cy) * 0.28, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(cx - canvas.width * 0.18, cy)
+  ctx.lineTo(cx + canvas.width * 0.18, cy)
+  ctx.moveTo(cx, cy - canvas.height * 0.18)
+  ctx.lineTo(cx, cy + canvas.height * 0.18)
+  ctx.stroke()
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.needsUpdate = true
+  tex.minFilter = THREE.LinearFilter
+  tex.magFilter = THREE.LinearFilter
+  tex.generateMipmaps = true
+  return tex
+}
+
+function _stopGottaTransient() {
+  _gottaActive = false
+  try {
+    if (_gottaPulseTween) _gottaPulseTween.kill()
+  } catch (_) {
+    // ignore
+  }
+  _gottaPulseTween = null
+
+  try {
+    if (_gottaDiveTween) _gottaDiveTween.kill()
+  } catch (_) {
+    // ignore
+  }
+  _gottaDiveTween = null
+
+  if (_gottaGroup && macroScene) {
+    try {
+      macroScene.remove(_gottaGroup)
+    } catch (_) {
+      // ignore
+    }
+  }
+  _gottaGroup = null
+  _gottaLastTargetPos = null
+}
+
+async function _captureTransientEvent(payload = null) {
+  if (!macroScene || !camera) return
+
+  // Scene Authority: keep macro overlays mutually exclusive.
+  try {
+    if (_inpaintActive) _stopModalInpaint()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (_csstActive) _stopCsstDecomposition({ restoreCamera: false })
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _setMacroRedshiftScale(0)
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _stopGottaTransient()
+  } catch (_) {
+    // ignore
+  }
+
+  let eventData = null
+  if (payload && typeof payload === 'object' && Number.isFinite(Number(payload?.ra)) && Number.isFinite(Number(payload?.dec))) {
+    eventData = {
+      eventId: String(payload?.eventId || 'GOTTA-Transient'),
+      ra: Number(payload.ra),
+      dec: Number(payload.dec),
+      type: String(payload?.type || 'Transient'),
+      lightcurve: payload?.lightcurve ?? null,
+    }
+  } else {
+    try {
+      if (typeof fetch === 'function') {
+        const res = await fetch('/data/astronomy/gotta_transient_event.json', { cache: 'no-cache' })
+        if (res?.ok) eventData = await res.json()
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Support both:
+  // - Legacy single event object: { eventId, ra, dec, ... }
+  // - Network schema: { targetEventId, events: [{ eventId, ra, dec, ... }, ...] }
+  const events = Array.isArray(eventData?.events) ? eventData.events : null
+  const targetEventId = events ? String(eventData?.targetEventId || payload?.eventId || '') : null
+  const targetEvent = events
+    ? events.find((e) => String(e?.eventId || '') === targetEventId) || events.find((e) => Number.isFinite(Number(e?.ra)) && Number.isFinite(Number(e?.dec)))
+    : eventData
+
+  const ra = Number(targetEvent?.ra)
+  const dec = Number(targetEvent?.dec)
+  if (!Number.isFinite(ra) || !Number.isFinite(dec)) return
+
+  const radius = MACRO_SKY_RADIUS
+  const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
+  const pos = new THREE.Vector3(dir.x * radius, dir.z * radius, dir.y * radius)
+  _gottaLastTargetPos = pos.clone()
+
+  if (!_gottaMarkerTexture) {
+    try {
+      _gottaMarkerTexture = _makeGottaMarkerTexture({ w: 512, h: 512 })
+    } catch (_) {
+      _gottaMarkerTexture = null
+    }
+  }
+
+  const g = markRaw(new THREE.Group())
+
+  let targetMarker = null
+  const backgroundPositions = []
+  if (Array.isArray(events) && events.length) {
+    for (const e of events) {
+      const era = Number(e?.ra)
+      const edec = Number(e?.dec)
+      if (!Number.isFinite(era) || !Number.isFinite(edec)) continue
+      const edir = coordinateMath.raDecToUnitVector(era + MACRO_RA_OFFSET_DEG, edec)
+      const epos = new THREE.Vector3(edir.x * radius, edir.z * radius, edir.y * radius)
+      const isTarget = String(e?.eventId || '') === String(targetEvent?.eventId || '')
+
+      const markerMat = new THREE.SpriteMaterial({
+        map: _gottaMarkerTexture || null,
+        color: isTarget ? 0xffffff : 0xfff7ed,
+        transparent: true,
+        opacity: isTarget ? 0.92 : 0.14,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+      const marker = markRaw(new THREE.Sprite(markerMat))
+      marker.position.copy(epos)
+      marker.scale.set(isTarget ? 5.2 : 2.3, isTarget ? 5.2 : 2.3, 1)
+      marker.renderOrder = isTarget ? 998 : 996
+      g.add(marker)
+
+      if (isTarget) {
+        targetMarker = marker
+      } else {
+        backgroundPositions.push(epos)
+      }
+    }
+  }
+
+  if (!targetMarker) {
+    const markerMat = new THREE.SpriteMaterial({
+      map: _gottaMarkerTexture || null,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.92,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const marker = markRaw(new THREE.Sprite(markerMat))
+    marker.position.copy(pos)
+    marker.scale.set(5.2, 5.2, 1)
+    marker.renderOrder = 998
+    g.add(marker)
+    targetMarker = marker
+  }
+
+  // A subtle line-of-sight cue from origin.
+  try {
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), pos.clone()])
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.22 })
+    const line = markRaw(new THREE.Line(lineGeo, lineMat))
+    line.renderOrder = 997
+    g.add(line)
+  } catch (_) {
+    // ignore
+  }
+
+  // Network feel: faint link lines from background events to the target.
+  try {
+    if (backgroundPositions.length) {
+      const pts = []
+      for (const p of backgroundPositions) {
+        pts.push(p.x, p.y, p.z)
+        pts.push(pos.x, pos.y, pos.z)
+      }
+      const linkGeo = new THREE.BufferGeometry()
+      linkGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
+      const linkMat = new THREE.LineBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.08 })
+      const links = markRaw(new THREE.LineSegments(linkGeo, linkMat))
+      links.renderOrder = 995
+      g.add(links)
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  macroScene.add(g)
+  _gottaGroup = g
+  _gottaActive = true
+
+  // Focus camera gently towards the transient marker.
+  try {
+    if (controls && pos) {
+      controls.target.copy(pos)
+      controls.update?.()
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Phase 2.5: spline dive (CatmullRom) to create a high-tension "capture" motion.
+  try {
+    if (gsap && camera?.position && THREE?.CatmullRomCurve3 && pos) {
+      try {
+        _gottaDiveTween?.kill?.()
+      } catch (_) {
+        // ignore
+      }
+
+      const prevControlsEnabled = controls ? !!controls.enabled : null
+      try {
+        if (controls) controls.enabled = false
+      } catch (_) {
+        // ignore
+      }
+
+      const startPos = camera.position.clone()
+      // Keep the end position comfortably inside the sky-sphere, even when the marker is far.
+      const back = Math.max(12, radius * 0.18)
+      const endPos = pos
+        .clone()
+        .add(pos.clone().normalize().multiplyScalar(-back))
+        .add(new THREE.Vector3(7, 4, 14))
+      const midPos = startPos.clone().lerp(endPos, 0.5)
+      midPos.y += 40
+      midPos.x += 30
+      const curve = new THREE.CatmullRomCurve3([startPos, midPos, endPos])
+
+      const s = { t: 0 }
+      await new Promise((resolve) => {
+        _gottaDiveTween = gsap.to(s, {
+          t: 1,
+          duration: 3.5,
+          ease: 'power2.inOut',
+          onUpdate: () => {
+            try {
+              const p = curve.getPoint(Math.max(0, Math.min(1, s.t)))
+              camera.position.copy(p)
+              camera.lookAt(pos)
+              if (controls) {
+                controls.target.copy(pos)
+                controls.update?.()
+              }
+            } catch (_) {
+              // ignore
+            }
+          },
+          onComplete: () => {
+            _gottaDiveTween = null
+            resolve()
+          },
+        })
+      })
+
+      try {
+        if (controls && prevControlsEnabled !== null) controls.enabled = prevControlsEnabled
+      } catch (_) {
+        // ignore
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Pulse the marker to convey “capture”.
+  try {
+    if (gsap && targetMarker?.material) {
+      _gottaPulseTween = gsap.to(targetMarker.material, { opacity: 0.25, duration: 0.55, yoyo: true, repeat: -1, ease: 'sine.inOut' })
+    }
   } catch (_) {
     // ignore
   }
@@ -801,7 +1286,7 @@ function _stopCsstDecomposition({ restoreCamera = false } = {}) {
   // Restore macro brightness when leaving CSST overlay.
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.9, duration: 0.6, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.35, duration: 0.6, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }
@@ -867,7 +1352,7 @@ async function _executeRedshiftBurst(payload = null) {
 
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.9, duration: 0.45, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.55, duration: 0.45, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }
@@ -918,14 +1403,14 @@ async function _executeRedshiftBurst(payload = null) {
   try {
     const u = bloomPass
     if (u) {
-      gsap.to(u, { strength: Math.min(2.5, (u.strength || 1.1) + 0.8), duration: 0.5, ease: 'power2.out' })
+      gsap.to(u, { strength: Math.min(1.8, (u.strength || 1.1) + 0.4), duration: 0.5, ease: 'power2.out' })
     }
   } catch (_) {
     // ignore
   }
 }
 
-function _startModalInpaint() {
+function _startModalInpaint(payload = null) {
   if (!_inpaintMesh || !_inpaintUniforms || !renderer || !camera) return
 
   // Ensure a clean state (prevents lingering listeners/tweens across rapid switches).
@@ -947,10 +1432,47 @@ function _startModalInpaint() {
   _inpaintUniforms.u_enabled.value = 1.0
   _inpaintUniforms.u_radius.value = 0.0
 
+  // Phase 2.5: anchor the inpaint plane to the GOTTA target / payload position in world space.
+  try {
+    let anchor = null
+    if (payload && typeof payload === 'object') {
+      const p = payload?.position || payload?.pos || null
+      const px = Number(p?.x ?? payload?.x)
+      const py = Number(p?.y ?? payload?.y)
+      const pz = Number(p?.z ?? payload?.z)
+      if (Number.isFinite(px) && Number.isFinite(py) && Number.isFinite(pz)) {
+        anchor = new THREE.Vector3(px, py, pz)
+      } else if (Number.isFinite(Number(payload?.ra)) && Number.isFinite(Number(payload?.dec))) {
+        const ra = Number(payload.ra)
+        const dec = Number(payload.dec)
+        const z = Number(payload?.z)
+        const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
+        const baseR = MACRO_SKY_RADIUS
+        const dist = Number.isFinite(z) ? baseR + z * (Number(_macroRedshiftMaxDepth) || 52) * Math.max(1, _macroRedshiftScale || 1) : baseR
+        anchor = new THREE.Vector3(dir.x * dist, dir.z * dist, dir.y * dist)
+      }
+    }
+    if (!anchor && _gottaLastTargetPos) anchor = _gottaLastTargetPos.clone()
+    if (anchor) {
+      // Offset slightly towards camera to avoid accidental intersection.
+      try {
+        const toCam = camera.position.clone().sub(anchor)
+        const len = toCam.length() || 1
+        toCam.multiplyScalar(1 / len)
+        anchor.add(toCam.multiplyScalar(1.6))
+      } catch (_) {
+        // ignore
+      }
+      _inpaintMesh.position.copy(anchor)
+    }
+  } catch (_) {
+    // ignore
+  }
+
   // Scene dominance: dim the macro spiral so the nebula scan reads clearly.
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.15, duration: 1.5, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.05, duration: 1.0, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }
@@ -1055,7 +1577,7 @@ function _stopModalInpaint() {
   // Restore macro brightness when leaving inpaint.
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.9, duration: 0.6, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.35, duration: 0.6, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }
@@ -1562,13 +2084,29 @@ watch(
       } catch (_) {
         // ignore
       }
+
+      try {
+        if (_gottaActive) _stopGottaTransient()
+      } catch (_) {
+        // ignore
+      }
     }
     if (prev === 'macro' && next === 'micro') {
       executeQuantumDive({
         camera,
         gsap,
+        settleZ: 16,
+        microPose: { x: 0, y: 4, z: 10 },
         onSwitchScene: () => {
           activeScene = microScene
+          try {
+            if (controls) {
+              controls.target.set(0, 0, 0)
+              controls.update?.()
+            }
+          } catch (_) {
+            // ignore
+          }
         },
       })
       return
