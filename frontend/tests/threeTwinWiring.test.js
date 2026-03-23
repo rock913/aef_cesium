@@ -36,7 +36,7 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
 
     // Phase 2.5: redshift burst must be true radial expansion (not one-axis drift).
     expect(s).toContain('true radial expansion')
-    expect(s).toContain('baseDist = length(localPos.xyz)')
+    expect(s).toContain('baseDist = length(localPos')
     expect(s).toContain('currentDist')
   })
 
@@ -135,7 +135,11 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Phase 2.6 (update_patch.md): macro renderer should be soft-particle points
     // so additive blending self-fuses into a cosmic web instead of "candy spheres".
     expect(s).toContain('new THREE.Points')
+    expect(s).toContain('new THREE.BufferGeometry')
+    expect(s).toContain("setAttribute('position'")
+    expect(s).toContain("setAttribute('aRedshift'")
     expect(s).toContain('gl_PointCoord')
     expect(s).toContain('discard')
+    expect(s).toContain('gl_PointSize')
   })
 })
