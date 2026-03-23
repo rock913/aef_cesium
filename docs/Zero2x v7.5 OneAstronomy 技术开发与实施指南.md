@@ -1,6 +1,6 @@
 Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
-版本：v1.3 | 状态：主开发执行标准（Main）| 更新时间：2026-03-23
+版本：v1.4 | 状态：主开发执行标准（Main）| 更新时间：2026-03-23
 
 文档关系（请以本文件为主）：
 - 科学叙事/愿景蓝图：`docs/Zero2x v7.5：OneAstronomy 驱动的数字孪生宇宙与科学示范蓝图.md`
@@ -69,9 +69,17 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 过曝症状：数据量暴增到 2–5 万后，`AdditiveBlending` 叠加溢出 → 画面变成粉白糊糊、丢失暗弱层次。
 - 约束（必须同时满足）：
   - tiny sample 禁止收缩宏观 draw count（保留程序化星海作为底座）。
-  - 宏观粒子必须“沙子化”：实例半径收敛到高密度安全区（当前实现为 `SphereGeometry(0.015, ...)`）。
+  - 宏观粒子必须“沙子化”：实例半径收敛到高密度安全区（当前实现为 `SphereGeometry(0.015, ...)`；下一步将迁移到 `THREE.Points` 的 soft-particle）。
   - 宏观 Shader 底色必须极暗，透明度必须收敛（默认 `u_opacity ≈ 0.35`），高光交给叠加与 Bloom。
   - 红移爆裂期间的 Bloom 上限必须受控（当前实现上限 `≤ 1.8`）。
+
+1.2) 宏观天球基底必须符合物理常识（Sky-Sphere Baseline）
+- 症状：默认画面出现“规则的螺旋圆盘/飞碟盘”，会让红移爆裂读成“圆柱体/拉面”。
+- 根因：历史遗留的 procedural spiral 种子 +（更隐蔽的）RA/Dec 轴向压扁（例如 `* 0.35`）会强行把天球变成扁盘。
+- 约束（必须同时满足）：
+  - 默认宏观基底必须是 2D 天球球壳（各向同性），半径以工程常量为准（当前实现为 `MACRO_SKY_RADIUS = 100`）。
+  - 禁止保留螺旋盘种子逻辑作为默认分布。
+  - 禁止对 RA/Dec 映射做任何“压扁系数”（例如 `dir.z * radius * 0.35`）。
 
 1.1) 红移爆裂必须是真·径向膨胀（Radial Expansion）
 - 症状：只在单轴（Y 或 Z）做位移，会读成“漂移/抖动”，没有宇宙膨胀感。
@@ -93,12 +101,16 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 ### 2.0 Demo 映射与状态（四大任务 = 四个 Demo）
 
-| Demo | 任务名 | Action（建议/目标） | 当前状态（2026-03-20） |
+| Demo | 任务名 | Action（建议/目标） | 当前状态（2026-03-23） |
 |---|---|---|---|
 | Demo 1 | CSST 复杂星系精细结构分解 | `DECOMPOSE_CSST_GALAXY` / `STOP_CSST_DECOMPOSITION` | Implemented（已落地：可触发/可清理/可验收） |
 | Demo 2 | 红移立体爆裂（Cosmic Web / Redshift Burst） | `EXECUTE_REDSHIFT_PREDICTION` | Implemented（Stage 2 已落地） |
 | Demo 3 | GOTTA 瞬变源捕获（样条跃迁 + 时域 HUD） | `CAPTURE_TRANSIENT_EVENT` | Implemented（MVP：样条跃迁 + 标记闪烁 + 示例数据；HUD 后续补齐） |
 | Demo 4 | 模态互生 Inpaint（扫描扩散） | `START_MODAL_INPAINT` / `STOP_MODAL_INPAINT` | Implemented（Stage 2 已落地） |
+
+连续叙事一键剧本（Phase 2.5 / 已落地）：
+- Preset：`demo:oneastro_story`（Story Flow · 4 Acts · One Take）
+- Action：`EXECUTE_ONEASTRO_STORY_FLOW` / `STOP_ONEASTRO_STORY_FLOW`
 
 说明：
 - 旧文档中曾以“Demo 1 红移 / Demo 3 Inpaint”作为 Stage 2 验收编号；为了与“四大任务=四个 Demo”一致，本主文档采用 Demo 1–4 的新映射。
@@ -117,7 +129,7 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 推荐将 SDSS 数据扩展到 2–5 万条（约 1–2MB）用于演示；仓库内可保留 tiny sample 作为“契约样例”，通过脚本一键替换为大样本。
 
 连续叙事（Phase 2.5 / 四幕剧）：
-- 【序幕】50,000 SDSS 星系加载：作为 2D 天球底座（球壳半径按实现调参；当前宏观用半径约 20–21 的壳层映射）。
+- 【序幕】50,000 SDSS 星系加载：作为 2D 天球底座（球壳半径按实现调参；当前宏观用 `MACRO_SKY_RADIUS = 100` 的壳层映射；并做 RA 视角对齐偏移以适配默认相机视向）。
 - 【第一幕】CSST 数据降临（Demo 1）：镜头飞近并解剖星系（已落地）。
 - 【第二幕】精密宇宙学红移爆裂（Demo 2 升级）：关闭 CSST 特写，镜头拉远；星系沿径向膨胀，形成 3D 纤维网。
 - 【第三幕】GOTTA 时域网络预警（Demo 3）：远处目标爆闪；相机执行样条弧线跃迁（Spline Dive）。
@@ -278,6 +290,17 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - Demo 2：检索契约 + 样条运镜骨架 + 最小 HUD
 - Demo 4：WebGPU Compute 能力探测 + 降级路径 + 性能基线
 
+### Phase 2.5（已完成）：连续叙事 + 物理一致性补齐
+- 红移爆裂升级为真·径向膨胀（Radial Expansion）+ `depthFade` 抑制远处过曝
+- GOTTA 引入 CatmullRomCurve3 “Spline Dive” 运镜
+- Inpaint 支持 world anchor（payload / GOTTA 回退）并维持 world-space billboard
+- 新增“一键四幕剧本” preset + action runner，并支持 STOP 取消
+- 修复宏观 SDSS 默认“螺旋圆盘”假象：宏观基底改为 sky-sphere；禁用 RA/Dec 压扁系数
+
+### Phase 2.6（下一步 / TDD 驱动）：Cosmic Web 视觉重构 + Astro-GIS Phase 1
+- 宏观渲染从 `InstancedMesh(SphereGeometry)` 迁移到 `THREE.Points`（soft-particle shader，利用 Additive 自融合出“丝状密度感”）
+- Astro-GIS Phase 1：引入图层状态树（layer store），把宏观/CSST/GOTTA/Inpaint 资产显隐与 opacity 纳入统一控制
+
 ---
 
 ## 5) TDD 详细研发（按“红-绿-重构”执行）
@@ -294,6 +317,8 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - Phase 2.5：断言红移爆裂为径向膨胀（Shader 内出现 `baseDist` / `currentDist` / `dir` 逻辑）
 - Phase 2.5：断言 GOTTA 使用 `CatmullRomCurve3` 做 Spline Dive
 - Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
+- Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
+- 反回归：断言宏观天球基底为 sky-sphere（包含 `MACRO_SKY_RADIUS = 100`），并禁止出现螺旋盘种子与 RA/Dec 压扁系数（例如 `* 0.35`）
 
 2) `frontend/tests/engineScaleRouterWiring.test.js`
 - 断言 macro→micro 的切换仍通过 `executeQuantumDive` 路径
@@ -331,23 +356,19 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 
 序幕：宇宙基底的唤醒 (The Data Fabric)
 
-执行逻辑：页面挂载时，fetch 上述 sdss_micro_sample.json，使用 InstancedMesh 渲染成一个半径为 100 的大球面。此时不应用 redshift。
+执行逻辑：页面挂载时，fetch `sdss_micro_sample.json`，将 (RA, Dec) 映射到固定半径的天球球壳（当前实现为 `MACRO_SKY_RADIUS = 100`），并把红移写入 `aRedshift`（初始 `u_redshift_scale = 0`）。
 
-// 初始化：读取 JSON，映射为球面点云
-const rawData = await fetch('/data/astronomy/sdss_micro_sample.json').then(r => r.json());
-const dummy = new THREE.Object3D();
-const redshifts = new Float32Array(rawData.length);
+关键约束：
+- 必须使用天球球壳（各向同性），禁止任何轴向压扁系数（例如 `* 0.35`）。
+- tiny sample 只能“局部注入”，不能把宏观 draw count 收缩到样本量（避免画面坍缩）。
 
-rawData.forEach((item, i) => {
-  const [ra, dec, z] = item;
-  redshifts[i] = z; // 存入 attribute，但初始 uniform u_redshift_scale = 0
-  const pos = raDecToCartesian(ra, dec, 100); // 半径固定为 100 (2D天球)
-  dummy.position.copy(pos);
-  dummy.lookAt(0,0,0);
-  dummy.updateMatrix();
-  instancedMesh.setMatrixAt(i, dummy.matrix);
-});
-instancedMesh.geometry.setAttribute('aRedshift', new THREE.InstancedBufferAttribute(redshifts, 1));
+（伪代码片段，仅表达意图；以 `coordinateMath.raDecToUnitVector()` 为准）
+
+```js
+const rawData = await fetch('/data/astronomy/sdss_micro_sample.json').then((r) => r.json())
+const dir = coordinateMath.raDecToUnitVector(ra + 180, dec)
+const pos = new THREE.Vector3(dir.x, dir.z, dir.y).multiplyScalar(100)
+```
 
 
 任务 1：CSST 复杂星系精细结构分解
@@ -385,8 +406,8 @@ gsap.to(barPlane.position, { z: 2, duration: 1.5 });
 // 清理任务 1 的遗留
 gsap.to(csstGroup.scale, { x: 0, y: 0, z: 0, duration: 0.5 });
 
-// 相机后撤，纵览全宇宙
-gsap.to(camera.position, { x: 0, y: 0, z: 250, duration: 3.0 });
+// 相机后撤，纵览全宇宙（按实际实现调参）
+gsap.to(camera.position, { x: 0, y: 0, z: 250, duration: 3.0 })
 
 // 触发红移大爆裂 (斯隆长城)
 gsap.to(instancedMesh.material.uniforms.u_redshift_scale, {
@@ -500,5 +521,22 @@ START_MODAL_INPAINT
 背景星系变暗(透明度0.1) -> 雷达扫描 X射线替换
 
 技术收尾规范：
-- 四大任务全部写在 `frontend/src/views/workbench/engines/ThreeTwin.vue` 中，通过 `watch(() => astroStore.currentAgentAction.value?.actionId, ...)` 驱动。
-- 切忌重载页面；任何任务结束都要显式执行清理/退让（Scene Authority）。
+- 所有任务在 `frontend/src/views/workbench/engines/ThreeTwin.vue` 内执行，并由 `astroStore.currentAgentAction` 驱动。
+- 任何任务开始必须先执行 Scene Authority 清理/退让；STOP 动作必须可随时打断“一键四幕剧本”。
+
+---
+
+## 7) Astro-GIS（对标 Cesium 的天文图层化）——分期落地
+
+愿景：把 OneAstronomy 从“特效 Demo”升级为可扩展的虚拟天文台：HiPS（影像底图）+ TAP/SIMBAD/VizieR（星表要素）+ Three.js（业务 3D 图层）。
+
+Phase 1（Foundation / 下一步落地）：图层状态树（Astro Layer Store）
+- 目标：在 `astroStore` 建立标准的 layer state（visible/opacity/style/source），并由 `ThreeTwin.vue` 将其映射到 Three.js 资产。
+- 最小交付：为 `MACRO_SDSS / DEMO_CSST / DEMO_GOTTA / DEMO_INPAINT` 建立图层条目；不接外部数据也要能控制显隐与退让。
+
+Phase 2（Deep Sky Background / 里程碑）：HiPS 影像底图 + 视场同步
+- 推荐方案：集成 Aladin Lite v3 作为底层 Canvas（Z-index: 0），Three.js 作为上层透明业务层（Z-index: 1）。
+- 关键：把 Three.js 相机（视向 / FOV）映射为 Aladin 的 RA/Dec/FOV，实现一镜到底的底图联动。
+
+Phase 3（Vector Features / 里程碑）：Catalog 要素层（SIMBAD/VizieR）
+- 目标：视场停止（debounce）后请求当前 FOV 区域的星表数据，渲染为 Instanced/Sprite/Label，并可被图层状态树统一管理。

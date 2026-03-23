@@ -299,11 +299,14 @@ function _mulberry32(seed) {
 let _macroSpinTween = null
 
 function _buildMacroScene(scene) {
-  // Minimal procedural cosmic web using InstancedMesh.
-  // Stage 2 Demo 1: add per-instance redshift attribute + uniform-driven stretch along +Z.
+  // Macro cosmic web renderer.
+  // Phase 2.6 (update_patch.md): use THREE.Points with a soft-particle shader so
+  // additive blending self-fuses into a readable cosmic web (not independent "candy spheres").
   const count = 100000
-  // Blowout prevention: keep instances "sand-like" at high densities (50k+).
-  const geometry = new THREE.SphereGeometry(0.015, 4, 4)
+  const geometry = new THREE.BufferGeometry()
+
+  const positions = new Float32Array(count * 3)
+  const redshift = new Float32Array(count)
 
   // Stage 2 Demo 1 (volumetric burst): ShaderMaterial to fully own the pipeline.
   // This guarantees `aRedshift` is actually bound and used.
@@ -311,32 +314,36 @@ function _buildMacroScene(scene) {
     uniforms: {
       u_redshift_scale: { value: 0.0 },
       u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 52.0 },
-      // Additive blending must start dark; bloom + overlap provide highlights.
-      u_opacity: { value: 0.35 },
+      // Additive blending must start dark; the halo shader provides perceived brightness.
+      u_opacity: { value: 0.55 },
+      u_size: { value: 15.0 },
     },
     vertexShader: [
       'attribute float aRedshift;',
       'uniform float u_redshift_scale;',
       'uniform float u_max_depth;',
+      'uniform float u_size;',
       'varying float vRedshift;',
       'void main() {',
       '  vRedshift = aRedshift;',
-      '  vec4 localPos = vec4(position, 1.0);',
-      '  #ifdef USE_INSTANCING',
-      '  localPos = instanceMatrix * localPos;',
-      '  #endif',
+      '  vec3 localPos = position;',
       '',
       '  float s = clamp(u_redshift_scale, 0.0, 1.0);',
       '  float z = clamp(aRedshift, 0.0, 1.0);',
       '',
       '  // Phase 2.5: true radial expansion (observer at origin).',
-      '  float baseDist = length(localPos.xyz);',
-      '  vec3 dir = baseDist > 0.0001 ? (localPos.xyz / baseDist) : vec3(0.0, 0.0, 1.0);',
+      '  float baseDist = length(localPos);',
+      '  vec3 dir = baseDist > 0.0001 ? (localPos / baseDist) : vec3(0.0, 0.0, 1.0);',
       '  float currentDist = baseDist + (z * u_max_depth * s);',
-      '  localPos.xyz = dir * currentDist;',
+      '  vec3 finalPos = dir * currentDist;',
       '',
-      '  vec4 mvPosition = modelViewMatrix * localPos;',
+      '  vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);',
       '  gl_Position = projectionMatrix * mvPosition;',
+      '',
+      '  // Perspective size attenuation. Keep within a safe pixel range.',
+      '  float denom = max(1.0, -mvPosition.z);',
+      '  float size = u_size * (250.0 / denom);',
+      '  gl_PointSize = clamp(size, 1.0, 64.0);',
       '}',
     ].join('\n'),
     fragmentShader: [
@@ -345,13 +352,18 @@ function _buildMacroScene(scene) {
       'uniform float u_redshift_scale;',
       'uniform float u_opacity;',
       'void main() {',
+      '  // Soft particle: draw a glowing disk in the fragment shader.',
+      '  vec2 cxy = 2.0 * gl_PointCoord - 1.0;',
+      '  float r = dot(cxy, cxy);',
+      '  if (r > 1.0) discard;',
+      '  float alpha = exp(-r * 3.0);',
       '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
       '  vec3 baseColor = vec3(0.05, 0.10, 0.25);',
       '  vec3 burstColor = vec3(0.90, 0.10, 0.50);',
       '  vec3 finalColor = mix(baseColor, burstColor, zBurst);',
       '  float depthFade = 1.0 - (zBurst * 0.4);',
       '  finalColor += zBurst * 0.35;',
-      '  gl_FragColor = vec4(finalColor, clamp(u_opacity, 0.0, 1.0) * depthFade);',
+      '  gl_FragColor = vec4(finalColor * alpha, clamp(u_opacity, 0.0, 1.0) * alpha * depthFade);',
       '}',
     ].join('\n'),
     transparent: true,
@@ -359,11 +371,6 @@ function _buildMacroScene(scene) {
     depthWrite: false,
   })
   _macroRedshiftShader = material
-
-  const mesh = markRaw(new THREE.InstancedMesh(geometry, material, count))
-
-  const redshift = new Float32Array(count)
-  const tmp = new THREE.Object3D()
 
   const seed = _hashSeed('oneastro:macro-sky:v1')
   const rng = _mulberry32(seed)
@@ -378,19 +385,24 @@ function _buildMacroScene(scene) {
     const jitter = (rng() - 0.5) * 2.0
     const radius = MACRO_SKY_RADIUS + jitter
     const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
-    tmp.position.set(dir.x * radius, dir.z * radius, dir.y * radius)
-    tmp.updateMatrix()
-    mesh.setMatrixAt(i, tmp.matrix)
+    positions[i * 3] = dir.x * radius
+    positions[i * 3 + 1] = dir.z * radius
+    positions[i * 3 + 2] = dir.y * radius
 
     // Mock redshift values in [0,1]; later replaced by AION output.
     redshift[i] = Math.min(1, Math.max(0, t + (Math.sin(i * 0.015) * 0.08)))
   }
 
   try {
-    mesh.geometry.setAttribute('aRedshift', new THREE.InstancedBufferAttribute(redshift, 1))
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geometry.setAttribute('aRedshift', new THREE.BufferAttribute(redshift, 1))
+    geometry.setDrawRange(0, count)
+    geometry.computeBoundingSphere()
   } catch (_) {
     // ignore
   }
+
+  const mesh = markRaw(new THREE.Points(geometry, material))
 
   scene.add(mesh)
   macroMesh = mesh
@@ -526,7 +538,8 @@ async function _tryInjectSdssMicroSample() {
   if (!Array.isArray(data) || data.length < 1) return
 
   const parsed = normalizeSdssTriples(data)
-  const capacity = Number(macroMesh?.instanceMatrix?.count) || Number(macroMesh.count) || 100000
+  const posAttr0 = macroMesh.geometry.getAttribute('position')
+  const capacity = Number(posAttr0?.count) || 100000
   const n = Math.max(1, Math.min(capacity, Number(parsed?.count) || 0))
   if (n < 1 || !Array.isArray(parsed?.flat) || parsed.flat.length < 3) return
 
@@ -543,8 +556,11 @@ async function _tryInjectSdssMicroSample() {
   }
   zMax = zMax > 0 ? zMax : 1
 
-  const tmp = new THREE.Object3D()
+  const posAttr = posAttr0
   const redshiftAttr = macroMesh.geometry.getAttribute('aRedshift')
+  if (!posAttr?.array || !redshiftAttr?.array) return
+
+  const posArray = posAttr.array
   for (let i = 0; i < n; i += 1) {
     const ra = Number(parsed.flat[i * 3])
     const dec = Number(parsed.flat[i * 3 + 1])
@@ -553,29 +569,33 @@ async function _tryInjectSdssMicroSample() {
 
     // Map (ra, dec) onto a constant sky-sphere (no flattening).
     const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
-    tmp.position.set(dir.x * radius, dir.z * radius, dir.y * radius)
-    tmp.updateMatrix()
-    macroMesh.setMatrixAt(i, tmp.matrix)
+    posArray[i * 3] = dir.x * radius
+    posArray[i * 3 + 1] = dir.z * radius
+    posArray[i * 3 + 2] = dir.y * radius
 
-    if (redshiftAttr?.array) {
-      redshiftAttr.array[i] = Number.isFinite(z) ? Math.max(0, Math.min(1, z / zMax)) : 0
-    }
+    redshiftAttr.array[i] = Number.isFinite(z) ? Math.max(0, Math.min(1, z / zMax)) : 0
   }
 
   // Keep procedural stars unless we have enough real data to fill the scene.
   try {
-    if (n >= PURE_DATA_MIN) macroMesh.count = n
+    if (n >= PURE_DATA_MIN) macroMesh.geometry.setDrawRange(0, n)
   } catch (_) {
     // ignore
   }
 
   try {
-    macroMesh.instanceMatrix.needsUpdate = true
+    posAttr.needsUpdate = true
   } catch (_) {
     // ignore
   }
   try {
     if (redshiftAttr) redshiftAttr.needsUpdate = true
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    macroMesh.geometry.computeBoundingSphere?.()
   } catch (_) {
     // ignore
   }

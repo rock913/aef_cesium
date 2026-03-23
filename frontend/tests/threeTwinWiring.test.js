@@ -132,7 +132,10 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
   it('keeps macro stars readable at default camera distances', () => {
     const s = read('../src/views/workbench/engines/ThreeTwin.vue')
 
-    // Prevent additive blowout at high densities by keeping instances small.
-    expect(s).toContain('SphereGeometry(0.015')
+    // Phase 2.6 (update_patch.md): macro renderer should be soft-particle points
+    // so additive blending self-fuses into a cosmic web instead of "candy spheres".
+    expect(s).toContain('new THREE.Points')
+    expect(s).toContain('gl_PointCoord')
+    expect(s).toContain('discard')
   })
 })
