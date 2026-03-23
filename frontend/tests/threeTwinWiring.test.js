@@ -54,6 +54,14 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // CSST overlay should follow the same anti-screenshot rules (feather + vignette).
     expect(s).toContain('edgeFeather')
     expect(s).toContain('vignette')
+
+    // CSST overlay should hard-crop into a circle (strong anti-screenshot).
+    expect(s).toContain('circleMask')
+    expect(s).toContain('smoothstep(0.45')
+
+    // CSST should avoid a flat, front-facing "card" look (tilt + side-view choreography).
+    expect(s).toContain('rotation.x')
+    expect(s).toContain('crossVectors')
   })
 
   it('enforces Scene Authority 2.0 for modal inpaint (no occlusion, no screenshot edge)', () => {
@@ -83,5 +91,12 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Coordinate mapping should rely on the shared astronomy helpers.
     expect(s).toContain('coordinateMath')
     expect(s).toContain('raDecToUnitVector')
+  })
+
+  it('keeps macro stars readable at default camera distances', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    // Prevent scale mismatch where instances become sub-pixel and disappear.
+    expect(s).toContain('SphereGeometry(0.14')
   })
 })

@@ -157,7 +157,8 @@ function _buildMacroScene(scene) {
   // Minimal procedural cosmic web using InstancedMesh.
   // Stage 2 Demo 1: add per-instance redshift attribute + uniform-driven stretch along +Z.
   const count = 100000
-  const geometry = new THREE.SphereGeometry(0.04, 4, 4)
+  // Visual-readability gate: keep instances above ~1px at default camera distances.
+  const geometry = new THREE.SphereGeometry(0.14, 4, 4)
 
   // Stage 2 Demo 1 (volumetric burst): ShaderMaterial to fully own the pipeline.
   // This guarantees `aRedshift` is actually bound and used.
@@ -601,9 +602,15 @@ function _makeFeatheredAdditivePlaneMaterial(tex, { opacity = 0.95, edge = 0.09 
       '  return smoothstep(0.72, 0.22, d);',
       '}',
       '',
+      '// Strong circular crop to eliminate any rectangular edge under additive blending.',
+      'float circleMask(vec2 uv) {',
+      '  float d = distance(uv, vec2(0.5));',
+      '  return smoothstep(0.45, 0.25, d);',
+      '}',
+      '',
       'void main() {',
       '  vec4 t = texture2D(u_tex, vUv);',
-      '  float m = edgeFeather(vUv, u_edge) * vignette(vUv);',
+      '  float m = edgeFeather(vUv, u_edge) * vignette(vUv) * circleMask(vUv);',
       '  vec3 rgb = t.rgb * m * clamp(u_opacity, 0.0, 1.0);',
       '  float a = clamp(t.a * m * clamp(u_opacity, 0.0, 1.0), 0.0, 1.0);',
       '  gl_FragColor = vec4(rgb, a);',
@@ -693,11 +700,23 @@ function _startCsstDecomposition(payload = null) {
   _csstGroup.position.copy(v)
   _csstGroup.scale.set(0.01, 0.01, 0.01)
 
+  // Freeze initial orientation (avoid continuous billboard which reads like a flat UI card).
+  try {
+    _csstGroup.quaternion.copy(camera.quaternion)
+  } catch (_) {
+    // ignore
+  }
+
   // Reset local offsets so repeated triggers remain deterministic.
   try {
     _csstPlanes.disk.position.set(0, 0, 0)
     _csstPlanes.bulge.position.set(0, 0, 0)
     _csstPlanes.bar.position.set(0, 0, 0)
+
+    const tilt = Math.PI / 5
+    _csstPlanes.disk.rotation.x = tilt
+    _csstPlanes.bulge.rotation.x = tilt
+    _csstPlanes.bar.rotation.x = tilt
   } catch (_) {
     // ignore
   }
@@ -718,9 +737,9 @@ function _startCsstDecomposition(payload = null) {
 
   _csstTimeline = gsap.timeline({ defaults: { ease: 'power2.out' } })
   _csstTimeline.to(_csstGroup.scale, { x: 1, y: 1, z: 1, duration: 0.65 }, 0)
-  _csstTimeline.to(_csstPlanes.disk.position, { z: -1.25, duration: 0.95 }, 0.10)
-  _csstTimeline.to(_csstPlanes.bulge.position, { z: 0.0, duration: 0.95 }, 0.10)
-  _csstTimeline.to(_csstPlanes.bar.position, { z: 1.25, duration: 0.95 }, 0.10)
+  _csstTimeline.to(_csstPlanes.disk.position, { y: -2.2, z: -2.2, duration: 1.15 }, 0.10)
+  _csstTimeline.to(_csstPlanes.bulge.position, { y: 0.0, z: 0.0, duration: 1.15 }, 0.10)
+  _csstTimeline.to(_csstPlanes.bar.position, { y: 2.2, z: 2.2, duration: 1.15 }, 0.10)
 
   // Camera choreography: fly to a stable offset and lock gaze to the target.
   try {
@@ -729,7 +748,16 @@ function _startCsstDecomposition(payload = null) {
       _csstPrevTarget = controls.target?.clone?.() || new THREE.Vector3(0, 0, 0)
 
       const dirV = v.clone().normalize()
-      const camPos = v.clone().add(dirV.clone().multiplyScalar(7.5)).add(new THREE.Vector3(0, 1.8, 0))
+      const up = new THREE.Vector3(0, 1, 0)
+      const side = new THREE.Vector3().crossVectors(dirV, up)
+      if (side.lengthSq() < 0.0001) side.crossVectors(dirV, new THREE.Vector3(1, 0, 0))
+      side.normalize()
+
+      const camPos = v
+        .clone()
+        .add(dirV.clone().multiplyScalar(7.5))
+        .add(up.clone().multiplyScalar(2.4))
+        .add(side.clone().multiplyScalar(3.4))
 
       gsap.to(camera.position, {
         x: camPos.x,
@@ -1476,13 +1504,8 @@ function animate() {
       }
     }
 
-    if (_csstActive && _csstGroup && camera) {
-      try {
-        _csstGroup.quaternion.copy(camera.quaternion)
-      } catch (_) {
-        // ignore
-      }
-    }
+    // CSST overlay deliberately does NOT continuously billboard.
+    // Keeping a frozen orientation preserves perspective during the side-view camera choreography.
 
     if (_inpaintUniforms) {
       _inpaintTime += 1 / 60

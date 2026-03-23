@@ -7,6 +7,7 @@ Zero2x v7.5 技术方案：OneAstronomy 天文架构与场景实现规范
 - 2026-03-19：M1 启动（astronomy 工具函数、EngineScaleRouter 双引擎常驻叠画 + opacity 交接、earth→deep space 相机同步）
 - 2026-03-19：阶段 2 完成（Demo 1 红移拉伸：InstancedMesh + aRedshift + uniform 动画；Demo 3 模态 Inpaint：shader 扫描线扩散 + 点击选点）
 - 2026-03-20：阶段 2 可靠性加固（“场景霸权 2.0”+ 边缘羽化：Demo 3 触发时强制收缩 Demo 1 红移爆裂；inpaint vignette/edge feather 消除方形边界；离开 macro 自动 stop inpaint，避免 micro 下潜穿帮）
+- 2026-03-23：视觉可读性加固（避免“暗点宇宙/方形卡片”）：宏观 Instanced 星海实例半径门禁提升（防 sub-pixel）；二维叠加层加入更强裁切（circle mask）与侧视解剖运镜；Docker Dev 测试 runner 强制 `--build`，避免复验时命中旧镜像导致“假绿”。
 
 编号说明（避免 Demo 混用）：
 - 本文档的验收步骤沿用 Stage 2 的历史编号与 Command Palette 文案：Redshift Burst = Demo 1，Modal Inpaint = Demo 3。
@@ -244,6 +245,10 @@ ONEEARTH_BIND_IP=0.0.0.0 make docker-dev-up
 make docker-dev-check
 ```
 
+说明（复现一致性）：
+- 从 2026-03-23 起，`make docker-dev-check` 内部的 `backend_test/frontend_test` 以 `--build` 方式运行，确保容器内 pytest/vitest 真实运行最新代码与门禁，避免旧镜像缓存造成“容器内假绿”。
+- 如需单独跑：`make docker-dev-pytest` / `make docker-dev-vitest`。
+
 如果你只想快速确认服务是否起来：
 
 ```bash
@@ -270,6 +275,10 @@ curl -fsS http://127.0.0.1:8405/health
 - Sky（macro）中 Instanced 星系点云沿 +Z 方向出现“红移拉伸爆裂展开”
 - Bloom 有轻微增强（更显著的爆裂观感）
 
+视觉可读性检查（避免“暗点宇宙”）：
+- 默认相机距离下，宏观星海不应只剩“几颗暗点”。若出现 sub-pixel 现象，优先检查 Instanced 球体半径与亮度/泛光强度。
+- 当前基线做法：宏观 Instanced SphereGeometry 半径已提升到可读级别（以代码门禁约束）。
+
 ### 4) Demo 3：Modal Inpaint（模态互生）验收
 
 触发方式（推荐）：
@@ -283,6 +292,9 @@ curl -fsS http://127.0.0.1:8405/health
 - 点击后扫描中心移动，替换区域从点击点向外扩散
 - 视觉不应出现“长方形截图边界”（inpaint 边缘应羽化融入深空）
 - 若先触发 Demo 1 再触发 Demo 3：底层爆裂应自动收缩回 0（避免粒子刺穿/穿插）
+
+视觉无界融合门禁（Anti-screenshot）：
+- inpaint 必须维持 Additive + 无 depthTest/depthWrite + shader 羽化（vignette/edge feather）。任何回归为“方形面片边界”都视为阻断缺陷。
 
 退出方式（两种任选其一）：
 
