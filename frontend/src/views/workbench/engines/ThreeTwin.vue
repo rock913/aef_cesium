@@ -445,7 +445,7 @@ function _applyAstroGisLayerState(astroGis) {
       const u = macroMesh?.material?.uniforms || _macroRedshiftShader?.uniforms
       const op = macroL ? Number(macroL.opacity) : 1
       const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
-      if (u?.u_opacity) u.u_opacity.value = 0.55 * clamped
+      if (u?.u_opacity) u.u_opacity.value = MACRO_BASE_OPACITY * clamped
       if (u?.u_size) {
         const ps = Number(macroL?.style?.pointSize)
         if (Number.isFinite(ps)) u.u_size.value = Math.max(1, Math.min(64, ps))
@@ -631,6 +631,11 @@ let _gottaLastTargetPos = null
 
 const MICRO_MAX_INSTANCES = 12000
 
+// update_patch.md (Cinematic Polish): macro cosmic web readability is dominated by
+// the “overlap trick” (big halo + low opacity) and a heatmap palette.
+const MACRO_BASE_OPACITY = 0.15
+const MACRO_BASE_POINT_SIZE = 45.0
+
 function _hashSeed(s) {
   const t = String(s || 'sio2')
   let h = 2166136261
@@ -671,8 +676,8 @@ function _buildMacroScene(scene) {
       u_redshift_scale: { value: 0.0 },
       u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 52.0 },
       // Additive blending must start dark; the halo shader provides perceived brightness.
-      u_opacity: { value: 0.55 },
-      u_size: { value: 15.0 },
+      u_opacity: { value: 0.15 },
+      u_size: { value: 45.0 },
     },
     vertexShader: [
       'attribute float aRedshift;',
@@ -697,9 +702,9 @@ function _buildMacroScene(scene) {
       '  gl_Position = projectionMatrix * mvPosition;',
       '',
       '  // Perspective size attenuation. Keep within a safe pixel range.',
-      '  float denom = max(1.0, -mvPosition.z);',
-      '  float size = u_size * (250.0 / denom);',
-      '  gl_PointSize = clamp(size, 1.0, 64.0);',
+      '  float dist = max(1.0, length(mvPosition.xyz));',
+      '  float size = u_size * (300.0 / dist);',
+      '  gl_PointSize = clamp(size, 2.0, 80.0);',
       '}',
     ].join('\n'),
     fragmentShader: [
@@ -712,13 +717,16 @@ function _buildMacroScene(scene) {
       '  vec2 cxy = 2.0 * gl_PointCoord - 1.0;',
       '  float r = dot(cxy, cxy);',
       '  if (r > 1.0) discard;',
-      '  float alpha = exp(-r * 3.0);',
+      '  float alpha = exp(-r * 5.0);',
       '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
-      '  vec3 baseColor = vec3(0.05, 0.10, 0.25);',
-      '  vec3 burstColor = vec3(0.90, 0.10, 0.50);',
-      '  vec3 finalColor = mix(baseColor, burstColor, zBurst);',
-      '  float depthFade = 1.0 - (zBurst * 0.4);',
-      '  finalColor += zBurst * 0.35;',
+      '  // Cinematic heatmap palette for depth read (near/mid/far).',
+      '  vec3 colorNear = vec3(0.02, 0.40, 0.80);',
+      '  vec3 colorMid  = vec3(0.60, 0.10, 0.70);',
+      '  vec3 colorFar  = vec3(1.00, 0.40, 0.05);',
+      '  vec3 finalColor = mix(colorNear, colorMid, smoothstep(0.0, 0.5, zBurst));',
+      '  finalColor = mix(finalColor, colorFar, smoothstep(0.5, 1.0, zBurst));',
+      '  finalColor += (colorFar * zBurst * 0.8);',
+      '  float depthFade = 1.0 - (zBurst * 0.2);',
       '  gl_FragColor = vec4(finalColor * alpha, clamp(u_opacity, 0.0, 1.0) * alpha * depthFade);',
       '}',
     ].join('\n'),
@@ -1664,7 +1672,7 @@ function _stopCsstDecomposition({ restoreCamera = false } = {}) {
   // Restore macro brightness when leaving CSST overlay.
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.35, duration: 0.6, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: MACRO_BASE_OPACITY, duration: 0.6, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }
@@ -1696,6 +1704,11 @@ function _stopCsstDecomposition({ restoreCamera = false } = {}) {
 
 async function _executeRedshiftBurst(payload = null) {
   if (!macroMesh) return
+
+  // Cinematic polish (update_patch.md): store values for safe restore.
+  let prevFov = null
+  let prevZ = null
+  let prevBloom = null
 
   // Scene dominance: redshift burst should never be occluded by modal inpaint.
   try {
@@ -1730,7 +1743,55 @@ async function _executeRedshiftBurst(payload = null) {
 
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.55, duration: 0.45, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: MACRO_BASE_OPACITY, duration: 0.45, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
+
+  // Cinematic polish: dolly zoom (FOV pull) + gentle push-in.
+  try {
+    if (camera) {
+      prevFov = Number(camera.fov)
+      if (camera?.position) prevZ = Number(camera.position.z)
+
+      gsap.to(camera, {
+        fov: 95,
+        duration: 3.5,
+        ease: 'power2.inOut',
+        onUpdate: () => {
+          try {
+            camera.updateProjectionMatrix()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+
+      if (camera?.position && Number.isFinite(prevZ)) {
+        gsap.to(camera.position, {
+          z: prevZ - 30,
+          duration: 3.5,
+          ease: 'power2.inOut',
+          onUpdate: () => {
+            try {
+              controls?.update?.()
+            } catch (_) {
+              // ignore
+            }
+          },
+        })
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Cinematic polish: tighten bloom so dense clusters ignite into filaments.
+  try {
+    if (bloomPass) {
+      prevBloom = { strength: Number(bloomPass.strength), threshold: Number(bloomPass.threshold) }
+      gsap.to(bloomPass, { threshold: 0.4, strength: 2.2, duration: 2.0, ease: 'power2.out' })
+    }
   } catch (_) {
     // ignore
   }
@@ -1777,15 +1838,38 @@ async function _executeRedshiftBurst(payload = null) {
     // ignore
   }
 
-  // Add a subtle bloom lift during the burst.
+  // Restore dolly zoom + bloom to their pre-burst values.
   try {
-    const u = bloomPass
-    if (u) {
-      gsap.to(u, { strength: Math.min(1.8, (u.strength || 1.1) + 0.4), duration: 0.5, ease: 'power2.out' })
+    if (camera && Number.isFinite(prevFov)) {
+      gsap.to(camera, {
+        fov: prevFov,
+        duration: 1.2,
+        ease: 'power2.out',
+        onUpdate: () => {
+          try {
+            camera.updateProjectionMatrix()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
     }
   } catch (_) {
     // ignore
   }
+  try {
+    if (camera?.position && Number.isFinite(prevZ)) gsap.to(camera.position, { z: prevZ, duration: 1.2, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (bloomPass && prevBloom && Number.isFinite(prevBloom.threshold) && Number.isFinite(prevBloom.strength)) {
+      gsap.to(bloomPass, { threshold: prevBloom.threshold, strength: prevBloom.strength, duration: 1.2, ease: 'power2.out' })
+    }
+  } catch (_) {
+    // ignore
+  }
+
 }
 
 function _startModalInpaint(payload = null) {
@@ -1955,7 +2039,7 @@ function _stopModalInpaint() {
   // Restore macro brightness when leaving inpaint.
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: 0.35, duration: 0.6, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: MACRO_BASE_OPACITY, duration: 0.6, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }

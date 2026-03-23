@@ -158,5 +158,25 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('/api/astro-gis/catalog/simbad')
     expect(s).toContain('CATALOG_SIMBAD')
     expect(s).toContain('aMag')
+
+    // Cinematic polish (update_patch.md): overlap trick + heatmap palette.
+    // Big halo (size) + low base opacity, and a 3-stop palette (near/mid/far).
+    expect(s).toContain('u_opacity: { value: 0.15')
+    expect(s).toContain('u_size: { value: 45.0')
+    expect(s).toContain('exp(-r * 5.0)')
+    expect(s).toContain('colorNear')
+    expect(s).toContain('colorMid')
+    expect(s).toContain('colorFar')
+    expect(s).toContain('smoothstep(0.0, 0.5')
+    expect(s).toContain('smoothstep(0.5, 1.0')
+
+    // Cinematic polish: dolly zoom on redshift burst (FOV pull + projection update).
+    expect(s).toContain('gsap.to(camera')
+    expect(s).toContain('fov: 95')
+    expect(s).toContain('camera.updateProjectionMatrix()')
+
+    // Cinematic polish: tighten bloom so filaments ignite (threshold/strength).
+    expect(s).toContain('threshold: 0.4')
+    expect(s).toContain('strength: 2.2')
   })
 })

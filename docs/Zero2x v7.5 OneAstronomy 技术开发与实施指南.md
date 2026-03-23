@@ -109,6 +109,33 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 症状：三层面片正对相机，只做 z 轴轻微错开，会读成“叠放卡片”。
 - 约束：三层 plane 必须带倾斜角（例如 `rotation.x = PI/5`）并以 y+z 组合拉开；相机运镜必须带侧向偏移（dir×up 的 side 向量）形成“解剖视角”。
 
+### 1.5 电影级渲染特调（Cinematic Polish / 必须可回归）
+
+说明：当 Action/数据/Shader 都“做对”后，画面仍可能读成“散落彩色糖果/均匀沙尘暴”。本节把 update_patch.md 的电影级调优建议固化为工程约束，并要求能被 Vitest wiring gate 防回归。
+
+1) 宇宙网成型秘诀：Overlap Trick（大光晕 + 低透明度叠加）
+- 核心：不要试图“清晰画出每一颗星系”；要让密集区靠 AdditiveBlending 自动烧出丝状高光。
+- 推荐默认值（宏观 Points Shader）：
+  - `u_size ≈ 45`（光晕更大，增加重叠概率）
+  - `u_opacity ≈ 0.15`（单点几乎不可见，把亮度交给聚集区的叠加）
+  - `alpha = exp(-r * 5.0)`（更陡的高斯衰减：中心亮、边缘柔）
+- 点大小衰减：建议 `gl_PointSize = u_size * (300.0 / length(mvPosition.xyz))`，并 `clamp(..., 2.0, 80.0)`。
+
+2) HDR 纵深读数：Heatmap Palette（三段热力学调色盘）
+- 目的：让近/中/远（红移/深度）在色温上形成强纵深感。
+- 推荐三段：Near 深邃青蓝 → Mid 紫红 → Far 烈焰橙金，并用 `smoothstep` 进行两段平滑插值。
+
+3) “超光速张力”：希区柯克变焦（Dolly Zoom）
+- 触发时机：`EXECUTE_REDSHIFT_PREDICTION`（Demo 2）执行红移爆裂时。
+- 约束：在拉伸粒子的同时，必须动态拉大相机 FOV（例如 `60 → 95`），并 `onUpdate` 调用 `camera.updateProjectionMatrix()`。
+- 可选加成：相机轻微 push-in（例如沿 z 轴推进 30），让“时空被拉扯”的透视畸变更明显。
+
+4) Bloom 只点亮“丝状骨架”
+- 约束：红移爆裂期间可临时压低 Bloom 阈值并增强强度（示例：`threshold≈0.4, strength≈2.2`），只让密集的星系团/丝状结构发光；结束后必须恢复到基线。
+
+5) Demo 1（CSST）背景呼吸感
+- 约束：CSST 分解时宏观背景不应被压到“纯黑虚空”；推荐将宏观不透明度维持在 `0.25–0.30` 区间（仍能读到环境层次）。
+
 ---
 
 ## 2) 科学示范任务（从蓝图整合为工程任务书）
