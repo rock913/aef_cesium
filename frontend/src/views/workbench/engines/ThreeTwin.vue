@@ -273,6 +273,13 @@ function _cancelStoryFlow() {
   } catch (_) {
     // ignore
   }
+
+  // Safety net: camera-scripted demos must never leave controls disabled.
+  try {
+    _unfreezeControls({ force: true })
+  } catch (_) {
+    // ignore
+  }
 }
 
 function _tryRunAstroAction(action) {
@@ -866,7 +873,7 @@ function _applyAstroGisLayerState(astroGis) {
       if (u?.u_opacity) u.u_opacity.value = baseOpacity * clamped
       if (u?.u_size) {
         const ps = Number(macroL?.style?.pointSize)
-        if (Number.isFinite(ps)) u.u_size.value = Math.max(1, Math.min(250, ps))
+        if (Number.isFinite(ps)) u.u_size.value = Math.max(1, Math.min(60, ps))
       }
       // Heatmap palette parameters (Near/Mid/Far) can be overridden via layer store.
       const pal = macroL?.style?.palette
@@ -1348,13 +1355,46 @@ let _gottaMarkerTexture = null
 let _gottaActive = false
 let _gottaDiveTween = null
 let _gottaLastTargetPos = null
+let _gottaDiveResolve = null
+
+// Interaction safety: scripted camera tweens may temporarily disable OrbitControls.
+// If a tween is killed (e.g. switching demos mid-flight), controls must still be restored.
+let _controlsFreezeCount = 0
+let _controlsFreezePrevEnabled = null
+
+function _freezeControls() {
+  try {
+    if (!controls) return
+    if (_controlsFreezeCount === 0) _controlsFreezePrevEnabled = !!controls.enabled
+    _controlsFreezeCount += 1
+    controls.enabled = false
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _unfreezeControls({ force = false } = {}) {
+  try {
+    if (!controls) return
+    if (force) _controlsFreezeCount = 0
+    else _controlsFreezeCount = Math.max(0, _controlsFreezeCount - 1)
+    if (_controlsFreezeCount === 0) {
+      const enabled = _controlsFreezePrevEnabled
+      _controlsFreezePrevEnabled = null
+      controls.enabled = enabled === null ? true : !!enabled
+    }
+  } catch (_) {
+    // ignore
+  }
+}
 
 const MICRO_MAX_INSTANCES = 12000
 
 // update_patch.md (Cinematic Polish): macro cosmic web readability is dominated by
 // the “overlap trick” (big halo + low opacity) and a heatmap palette.
 const MACRO_BASE_OPACITY = 0.25
-const MACRO_BASE_POINT_SIZE = 80.0
+// Larger values easily collapse into an overbloomed “light ball”.
+const MACRO_BASE_POINT_SIZE = 8.0
 
 function _hashSeed(s) {
   const t = String(s || 'sio2')
@@ -1397,7 +1437,7 @@ function _buildMacroScene(scene) {
       u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 52.0 },
       // Additive blending must start dark; the halo shader provides perceived brightness.
       u_opacity: { value: 0.25 },
-      u_size: { value: 80.0 },
+      u_size: { value: MACRO_BASE_POINT_SIZE },
       // Cinematic polish: 3-stop heatmap palette (Near/Mid/Far).
       u_colorNear: { value: new THREE.Vector3(0.02, 0.40, 0.80) },
       u_colorMid: { value: new THREE.Vector3(0.60, 0.10, 0.70) },
@@ -1429,8 +1469,8 @@ function _buildMacroScene(scene) {
       '',
       '  // Perspective size attenuation. Keep within a safe pixel range.',
       '  float dist = max(1.0, length(mvPosition.xyz));',
-      '  float size = u_size * (300.0 / dist);',
-      '  gl_PointSize = clamp(size, 1.0, 250.0);',
+      '  float size = u_size * (90.0 / dist);',
+      '  gl_PointSize = clamp(size, 1.0, 60.0);',
       '}',
     ].join('\n'),
     fragmentShader: [
@@ -1448,21 +1488,23 @@ function _buildMacroScene(scene) {
       '  float r = dot(cxy, cxy);',
       '  if (r > 1.0) discard;',
       '  // update_patch.md (Cinematic Polish 2.0): fat halo (long tail for overlap).',
-      '  float alpha = pow(1.0 - sqrt(r), 2.5);',
+      '  float halo = pow(1.0 - sqrt(r), 2.5);',
       '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
       '  // update_patch.md: void exaggeration hack (density mask via low-frequency pseudo-noise).',
       '  float noise = sin(vWorldPos.x * 0.015) * sin(vWorldPos.y * 0.015) * sin(vWorldPos.z * 0.015);',
       '  float densityMask = smoothstep(-0.2, 0.6, noise);',
-      '  densityMask = max(0.1, densityMask);',
+      '  densityMask = max(0.02, densityMask);',
       '  // Cinematic heatmap palette for depth read (near/mid/far).',
       '  vec3 colorNear = u_colorNear;',
       '  vec3 colorMid  = u_colorMid;',
       '  vec3 colorFar  = u_colorFar;',
       '  vec3 finalColor = mix(colorNear, colorMid, smoothstep(0.0, 0.4, zBurst));',
       '  finalColor = mix(finalColor, colorFar, smoothstep(0.4, 1.0, zBurst));',
-      '  finalColor += (colorFar * zBurst * 1.5 * densityMask);',
+      '  finalColor += (colorFar * zBurst * 0.75 * densityMask);',
       '  float depthFade = 1.0 - (zBurst * 0.3);',
-      '  gl_FragColor = vec4(finalColor * alpha, clamp(u_opacity, 0.0, 1.0) * densityMask * depthFade);',
+      '  finalColor = clamp(finalColor, vec3(0.0), vec3(1.0));',
+      '  float a = clamp(u_opacity, 0.0, 1.0) * densityMask * depthFade * halo;',
+      '  gl_FragColor = vec4(finalColor, a);',
       '}',
     ].join('\n'),
     transparent: true,
@@ -1773,6 +1815,21 @@ function _stopGottaTransient() {
   }
   _gottaDiveTween = null
 
+  // If an async camera dive is awaiting completion, resolve it so cleanup can continue.
+  try {
+    _gottaDiveResolve?.()
+  } catch (_) {
+    // ignore
+  }
+  _gottaDiveResolve = null
+
+  // Ensure the viewport remains interactive after STOP/switching demos.
+  try {
+    _unfreezeControls({ force: true })
+  } catch (_) {
+    // ignore
+  }
+
   if (_gottaGroup && macroScene) {
     try {
       macroScene.remove(_gottaGroup)
@@ -1957,17 +2014,19 @@ async function _captureTransientEvent(payload = null) {
   try {
     if (gsap && camera?.position && THREE?.CatmullRomCurve3 && pos) {
       try {
+        _gottaDiveResolve?.()
+      } catch (_) {
+        // ignore
+      }
+      _gottaDiveResolve = null
+
+      try {
         _gottaDiveTween?.kill?.()
       } catch (_) {
         // ignore
       }
 
-      const prevControlsEnabled = controls ? !!controls.enabled : null
-      try {
-        if (controls) controls.enabled = false
-      } catch (_) {
-        // ignore
-      }
+      _freezeControls()
 
       const startPos = camera.position.clone()
       // Keep the end position comfortably inside the sky-sphere, even when the marker is far.
@@ -1983,6 +2042,7 @@ async function _captureTransientEvent(payload = null) {
 
       const s = { t: 0 }
       await new Promise((resolve) => {
+        _gottaDiveResolve = resolve
         _gottaDiveTween = gsap.to(s, {
           t: 1,
           duration: 3.5,
@@ -2001,16 +2061,13 @@ async function _captureTransientEvent(payload = null) {
           },
           onComplete: () => {
             _gottaDiveTween = null
+            _gottaDiveResolve = null
             resolve()
           },
         })
       })
 
-      try {
-        if (controls && prevControlsEnabled !== null) controls.enabled = prevControlsEnabled
-      } catch (_) {
-        // ignore
-      }
+      _unfreezeControls()
     }
   } catch (_) {
     // ignore

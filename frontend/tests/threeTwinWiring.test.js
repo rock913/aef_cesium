@@ -166,12 +166,12 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Cinematic polish 2.0 (update_patch.md): fat halo + void exaggeration + unlocked size cap.
     // Big halo (size) + low base opacity, and a 3-stop palette (near/mid/far).
     expect(s).toContain('u_opacity: { value: 0.25')
-    expect(s).toContain('u_size: { value: 80.0')
+    expect(s).toContain('u_size: { value: MACRO_BASE_POINT_SIZE')
     expect(s).toContain('varying vec3 vWorldPos')
-    expect(s).toContain('alpha = pow(1.0 - sqrt(r), 2.5)')
+    expect(s).toContain('halo = pow(1.0 - sqrt(r), 2.5)')
     expect(s).toContain('float densityMask')
     expect(s).toContain('sin(vWorldPos.x * 0.015)')
-    expect(s).toContain('clamp(size, 1.0, 250.0)')
+    expect(s).toContain('clamp(size, 1.0, 60.0)')
     expect(s).toContain('colorNear')
     expect(s).toContain('colorMid')
     expect(s).toContain('colorFar')

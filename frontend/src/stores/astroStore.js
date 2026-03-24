@@ -84,7 +84,7 @@ const state = reactive({
         opacity: 1.0,
         // update_patch.md (Cinematic Polish): overlap trick defaults.
         style: {
-          pointSize: 80.0,
+          pointSize: 8.0,
           baseOpacity: 0.25,
           palette: {
             // Near → Mid → Far

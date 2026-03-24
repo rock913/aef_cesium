@@ -941,7 +941,7 @@ const layers = ref([
   { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
 
   // Astro-GIS (Sky) layers (Phase 1-3).
-  { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, name: 'Astro · Macro SDSS', enabled: true, params: { opacity: 1.0, pointSize: 15.0 } },
+  { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, name: 'Astro · Macro SDSS', enabled: true, params: { opacity: 1.0, pointSize: 8.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } },
@@ -1003,7 +1003,7 @@ function _normalizeLayers(arr) {
     ['macro-spiral', { id: 'macro-spiral', name: 'Spiral Arms', enabled: true, params: {} }],
     ['micro-atoms', { id: 'micro-atoms', name: 'Atom Lattice', enabled: true, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } }],
 
-    [ASTRO_GIS_LAYER_IDS.MACRO_SDSS, { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, name: 'Astro · Macro SDSS', enabled: true, params: { opacity: 1.0, pointSize: 15.0 } }],
+    [ASTRO_GIS_LAYER_IDS.MACRO_SDSS, { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, name: 'Astro · Macro SDSS', enabled: true, params: { opacity: 1.0, pointSize: 8.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_CSST, { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } }],
@@ -2048,7 +2048,7 @@ function onCopilotSelectPreset(preset) {
         { id: 'macro-spiral', enabled: true, params: {} },
         { id: 'micro-atoms', enabled: false, params: { opacity: 0.85, transmission: 0.85, ior: 1.4 } },
 
-        { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, enabled: true, params: { opacity: 1.0, pointSize: 15.0 } },
+        { id: ASTRO_GIS_LAYER_IDS.MACRO_SDSS, enabled: true, params: { opacity: 1.0, pointSize: 8.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, enabled: true, params: { opacity: 1.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, enabled: true, params: { opacity: 1.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, enabled: true, params: { opacity: 1.0 } },
