@@ -1447,6 +1447,8 @@ let _csstTextures = []
 let _gottaGroup = null
 let _gottaPulseTween = null
 let _gottaMarkerTexture = null
+let _gottaMarkerGeo = null
+let _gottaTime = 0
 let _gottaActive = false
 let _gottaDiveTween = null
 let _gottaLastTargetPos = null
@@ -1677,7 +1679,8 @@ function _buildMacroScene(scene) {
       u_texB: { value: predTex },
       u_center: { value: new THREE.Vector2(0.5, 0.5) },
       u_radius: { value: 0.0 },
-      u_edge: { value: 0.06 },
+      // P0 visual polish: thinner edge -> less “mosaic screenshot boundary”.
+      u_edge: { value: 0.015 },
       u_time: { value: 0.0 },
       u_enabled: { value: 0.0 },
       u_layer_opacity: { value: 1.0 },
@@ -1719,16 +1722,23 @@ function _buildMacroScene(scene) {
           vec4 b = texture2D(u_texB, vUv);
 
           float d = distance(vUv, u_center);
-          float edge = max(0.002, u_edge);
-          float mask = smoothstep(u_radius + edge, u_radius - edge, d);
+          // P0 anti-alias: use fwidth to keep the scan boundary stable at close zoom.
+          float edgeThickness = max(0.001, u_edge);
+          float aa = fwidth(d) * 1.25;
+          float mask = smoothstep(u_radius + edgeThickness + aa, u_radius - edgeThickness - aa, d);
 
           // Scanline ring + noisy boundary to avoid a hard cut.
-          float ring = smoothstep(0.02, 0.0, abs(d - u_radius));
+          float ring = smoothstep(edgeThickness * 2.0 + aa, 0.0, abs(d - u_radius));
           float n = hash21(vUv * 1200.0 + u_time * 0.13);
           float spark = ring * (0.55 + 0.45 * n);
 
           vec4 mixed = mix(a, b, mask);
           mixed.rgb += spark * vec3(0.35, 0.85, 1.25);
+
+          // Film grain: hides residual texel/mosaic artifacts in generated textures.
+          float grain = (hash21(vUv * 900.0 + u_time * 0.75) - 0.5) * 0.08;
+          mixed.rgb += grain;
+          mixed.rgb = clamp(mixed.rgb, 0.0, 1.5);
 
           float alpha = clamp(u_enabled, 0.0, 1.0);
 
@@ -1736,7 +1746,7 @@ function _buildMacroScene(scene) {
           float edgeDist = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
           float edgeFeather = smoothstep(0.0, 0.06, edgeDist);
           float distToCenter = distance(vUv, vec2(0.5, 0.5));
-          float vignette = smoothstep(0.55, 0.35, distToCenter);
+          float vignette = smoothstep(0.48, 0.35, distToCenter);
 
           float finalAlpha = alpha * clamp(u_layer_opacity, 0.0, 1.0) * edgeFeather * vignette;
           gl_FragColor = vec4(mixed.rgb * finalAlpha, finalAlpha);
@@ -1894,6 +1904,73 @@ function _makeGottaMarkerTexture({ w = 512, h = 512 } = {}) {
   return tex
 }
 
+function _makeGottaMarkerMaterial({ color = 0xffffff, opacity = 0.9 } = {}) {
+  // GOTTA marker: procedural shader / SDF-style billboard (avoids CanvasTexture jaggies).
+  const c = new THREE.Color(color)
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      u_color: { value: c },
+      u_opacity: { value: Math.max(0, Math.min(1, Number(opacity) || 0.9)) },
+      u_time: { value: 0.0 },
+    },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform vec3 u_color;
+      uniform float u_opacity;
+      uniform float u_time;
+      varying vec2 vUv;
+
+      float hash21(vec2 p) {
+        p = fract(p * vec2(123.34, 345.45));
+        p += dot(p, p + 34.345);
+        return fract(p.x * p.y);
+      }
+
+      void main() {
+        vec2 p = vUv * 2.0 - 1.0;
+        float r = length(p);
+
+        // Base disc mask (soft edge).
+        float aa = fwidth(r) * 1.25;
+        float disc = smoothstep(1.0 + aa, 0.86 - aa, r);
+
+        // Radial glow.
+        float glow = pow(max(0.0, 1.0 - r), 2.0);
+
+        // Ring highlight.
+        float ring = smoothstep(0.52 + aa, 0.48 - aa, abs(r - 0.50));
+
+        // Crosshair lines.
+        float lx = smoothstep(0.03 + aa, 0.0, abs(p.x));
+        float ly = smoothstep(0.03 + aa, 0.0, abs(p.y));
+        float cross = max(lx, ly);
+
+        // Subtle flicker so it reads like an active transient.
+        float n = hash21(vUv * 900.0 + u_time * 0.07);
+        float flicker = 0.92 + 0.08 * n;
+
+        float a = u_opacity * disc * flicker;
+        float energy = 0.65 * glow + 0.45 * ring + 0.35 * cross;
+
+        vec3 col = u_color * energy;
+        col = clamp(col, 0.0, 2.0);
+        gl_FragColor = vec4(col * a, a);
+      }
+    `,
+  })
+}
+
 function _stopGottaTransient() {
   _gottaActive = false
   try {
@@ -1999,11 +2076,11 @@ async function _captureTransientEvent(payload = null) {
   const pos = new THREE.Vector3(dir.x * radius, dir.z * radius, dir.y * radius)
   _gottaLastTargetPos = pos.clone()
 
-  if (!_gottaMarkerTexture) {
+  if (!_gottaMarkerGeo) {
     try {
-      _gottaMarkerTexture = _makeGottaMarkerTexture({ w: 512, h: 512 })
+      _gottaMarkerGeo = markRaw(new THREE.PlaneGeometry(1, 1, 1, 1))
     } catch (_) {
-      _gottaMarkerTexture = null
+      _gottaMarkerGeo = null
     }
   }
 
@@ -2020,18 +2097,14 @@ async function _captureTransientEvent(payload = null) {
       const epos = new THREE.Vector3(edir.x * radius, edir.z * radius, edir.y * radius)
       const isTarget = String(e?.eventId || '') === String(targetEvent?.eventId || '')
 
-      const markerMat = new THREE.SpriteMaterial({
-        map: _gottaMarkerTexture || null,
+      const markerMat = _makeGottaMarkerMaterial({
         color: isTarget ? 0xffffff : 0xfff7ed,
-        transparent: true,
         opacity: isTarget ? 0.92 : 0.14,
-        depthTest: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
       })
-      const marker = markRaw(new THREE.Sprite(markerMat))
+      const marker = markRaw(new THREE.Mesh(_gottaMarkerGeo, markerMat))
       marker.position.copy(epos)
       marker.scale.set(isTarget ? 5.2 : 2.3, isTarget ? 5.2 : 2.3, 1)
+      marker.userData.__oneearthBillboard = true
       marker.renderOrder = isTarget ? 998 : 996
       g.add(marker)
 
@@ -2044,18 +2117,11 @@ async function _captureTransientEvent(payload = null) {
   }
 
   if (!targetMarker) {
-    const markerMat = new THREE.SpriteMaterial({
-      map: _gottaMarkerTexture || null,
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.92,
-      depthTest: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    })
-    const marker = markRaw(new THREE.Sprite(markerMat))
+    const markerMat = _makeGottaMarkerMaterial({ color: 0xffffff, opacity: 0.92 })
+    const marker = markRaw(new THREE.Mesh(_gottaMarkerGeo, markerMat))
     marker.position.copy(pos)
     marker.scale.set(5.2, 5.2, 1)
+    marker.userData.__oneearthBillboard = true
     marker.renderOrder = 998
     g.add(marker)
     targetMarker = marker
@@ -3532,6 +3598,33 @@ function animate() {
     if (_inpaintActive && _inpaintMesh && camera) {
       try {
         _inpaintMesh.quaternion.copy(camera.quaternion)
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    // GOTTA marker billboard + subtle time flicker.
+    if (_gottaActive && _gottaGroup && camera) {
+      try {
+        _gottaTime += 1 / 60
+        _gottaGroup.traverse?.((o) => {
+          if (!o) return
+          if (o?.userData?.__oneearthBillboard) {
+            try {
+              o.quaternion.copy(camera.quaternion)
+            } catch (_) {
+              // ignore
+            }
+          }
+          const u = o?.material?.uniforms
+          if (u?.u_time) {
+            try {
+              u.u_time.value = _gottaTime
+            } catch (_) {
+              // ignore
+            }
+          }
+        })
       } catch (_) {
         // ignore
       }

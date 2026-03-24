@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { gsap } from 'gsap'
 import { useResearchStore } from '../../stores/researchStore.js'
 import EngineRouter from './EngineRouter.vue'
@@ -47,6 +47,19 @@ const earthWrap = ref(null)
 const threeWrap = ref(null)
 
 const cesiumViewerRef = ref(null)
+
+// P0: Earth→Sky one-shot handover (camera height threshold triggers macro scale).
+const HANDOVER_HEIGHT_KM = (() => {
+  const raw = String(import.meta.env.VITE_EARTH_TO_SKY_HANDOVER_HEIGHT_KM || '').trim()
+  const km = Number(raw)
+  return Number.isFinite(km) && km > 0 ? km : 20000
+})()
+const HANDOVER_HEIGHT_M = HANDOVER_HEIGHT_KM * 1000
+
+let _autoHandoverUnsub = null
+let _autoHandoverTriggered = false
+let _autoHandoverPrevH = null
+let _autoHandoverZoomOutScore = 0
 
 function applyEngineVisibility({ earthActive, instant = false } = {}) {
   if (!earthWrap.value || !threeWrap.value) return
@@ -81,10 +94,83 @@ function onCesiumViewerReady(viewer) {
     // ignore
   }
 
+  // Install camera-height driven auto-handover.
+  try {
+    _installEarthToSkyAutoHandover(viewer)
+  } catch (_) {
+    // ignore
+  }
+
   try {
     emit('viewer-ready', viewer)
   } catch (_) {
     // ignore
+  }
+}
+
+function _installEarthToSkyAutoHandover(viewer) {
+  if (!viewer?.camera?.changed?.addEventListener) return
+
+  try {
+    _autoHandoverUnsub?.()
+  } catch (_) {
+    // ignore
+  }
+  _autoHandoverUnsub = null
+
+  let rafPending = false
+  const onChanged = () => {
+    if (rafPending) return
+    rafPending = true
+    try {
+      requestAnimationFrame(() => {
+        rafPending = false
+        const h = Number(viewer.camera?.positionCartographic?.height)
+        if (!Number.isFinite(h)) return
+
+        if (_autoHandoverPrevH === null) _autoHandoverPrevH = h
+        const dh = h - _autoHandoverPrevH
+        _autoHandoverPrevH = h
+
+        // Detect zoom-out intent (height increasing across several samples).
+        if (dh > 2500) _autoHandoverZoomOutScore = Math.min(6, _autoHandoverZoomOutScore + 1)
+        else _autoHandoverZoomOutScore = Math.max(0, _autoHandoverZoomOutScore - 1)
+
+        // Allow re-trigger if user comes back down.
+        if (_autoHandoverTriggered && h < HANDOVER_HEIGHT_M * 0.7) {
+          _autoHandoverTriggered = false
+          _autoHandoverZoomOutScore = 0
+        }
+
+        if (_autoHandoverTriggered) return
+        if (store.currentScale.value !== 'earth') return
+        if (h < HANDOVER_HEIGHT_M) return
+        if (_autoHandoverZoomOutScore < 3) return
+
+        _autoHandoverTriggered = true
+        try {
+          tryHandoverEarthToThree()
+        } catch (_) {
+          // ignore
+        }
+        try {
+          store.setScale('macro')
+        } catch (_) {
+          // ignore
+        }
+      })
+    } catch (_) {
+      rafPending = false
+    }
+  }
+
+  viewer.camera.changed.addEventListener(onChanged)
+  _autoHandoverUnsub = () => {
+    try {
+      viewer.camera.changed.removeEventListener(onChanged)
+    } catch (_) {
+      // ignore
+    }
   }
 }
 
@@ -115,6 +201,15 @@ onMounted(() => {
   } catch (_) {
     // ignore
   }
+})
+
+onBeforeUnmount(() => {
+  try {
+    _autoHandoverUnsub?.()
+  } catch (_) {
+    // ignore
+  }
+  _autoHandoverUnsub = null
 })
 
 function flyToScenario() {
