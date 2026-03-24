@@ -150,3 +150,15 @@ class TestAstroGisCatalogVizier:
     def test_invalid_params_400(self, test_client: TestClient, params: dict):
         resp = test_client.get("/api/astro-gis/catalog/vizier", params=params)
         assert resp.status_code == 400
+
+    def test_online_mode_rejects_unlisted_catalogs_without_network(self, test_client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        # Enforce allowlist before any network attempt.
+        monkeypatch.setenv('ASTRO_GIS_CATALOG_MODE', 'online')
+        monkeypatch.setenv('ASTRO_GIS_CATALOG_ONLINE_FALLBACK', '0')
+        monkeypatch.setenv('ASTRO_GIS_VIZIER_ALLOWED_CATALOGS', 'I/239/hip_main')
+
+        resp = test_client.get(
+            "/api/astro-gis/catalog/vizier",
+            params={"catalog": "I/999/not_allowed", "ra": 10.5, "dec": 0.1, "radius": 2.0, "maxRows": 10},
+        )
+        assert resp.status_code == 400

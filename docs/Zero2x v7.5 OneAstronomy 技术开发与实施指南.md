@@ -27,10 +27,17 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - Phase 2.7：Catalog 可用性增强（hover/pick HUD + 大视场点数上限 + 确定性抽样，避免卡顿/闪烁）
 - Phase 2.7：Provider 扩展（VizieR 端点 + 前端图层/参数 UI + pytest 契约门禁）
 - Phase 2.8（部分）：Cinematic Polish 2.0（Fat Halo + Void Exaggeration + 点大小上限解锁 + Bloom tighten 参数升级）
+- Phase 2.8（已落地）：Astro-GIS Catalog 过滤与常驻标签（`magMax`/`otypeAllow` + label `topN/pinned`）+ VizieR online allowlist（仅 online 模式强制，fixture 模式保持可复现）
 
 下一步（必须先写 Gate 再改实现）：
-- Astro-GIS（增强 / Phase 2.8 候选）：Catalog online provider 扩展（VizieR 多 catalog/更多列；安全 ADQL 白名单）+ label 常驻/过滤（mag/otype）+ 性能剖析（视场变化/抽样/交互拾取成本）
+- Astro-GIS（增强 / Phase 2.9 候选）：Catalog 性能剖析（视场变化/抽样/交互拾取成本）+ Online 扩展（更多 VizieR catalog/列映射，但必须继续走 allowlist）+ Label 交互升级（点选 pin/unpin、重叠避让）
 - Cinematic Polish（增强 / Phase 2.9 候选）：Preset 化（多套 palette/bloom/dolly 参数一键切换）+ 更细的“恢复基线”门禁（覆盖更多中断路径与异常回退）
+
+本轮交付（Phase 2.8 / Astro-GIS Catalog）快速核对清单：
+- 门禁（前端）：`frontend/tests/threeTwinWiring.test.js` 必须包含 `magMax`/`otypeAllow`/`labelMode`/`labelTopN` 与 `catalog-label` token
+- 门禁（后端）：`tests/test_astro_gis_catalog_api.py` 必须覆盖 online 模式 allowlist 拒绝路径（不触网）
+- 参数链路：LayerTree → layer store → ThreeTwin 渲染闭环（过滤与常驻标签不应触发二次 fetch）
+- 安全约束：仅当 `ASTRO_GIS_CATALOG_MODE=online` 时强制 allowlist；fixture/offline 仍保持确定性与可回归
 
 ## 0) 核心设计哲学（从蓝图整合而来）
 
@@ -224,16 +231,8 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 Phase 2.5 数学约束：径向膨胀（Radial Expansion）
 - 核心思想：以观测者（原点）为中心，将每个星系沿其方向向量 `dir` 推远。
-- 着色器最小模型（伪代码）：
-
-```glsl
-float s = clamp(u_redshift_scale, 0.0, 1.0);
-float z = clamp(aRedshift, 0.0, 1.0);
-float baseDist = length(localPos.xyz);
-vec3 dir = baseDist > 0.0001 ? (localPos.xyz / baseDist) : vec3(0.0, 0.0, 1.0);
-float currentDist = baseDist + (z * u_max_depth * s);
-localPos.xyz = dir * currentDist;
-```
+- 工程约束（避免“伪膨胀”）：顶点位移必须满足 $p' = \hat{p}\,(|p| + z\,u_{max}\,s)$，其中 $\hat{p}$ 为归一化方向，$s$ 为爆裂强度（0–1）。
+- 实现参考：以 `frontend/src/views/workbench/engines/ThreeTwin.vue` 内宏观点云（redshift burst）相关 shader/uniform 为准，文档只保留不变量，避免与实现漂移。
 
 - 过曝控制：片元端必须使用极暗底色 + 基于爆裂程度的 `depthFade`，避免 2–5 万点在 Additive 下糊成一坨白光。
 
@@ -270,29 +269,13 @@ Phase 2.5 约束：World Anchor（锚定到 3D 目标）
 
 脚本建议（放到 `backend/scripts/` 或 `tools/`，并在 README 里说明数据许可证与来源）：
 
-```py
-# fetch_sdss_micro_data.py
-from astroquery.sdss import SDSS
-import pandas as pd
-import json
+建议脚本逻辑（不在此处给出完整代码，避免“伪代码与实现漂移”）：
+- 用 `astroquery.sdss.SDSS.query_sql()` 拉取约 2 万条 GALAXY（字段至少包含 `ra/dec/redshift`）
+- 将结果写入 `frontend/public/data/astronomy/sdss_micro_sample.json`
+- 产物必须可复现：固定 TOP 数、固定筛选条件、固定字段顺序与四舍五入策略
 
-query = """
-SELECT TOP 20000
-    p.ra, p.dec, s.z as redshift, s.class
-FROM PhotoObj AS p
-JOIN SpecObj AS s ON s.bestobjid = p.objid
-WHERE s.class = 'GALAXY' AND s.z > 0.01 AND s.z < 0.5
-"""
-res = SDSS.query_sql(query)
-df = res.to_pandas()
-
-output_data = []
-for _, row in df.iterrows():
-    output_data.append([round(row['ra'], 4), round(row['dec'], 4), round(row['redshift'], 4)])
-
-with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
-    json.dump(output_data, f)
-```
+推荐 SQL（示意）：
+- `SELECT TOP 20000 p.ra, p.dec, s.z as redshift FROM PhotoObj AS p JOIN SpecObj AS s ON s.bestobjid = p.objid WHERE s.class='GALAXY' AND s.z > 0.01 AND s.z < 0.5`
 
 输出路径约定：`frontend/public/data/astronomy/sdss_micro_sample.json`
 

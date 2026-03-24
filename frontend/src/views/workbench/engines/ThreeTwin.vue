@@ -12,6 +12,18 @@
       <div class="catalog-hud-title">{{ catalogHudTitle }}</div>
       <div class="catalog-hud-meta">{{ catalogHudMeta }}</div>
     </div>
+
+    <!-- Phase 2.8: persistent catalog labels (topN/pinned), pointer-events none. -->
+    <div v-if="catalogLabels.length" class="catalog-label-layer" aria-label="Catalog Labels">
+      <div
+        v-for="l in catalogLabels"
+        :key="l.id"
+        class="catalog-label"
+        :style="{ left: `${l.x}px`, top: `${l.y}px` }"
+      >
+        {{ l.title }}
+      </div>
+    </div>
   </div>
 </template>
 
@@ -46,6 +58,7 @@ const catalogHudX = ref(0)
 const catalogHudY = ref(0)
 const catalogHudTitle = ref('')
 const catalogHudMeta = ref('')
+const catalogLabels = ref([])
 const store = useResearchStore()
 const astroStore = useAstroStore()
 
@@ -81,9 +94,15 @@ let _catalogLastFetchAt = 0
 let _catalogAbort = null
 
 let _catalogActiveLayerId = ''
+let _catalogActiveLayerStyleKey = ''
+let _catalogRawSources = []
 let _catalogSources = []
 let _catalogHoverIndex = -1
 let _catalogPinnedIndex = -1
+let _catalogLabelMode = 'off' // off | pinned | top
+let _catalogLabelTopN = 8
+let _catalogLabelIndices = []
+let _catalogLabelLastUpdateAt = 0
 let _catalogPointerMoveHandler = null
 let _catalogPointerDownHandler = null
 const _catalogRaycaster = new THREE.Raycaster()
@@ -436,6 +455,78 @@ function _hideCatalogHud() {
   _catalogHoverIndex = -1
 }
 
+function _hideCatalogLabels() {
+  try {
+    catalogLabels.value = []
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _parseOtypeAllowSet(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return null
+  const parts = s
+    .split(',')
+    .map((x) => String(x || '').trim().toLowerCase())
+    .filter(Boolean)
+  if (!parts.length) return null
+  return new Set(parts)
+}
+
+function _catalogStyleKey(style) {
+  if (!style || typeof style !== 'object') return ''
+  const magMax = (style.magMax === null || style.magMax === undefined) ? '' : String(style.magMax)
+  const otypeAllow = String(style.otypeAllow || '').trim().toLowerCase()
+  const lm = String(style.labelMode || '').trim().toLowerCase()
+  const ln = String(style.labelTopN ?? '')
+  return `${magMax}|${otypeAllow}|${lm}|${ln}`
+}
+
+function _applyCatalogFilters(rawSources, style) {
+  const list = Array.isArray(rawSources) ? rawSources : []
+  const magMaxRaw = Number(style?.magMax)
+  const magMax = Number.isFinite(magMaxRaw) ? magMaxRaw : null
+  const allow = _parseOtypeAllowSet(style?.otypeAllow)
+
+  if (magMax === null && !allow) return list
+
+  const out = []
+  for (const s of list) {
+    const mag = Number(s?.mag_v)
+    if (magMax !== null && Number.isFinite(mag) && mag > magMax) continue
+    if (allow) {
+      const ot = String(s?.otype || '').trim().toLowerCase()
+      if (!ot || !allow.has(ot)) continue
+    }
+    out.push(s)
+  }
+  return out
+}
+
+function _recomputeCatalogLabelPlan(style) {
+  const lm = String(style?.labelMode || '').trim().toLowerCase()
+  _catalogLabelMode = (lm === 'off' || lm === 'pinned' || lm === 'top') ? lm : 'off'
+  const lnRaw = Number(style?.labelTopN)
+  _catalogLabelTopN = Number.isFinite(lnRaw) ? Math.max(0, Math.min(20, Math.floor(lnRaw))) : 8
+
+  if (_catalogLabelMode !== 'top') {
+    _catalogLabelIndices = []
+    return
+  }
+
+  // Top-N is based on the rendered (sampled) subset to keep labels consistent.
+  const scored = []
+  for (let i = 0; i < _catalogSources.length; i += 1) {
+    const s = _catalogSources[i]
+    const mag = Number(s?.mag_v)
+    if (!Number.isFinite(mag)) continue
+    scored.push({ i, mag, id: String(s?.id || s?.name || i) })
+  }
+  scored.sort((a, b) => (a.mag - b.mag) || String(a.id).localeCompare(String(b.id)))
+  _catalogLabelIndices = scored.slice(0, _catalogLabelTopN).map((x) => x.i)
+}
+
 function _showCatalogHudAt(index, xPx, yPx) {
   const i = Number(index)
   if (!Number.isFinite(i) || i < 0 || i >= _catalogSources.length) return _hideCatalogHud()
@@ -647,7 +738,10 @@ function _updateCatalogSources(sources) {
   if (!_catalogMesh) _ensureCatalogLayer()
   if (!_catalogMesh?.geometry) return
 
-  const list = sampleCatalogSources(Array.isArray(sources) ? sources : [], CATALOG_MAX_RENDER_POINTS, _catalogLastQueryKey)
+  const raw = Array.isArray(sources) ? sources : []
+  const style = astroStore.astroGis.value?.layers?.[_catalogActiveLayerId]?.style || null
+  const filtered = _applyCatalogFilters(raw, style)
+  const list = sampleCatalogSources(filtered, CATALOG_MAX_RENDER_POINTS, _catalogLastQueryKey)
   const n = Math.max(0, Math.min(2000, list.length))
   const radius = MACRO_SKY_RADIUS + 0.8
 
@@ -678,6 +772,12 @@ function _updateCatalogSources(sources) {
     _catalogMesh.geometry.setAttribute('aMag', new THREE.BufferAttribute(mags, 1))
     _catalogMesh.geometry.setDrawRange(0, n)
     _catalogMesh.geometry.computeBoundingSphere?.()
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    _recomputeCatalogLabelPlan(style)
   } catch (_) {
     // ignore
   }
@@ -735,7 +835,8 @@ async function _maybeFetchCatalog(layer, view, nowMs) {
 
   const sources = Array.isArray(data?.sources) ? data.sources : []
   _catalogLastQueryKey = key
-  _updateCatalogSources(sources)
+  _catalogRawSources = sources
+  _updateCatalogSources(_catalogRawSources)
 }
 
 function _applyAstroGisLayerState(astroGis) {
@@ -904,10 +1005,22 @@ function _applyAstroGisLayerState(astroGis) {
       _catalogLastQueryKey = ''
       _catalogLastFetchAt = 0
       _abortCatalogFetch()
+      _catalogRawSources = []
       _catalogSources = []
       _catalogHoverIndex = -1
       _catalogPinnedIndex = -1
       _hideCatalogHud()
+      _hideCatalogLabels()
+    }
+
+    // Phase 2.8: if filters/label settings change, re-apply them without re-fetch.
+    const styleKey = _catalogStyleKey(activeCatalogL?.style || null)
+    if (styleKey && styleKey !== _catalogActiveLayerStyleKey) {
+      _catalogActiveLayerStyleKey = styleKey
+      if (_catalogRawSources?.length) _updateCatalogSources(_catalogRawSources)
+      else {
+        try { _recomputeCatalogLabelPlan(activeCatalogL?.style || null) } catch (_) { }
+      }
     }
 
     if (wanted) {
@@ -917,15 +1030,82 @@ function _applyAstroGisLayerState(astroGis) {
       if (_catalogMesh) _catalogMesh.visible = false
       _abortCatalogFetch()
       _catalogActiveLayerId = ''
+      _catalogActiveLayerStyleKey = ''
+      _catalogRawSources = []
       _catalogSources = []
       _catalogHoverIndex = -1
       _catalogPinnedIndex = -1
       _hideCatalogHud()
+      _hideCatalogLabels()
     }
 
     const op = activeCatalogL ? Number(activeCatalogL.opacity) : 1
     const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
     if (_catalogUniforms?.u_opacity) _catalogUniforms.u_opacity.value = 0.9 * clamped
+  } catch (_) {
+    // ignore
+  }
+}
+
+function _updateCatalogLabels(nowMs) {
+  try {
+    if (!_catalogMesh?.visible || !_catalogSources?.length) {
+      if (catalogLabels.value.length) _hideCatalogLabels()
+      return
+    }
+
+    const astro = astroStore.astroGis.value
+    const layer = astro?.layers?.[_catalogActiveLayerId] || null
+    const style = layer?.style || null
+    const lm = String(style?.labelMode || '').trim().toLowerCase()
+    const mode = (lm === 'off' || lm === 'pinned' || lm === 'top') ? lm : 'off'
+    if (mode === 'off') {
+      if (catalogLabels.value.length) _hideCatalogLabels()
+      return
+    }
+
+    // Throttle DOM updates.
+    const t = Number(nowMs)
+    if (Number.isFinite(t) && t - _catalogLabelLastUpdateAt < 80) return
+    _catalogLabelLastUpdateAt = Number.isFinite(t) ? t : (_catalogLabelLastUpdateAt + 80)
+
+    if (!renderer?.domElement || !camera) return
+    const rect = renderer.domElement.getBoundingClientRect()
+    const w = Math.max(1, rect.width)
+    const h = Math.max(1, rect.height)
+    const radius = MACRO_SKY_RADIUS + 0.8
+
+    const indices = []
+    if (_catalogPinnedIndex >= 0) indices.push(_catalogPinnedIndex)
+    if (mode === 'top') {
+      for (const i of _catalogLabelIndices) {
+        if (i === _catalogPinnedIndex) continue
+        indices.push(i)
+      }
+    }
+
+    const out = []
+    const v = new THREE.Vector3()
+    for (const idx of indices) {
+      const i = Number(idx)
+      if (!Number.isFinite(i) || i < 0 || i >= _catalogSources.length) continue
+      const s = _catalogSources[i]
+      const ra = Number(s?.ra_deg)
+      const dec = Number(s?.dec_deg)
+      if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
+      const dir = coordinateMath.raDecToUnitVector(ra + MACRO_RA_OFFSET_DEG, dec)
+      v.set(dir.x * radius, dir.z * radius, dir.y * radius)
+      v.project(camera)
+      if (v.z < -1 || v.z > 1) continue
+      if (v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue
+
+      const xPx = ((v.x + 1) * 0.5) * w
+      const yPx = ((-v.y + 1) * 0.5) * h
+      const title = String(s?.name || s?.id || 'Object').trim() || 'Object'
+      out.push({ id: String(s?.id || `${i}`), title, x: Math.floor(xPx) + 10, y: Math.floor(yPx) + 10 })
+    }
+
+    catalogLabels.value = out
   } catch (_) {
     // ignore
   }
@@ -3178,6 +3358,10 @@ function animate() {
       const view = _computeMacroViewRaDecFov()
       if (view) void _maybeFetchCatalog(catL, view, now)
     }
+
+    // Phase 2.8: persistent labels anchored to points.
+    if (wanted) _updateCatalogLabels(now)
+    else if (catalogLabels.value.length) _hideCatalogLabels()
   } catch (_) {
     // ignore
   }
@@ -3475,6 +3659,26 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(8px);
   pointer-events: none !important;
   transform: translate(0, 0);
+}
+
+.catalog-label-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  pointer-events: none !important;
+}
+
+.catalog-label {
+  position: absolute;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.90);
+  background: rgba(8, 10, 20, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
 }
 
 .catalog-hud-title {
