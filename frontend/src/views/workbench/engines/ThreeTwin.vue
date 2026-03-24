@@ -128,6 +128,8 @@ let _macroRedshiftShader = null
 let _macroRedshiftMaxDepth = 52
 let _macroRedshiftScale = 0
 
+let _macroAutoTuneLastAt = 0
+
 let _sdssInjected = false
 
 let _pendingAstroAction = null
@@ -161,6 +163,98 @@ function _computeMacroOpacityBaseline() {
   const layerOpacity = _clamp01(macroL?.opacity, 1)
   const baseOpacity = _clamp01(macroL?.style?.baseOpacity, MACRO_BASE_OPACITY_DEFAULT)
   return _clamp01(baseOpacity * layerOpacity, MACRO_BASE_OPACITY_DEFAULT)
+}
+
+function _lerp(a, b, t) {
+  const aa = Number(a)
+  const bb = Number(b)
+  const tt = Number(t)
+  if (!Number.isFinite(aa) || !Number.isFinite(bb) || !Number.isFinite(tt)) return Number.isFinite(bb) ? bb : aa
+  const k = Math.max(0, Math.min(1, tt))
+  return aa + (bb - aa) * k
+}
+
+function _macroAutoTuneAllowed() {
+  // Only tune baseline macro mode. If any scripted overlay is active, those
+  // sequences own bloom/camera/opacity and will restore baselines explicitly.
+  if (_macroRedshiftScale > 0.001) return false
+  if (_inpaintActive || _csstActive || _gottaActive) return false
+  return true
+}
+
+function _applyMacroAutoTune(nowMs) {
+  if (!macroMesh || !camera) return
+  if (!_macroAutoTuneAllowed()) return
+
+  const macroL = _getMacroLayerState()
+  const style = macroL?.style || null
+  const enabled = style?.autoTune
+  if (enabled === false) return
+
+  const layerOpacity = _clamp01(macroL?.opacity, 1)
+
+  // Throttle (keeps things stable and cheap).
+  const now = Number(nowMs)
+  if (Number.isFinite(now) && now - _macroAutoTuneLastAt < 120) return
+  _macroAutoTuneLastAt = Number.isFinite(now) ? now : _macroAutoTuneLastAt
+
+  const u = macroMesh?.material?.uniforms || _macroRedshiftShader?.uniforms
+  if (!u) return
+
+  // Map camera distance (from origin) to a 0..1 knob.
+  // Near: tighten size/opacity/bloom; Far: restore cinematic baseline.
+  const camR = Math.max(0.001, camera.position?.length?.() || 0)
+  const nearR = 14
+  const farR = 42
+  const t = (camR - nearR) / Math.max(0.001, farR - nearR)
+  const k = Math.max(0, Math.min(1, t))
+
+  const minPs = Number(style?.autoTuneMinPointSize)
+  const maxPs = Number(style?.autoTuneMaxPointSize)
+  const ps0 = Number.isFinite(minPs) ? minPs : 4
+  const ps1 = Number.isFinite(maxPs) ? maxPs : 12
+  const tunedPs = _lerp(ps0, ps1, k)
+
+  const minOp = Number(style?.autoTuneMinOpacity)
+  const maxOp = Number(style?.autoTuneMaxOpacity)
+  const op0 = Number.isFinite(minOp) ? minOp : 0.08
+  const baseOpacity = _clamp01(style?.baseOpacity, MACRO_BASE_OPACITY_DEFAULT)
+  const op1 = Number.isFinite(maxOp) ? maxOp : baseOpacity
+  const tunedBaseOpacity = _lerp(op0, op1, k)
+  const tunedOpacity = _clamp01(tunedBaseOpacity * layerOpacity, _computeMacroOpacityBaseline())
+
+  try {
+    if (u.u_size) u.u_size.value = Math.max(1, Math.min(60, tunedPs))
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (u.u_opacity) u.u_opacity.value = _clamp01(tunedOpacity, _computeMacroOpacityBaseline())
+  } catch (_) {
+    // ignore
+  }
+
+  // Optional bloom auto-tune (baseline macro only).
+  try {
+    const b = style?.autoTuneBloom
+    if (bloomPass && b && b.enabled !== false) {
+      const nearThr = Number(b?.near?.threshold)
+      const farThr = Number(b?.far?.threshold)
+      const nearStr = Number(b?.near?.strength)
+      const farStr = Number(b?.far?.strength)
+      const thr0 = Number.isFinite(nearThr) ? nearThr : 0.82
+      const thr1 = Number.isFinite(farThr) ? farThr : (_bloomBaseline?.threshold ?? 0.65)
+      const str0 = Number.isFinite(nearStr) ? nearStr : 0.55
+      const str1 = Number.isFinite(farStr) ? farStr : (_bloomBaseline?.strength ?? 1.1)
+      const thr = _lerp(thr0, thr1, k)
+      const str = _lerp(str0, str1, k)
+      // Smooth towards target to avoid flicker.
+      bloomPass.threshold = _lerp(Number(bloomPass.threshold), thr, 0.25)
+      bloomPass.strength = _lerp(Number(bloomPass.strength), str, 0.25)
+    }
+  } catch (_) {
+    // ignore
+  }
 }
 
 function _restoreCinematicBaseline({ camera: restoreCamera = true, bloom: restoreBloom = true, macroOpacity: restoreMacroOpacity = true } = {}) {
@@ -870,6 +964,7 @@ function _applyAstroGisLayerState(astroGis) {
       const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
       const baseOpacityRaw = Number(macroL?.style?.baseOpacity)
       const baseOpacity = Number.isFinite(baseOpacityRaw) ? Math.max(0, Math.min(1, baseOpacityRaw)) : MACRO_BASE_OPACITY
+      // NOTE: baseline value. Auto-tune (if enabled) will refine per-camera in the render loop.
       if (u?.u_opacity) u.u_opacity.value = baseOpacity * clamped
       if (u?.u_size) {
         const ps = Number(macroL?.style?.pointSize)
@@ -3369,6 +3464,14 @@ function animate() {
   animationId = requestAnimationFrame(animate)
   try {
     controls?.update?.()
+  } catch (_) {
+    // ignore
+  }
+
+  // Baseline macro auto-tune: keep macro readable across zoom levels.
+  try {
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    _applyMacroAutoTune(now)
   } catch (_) {
     // ignore
   }

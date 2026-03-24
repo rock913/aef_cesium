@@ -86,6 +86,19 @@ const state = reactive({
         style: {
           pointSize: 8.0,
           baseOpacity: 0.25,
+          // Auto-tune keeps macro readability across zoom levels (prevents overbloomed “light ball”).
+          // Can be disabled by setting `autoTune: false`.
+          autoTune: true,
+          autoTuneMinPointSize: 4.0,
+          autoTuneMaxPointSize: 12.0,
+          autoTuneMinOpacity: 0.08,
+          autoTuneMaxOpacity: 0.25,
+          autoTuneBloom: {
+            enabled: true,
+            // When zoomed-in, tighten bloom to preserve filament detail.
+            near: { strength: 0.55, threshold: 0.82 },
+            far: { strength: 1.10, threshold: 0.65 },
+          },
           palette: {
             // Near → Mid → Far
             near: [0.10, 0.70, 1.00],
