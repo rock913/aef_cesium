@@ -875,7 +875,10 @@ function _applyAstroGisLayerState(astroGis) {
 
     if (_deepSkyUniforms?.u_opacity) _deepSkyUniforms.u_opacity.value = clamped
 
-    const proceduralOff = (preset === 'black' || preset === 'texture')
+    // UX: if preset=texture but the texture is still loading (or failed), keep procedural
+    // stars visible as a fallback. Only turn procedural off when black is explicitly
+    // requested or when the texture is actually being shown.
+    const proceduralOff = (preset === 'black' || showTexture)
     if (_deepSkyUniforms?.u_starDensity) _deepSkyUniforms.u_starDensity.value = proceduralOff ? 0 : starDensity
     if (_deepSkyUniforms?.u_milkyWay) _deepSkyUniforms.u_milkyWay.value = proceduralOff ? 0 : (milkyWay ? 1 : 0)
 
@@ -1123,6 +1126,13 @@ function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg'
     undefined,
     (err) => {
       _deepSkyTextureLoadErr = String(err?.message || err || 'texture load error')
+      try {
+        if (import.meta?.env?.DEV) {
+          console.warn('[astro-gis][deep-sky] texture skybox load failed:', texturePath, _deepSkyTextureLoadErr)
+        }
+      } catch (_) {
+        // ignore
+      }
     }
   )
 }
