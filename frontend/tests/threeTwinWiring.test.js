@@ -149,34 +149,114 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     expect(s).toContain('discard')
     expect(s).toContain('gl_PointSize')
 
-    // Astro-GIS Phase 2: HiPS underlay should be present and adapter-driven.
-    expect(s).toContain('HiPS Underlay')
-    expect(s).toContain('initAladinLiteV3')
-    expect(s).toContain('setAladinView')
+    // Astro-GIS Phase 2: Deep-sky background must be single-canvas and native.
+    expect(s).toContain('Deep Sky Background')
+    expect(s).toContain('_ensureDeepSkyBackground')
+    expect(s).toContain('SphereGeometry(5000')
+    expect(s).toContain('THREE.BackSide')
+    expect(s).toContain('u_dim')
+    expect(s).not.toContain('initAladinLiteV3')
+    expect(s).not.toContain('setAladinView')
 
     // Astro-GIS Phase 3: catalog SIMBAD overlay should be wired (backend endpoint + points material).
     expect(s).toContain('/api/astro-gis/catalog/simbad')
     expect(s).toContain('CATALOG_SIMBAD')
     expect(s).toContain('aMag')
 
-    // Cinematic polish (update_patch.md): overlap trick + heatmap palette.
+    // Cinematic polish 2.0 (update_patch.md): fat halo + void exaggeration + unlocked size cap.
     // Big halo (size) + low base opacity, and a 3-stop palette (near/mid/far).
-    expect(s).toContain('u_opacity: { value: 0.15')
-    expect(s).toContain('u_size: { value: 45.0')
-    expect(s).toContain('exp(-r * 5.0)')
+    expect(s).toContain('u_opacity: { value: 0.25')
+    expect(s).toContain('u_size: { value: 80.0')
+    expect(s).toContain('varying vec3 vWorldPos')
+    expect(s).toContain('alpha = pow(1.0 - sqrt(r), 2.5)')
+    expect(s).toContain('float densityMask')
+    expect(s).toContain('sin(vWorldPos.x * 0.015)')
+    expect(s).toContain('clamp(size, 1.0, 250.0)')
     expect(s).toContain('colorNear')
     expect(s).toContain('colorMid')
     expect(s).toContain('colorFar')
-    expect(s).toContain('smoothstep(0.0, 0.5')
-    expect(s).toContain('smoothstep(0.5, 1.0')
+    expect(s).toContain('smoothstep(0.0, 0.4')
+    expect(s).toContain('smoothstep(0.4, 1.0')
 
     // Cinematic polish: dolly zoom on redshift burst (FOV pull + projection update).
     expect(s).toContain('gsap.to(camera')
     expect(s).toContain('fov: 95')
     expect(s).toContain('camera.updateProjectionMatrix()')
 
-    // Cinematic polish: tighten bloom so filaments ignite (threshold/strength).
-    expect(s).toContain('threshold: 0.4')
-    expect(s).toContain('strength: 2.2')
+    // Cinematic polish 2.0: tighten bloom so filaments ignite (threshold/strength).
+    expect(s).toContain('threshold: 0.3')
+    expect(s).toContain('strength: 2.8')
+  })
+
+  it('Astro-GIS Phase 2: supports texture skybox preset (equirectangular) with strict pipeline constraints', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    // update_patch.md: Two-gear strategy (procedural/black baseline + optional texture preset).
+    expect(s).toContain("preset === 'texture'")
+
+    // Texture-based skybox must be single Three.js pipeline (no DOM underlays).
+    expect(s).not.toContain('aladin')
+
+    // Correct equirectangular mapping + SRGB color space.
+    expect(s).toContain('TextureLoader')
+    expect(s).toContain('EquirectangularReflectionMapping')
+    expect(s).toContain('SRGBColorSpace')
+
+    // Inside-out sphere with depth isolation + forced render order.
+    expect(s).toContain('sphereGeo.scale(-1, 1, 1)')
+    expect(s).toContain('depthWrite: false')
+    expect(s).toContain('depthTest: false')
+    expect(s).toContain('renderOrder = -99')
+
+    // Tinting so the background yields to the cosmic web highlight.
+    expect(s).toContain('new THREE.Color(0.15, 0.18, 0.25)')
+  })
+
+  it('prevents mouse interaction loss: canvas must accept pointer events and overlays must not steal them', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    expect(s).toContain('.three-twin')
+    expect(s).toContain('pointer-events: auto')
+    expect(s).toContain('z-index: 10')
+    expect(s).toContain('.catalog-hud')
+    expect(s).toContain('pointer-events: none')
+    expect(s).toContain('z-index: 20')
+  })
+
+  it('Phase 2.7: parameterizes cinematic polish and adds catalog hover/pick + sampling caps', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    // Cinematic polish engineeringization: parameters live in the Astro-GIS layer store.
+    expect(s).toContain('baseOpacity')
+    expect(s).toContain('u_colorNear')
+    expect(s).toContain('u_colorMid')
+    expect(s).toContain('u_colorFar')
+
+    // Redshift burst should be able to restore to a known baseline (not drift forever).
+    expect(s).toContain('bloomBaseline')
+    expect(s).toContain('restoreCinematicBaseline')
+
+    // Astro-GIS catalog enhancements: sampling cap + deterministic sampling function.
+    expect(s).toContain('CATALOG_MAX_RENDER_POINTS')
+    expect(s).toContain('sampleCatalogSources')
+
+    // Astro-GIS Phase 3+: hover/pick wiring should exist (raycast path + HTML HUD).
+    expect(s).toContain('Raycaster')
+    expect(s).toContain('intersectObject')
+    expect(s).toContain('pointermove')
+    expect(s).toContain('catalog-hud')
+
+    // Provider expansion: VizieR endpoint should be present in wiring.
+    expect(s).toContain('/api/astro-gis/catalog/vizier')
+    expect(s).toContain('CATALOG_VIZIER')
+  })
+
+  it('prevents OrbitControls lock: scripted camera motion must not call camera.lookAt()', () => {
+    const s = read('../src/views/workbench/engines/ThreeTwin.vue')
+
+    // update_patch.md: OrbitControls + GSAP conflict. Use controls.target + controls.update instead.
+    expect(s).not.toContain('camera.lookAt(')
+    expect(s).toContain('controls.target')
+    expect(s).toContain('controls.update')
   })
 })

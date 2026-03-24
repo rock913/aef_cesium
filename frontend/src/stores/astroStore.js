@@ -51,6 +51,7 @@ export const ASTRO_GIS_LAYER_IDS = Object.freeze({
   DEMO_INPAINT: 'astro-demo-inpaint',
   HIPS_BACKGROUND: 'astro-hips-background',
   CATALOG_SIMBAD: 'astro-catalog-simbad',
+  CATALOG_VIZIER: 'astro-catalog-vizier',
 })
 
 let _nextActionId = 1
@@ -81,7 +82,22 @@ const state = reactive({
         name: 'Macro SDSS (Cosmic Web)',
         visible: true,
         opacity: 1.0,
-        style: { pointSize: 15.0 },
+        // update_patch.md (Cinematic Polish): overlap trick defaults.
+        style: {
+          pointSize: 80.0,
+          baseOpacity: 0.25,
+          palette: {
+            // Near → Mid → Far
+            near: [0.10, 0.70, 1.00],
+            mid: [0.78, 0.20, 0.90],
+            far: [1.00, 0.55, 0.10],
+          },
+          burst: {
+            dollyFov: 95,
+            pushInZ: 30,
+            bloom: { threshold: 0.3, strength: 2.8 },
+          },
+        },
         source: { kind: 'sdss_micro_sample', path: '/data/astronomy/sdss_micro_sample.json' },
       },
       [ASTRO_GIS_LAYER_IDS.DEMO_CSST]: {
@@ -110,15 +126,19 @@ const state = reactive({
       },
       [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND]: {
         id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND,
-        name: 'HiPS Background',
+        name: 'Deep Sky Background',
         visible: false,
         opacity: 1.0,
         style: {
-          // Best-effort; concrete mapping lives in the Aladin adapter.
-          survey: 'P/DSS2/color',
-          fovSync: true,
+          // Single-canvas native background (no multi-canvas / DOM underlay).
+          preset: 'procedural',
+          starDensity: 0.65,
+          milkyWay: true,
+          // update_patch.md: optional second gear (native texture skybox).
+          textureOpacity: 0.85,
+          texturePath: '/assets/eso_milkyway_8k.jpg',
         },
-        source: { kind: 'hips', provider: 'aladin-lite-v3' },
+        source: { kind: 'deep_sky', provider: 'three-native' },
       },
       [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD]: {
         id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD,
@@ -127,6 +147,15 @@ const state = reactive({
         opacity: 1.0,
         style: { maxRows: 600, minMag: null },
         source: { kind: 'catalog', provider: 'simbad', endpoint: '/api/astro-gis/catalog/simbad' },
+      },
+
+      [ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER]: {
+        id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER,
+        name: 'Catalog: VizieR',
+        visible: false,
+        opacity: 1.0,
+        style: { maxRows: 800, minMag: null, catalog: 'I/239/hip_main' },
+        source: { kind: 'catalog', provider: 'vizier', endpoint: '/api/astro-gis/catalog/vizier' },
       },
     },
   },
@@ -267,7 +296,7 @@ export function __resetAstroStoreForTests() {
       for (const k of Object.keys(layers)) {
         const l = layers[k]
         if (!l || typeof l !== 'object') continue
-        if (k === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND || k === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
+        if (k === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND || k === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD || k === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER) {
           l.visible = false
         } else {
           l.visible = true

@@ -945,8 +945,9 @@ const layers = ref([
   { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } },
-  { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · HiPS Background', enabled: false, params: { opacity: 1.0, survey: 'P/DSS2/color', fovSync: true } },
+  { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: false, params: { opacity: 1.0, preset: 'procedural', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } },
   { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } },
+  { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main' } },
 ])
 
 const charts = ref([])
@@ -1006,8 +1007,9 @@ function _normalizeLayers(arr) {
     [ASTRO_GIS_LAYER_IDS.DEMO_CSST, { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } }],
-    [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · HiPS Background', enabled: false, params: { opacity: 1.0, survey: 'P/DSS2/color', fovSync: true } }],
+    [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: false, params: { opacity: 1.0, preset: 'procedural', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } }],
     [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } }],
+    [ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main' } }],
   ])
 
   const out = []
@@ -1061,12 +1063,23 @@ function _normalizeLayers(arr) {
         if (Number.isFinite(ps)) nextParams.pointSize = Math.max(1, Math.min(64, ps))
       }
       if (id === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND) {
-        if (nextParams.survey !== undefined) nextParams.survey = String(nextParams.survey || '').trim()
-        nextParams.fovSync = nextParams.fovSync === undefined ? true : !!nextParams.fovSync
+        if (nextParams.preset !== undefined) nextParams.preset = String(nextParams.preset || '').trim().toLowerCase()
+        const sd = Number(nextParams.starDensity)
+        if (Number.isFinite(sd)) nextParams.starDensity = Math.max(0, Math.min(1, sd))
+        nextParams.milkyWay = nextParams.milkyWay === undefined ? true : !!nextParams.milkyWay
+
+        const to = Number(nextParams.textureOpacity)
+        if (Number.isFinite(to)) nextParams.textureOpacity = Math.max(0, Math.min(1, to))
+        if (nextParams.texturePath !== undefined) nextParams.texturePath = String(nextParams.texturePath || '').trim()
       }
       if (id === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
         const mr = Number(nextParams.maxRows)
         if (Number.isFinite(mr)) nextParams.maxRows = Math.max(50, Math.min(2000, Math.floor(mr)))
+      }
+      if (id === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER) {
+        const mr = Number(nextParams.maxRows)
+        if (Number.isFinite(mr)) nextParams.maxRows = Math.max(50, Math.min(2000, Math.floor(mr)))
+        if (nextParams.catalog !== undefined) nextParams.catalog = String(nextParams.catalog || '').trim()
       }
     }
     out.push({
@@ -1102,13 +1115,26 @@ function _syncAstroGisFromLayers(nextLayers) {
       if (Number.isFinite(ps)) patch.style.pointSize = ps
     }
     if (id === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND) {
-      const survey = String(l?.params?.survey || '').trim()
-      if (survey) patch.style.survey = survey
-      patch.style.fovSync = l?.params?.fovSync === undefined ? true : !!l.params.fovSync
+      const preset = String(l?.params?.preset || '').trim().toLowerCase()
+      if (preset) patch.style.preset = preset
+      const sd = Number(l?.params?.starDensity)
+      if (Number.isFinite(sd)) patch.style.starDensity = Math.max(0, Math.min(1, sd))
+      patch.style.milkyWay = l?.params?.milkyWay === undefined ? true : !!l.params.milkyWay
+
+      const to = Number(l?.params?.textureOpacity)
+      if (Number.isFinite(to)) patch.style.textureOpacity = Math.max(0, Math.min(1, to))
+      const tp = String(l?.params?.texturePath || '').trim()
+      if (tp) patch.style.texturePath = tp
     }
     if (id === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
       const mr = Number(l?.params?.maxRows)
       if (Number.isFinite(mr)) patch.style.maxRows = mr
+    }
+    if (id === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER) {
+      const mr = Number(l?.params?.maxRows)
+      if (Number.isFinite(mr)) patch.style.maxRows = mr
+      const catalog = String(l?.params?.catalog || '').trim()
+      if (catalog) patch.style.catalog = catalog
     }
 
     try {
@@ -1974,7 +2000,7 @@ function onCopilotSelectPreset(preset) {
         { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, enabled: true, params: { opacity: 1.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, enabled: true, params: { opacity: 1.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, enabled: true, params: { opacity: 1.0 } },
-        { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, enabled: false, params: { opacity: 1.0, survey: 'P/DSS2/color', fovSync: true } },
+        { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, enabled: false, params: { opacity: 1.0, preset: 'procedural', starDensity: 0.65, milkyWay: true } },
         { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, enabled: false, params: { opacity: 1.0, maxRows: 600 } },
       ])
     } catch (_) {

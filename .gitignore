@@ -58,3 +58,8 @@ htmlcov/
 
 # Cesium
 frontend/.cesium/
+
+# Generated skybox assets (do not commit)
+frontend/public/assets/eso_milkyway_source.jpg
+frontend/public/assets/eso_milkyway_8k.jpg
+frontend/public/assets/eso_milkyway_8k.tmp.jpg

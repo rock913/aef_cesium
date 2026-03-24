@@ -18,6 +18,7 @@ import io
 import math
 import os
 import random
+import re
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,12 +27,14 @@ from typing import Any, Dict, List, Optional, Tuple
 CATALOG_MODE_ENV = "ASTRO_GIS_CATALOG_MODE"  # fixture | online
 
 SIMBAD_TAP_SYNC_URL_ENV = "ASTRO_GIS_SIMBAD_TAP_SYNC_URL"
+VIZIER_TAP_SYNC_URL_ENV = "ASTRO_GIS_VIZIER_TAP_SYNC_URL"
 CATALOG_ONLINE_TIMEOUT_S_ENV = "ASTRO_GIS_CATALOG_ONLINE_TIMEOUT_S"
 CATALOG_ONLINE_FALLBACK_ENV = "ASTRO_GIS_CATALOG_ONLINE_FALLBACK"  # 1|0
 CATALOG_CACHE_TTL_S_ENV = "ASTRO_GIS_CATALOG_CACHE_TTL_S"
 CATALOG_CACHE_MAX_ITEMS_ENV = "ASTRO_GIS_CATALOG_CACHE_MAX_ITEMS"
 
 _DEFAULT_SIMBAD_TAP_SYNC_URL = "https://simbad.cds.unistra.fr/simbad/sim-tap/sync"
+_DEFAULT_VIZIER_TAP_SYNC_URL = "https://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync"
 
 _cache_lock = threading.Lock()
 _cache: "OrderedDict[str, tuple[float, Dict[str, Any]]]" = OrderedDict()
@@ -394,5 +397,256 @@ def query_simbad_catalog(
         "meta": {
             **meta,
         },
+        "sources": sources,
+    }
+
+
+# --- VizieR (provider expansion, Phase 2.7) ---
+
+
+_VIZIER_CATALOG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]{0,80}$")
+
+
+def _validate_vizier_catalog_id(catalog: str) -> str:
+    c = str(catalog or "").strip()
+    if not c:
+        raise ValueError("catalog is required")
+    if not _VIZIER_CATALOG_RE.match(c):
+        raise ValueError("invalid catalog id")
+    return c
+
+
+def _seed_for_vizier_query(*, catalog: str, ra: float, dec: float, radius: float, max_rows: int) -> int:
+    msg = f"catalog={catalog};ra={ra:.6f};dec={dec:.6f};radius={radius:.6f};max_rows={int(max_rows)}"
+    h = hashlib.sha256(msg.encode("utf-8")).hexdigest()
+    return int(h[:16], 16)
+
+
+@dataclass(frozen=True)
+class VizierCatalogQuery:
+    catalog: str
+    ra_deg: float
+    dec_deg: float
+    radius_deg: float
+    max_rows: int
+
+
+def _cache_key_vizier(q: VizierCatalogQuery) -> str:
+    return f"vizier|{q.catalog}|{q.ra_deg:.6f}|{q.dec_deg:.6f}|{q.radius_deg:.6f}|{int(q.max_rows)}"
+
+
+def _build_vizier_tap_adql(q: VizierCatalogQuery) -> str:
+    # TAP CIRCLE radius is in degrees. Keep the query strictly parameterized.
+    ra = float(q.ra_deg)
+    dec = float(q.dec_deg)
+    radius = float(q.radius_deg)
+    top = int(q.max_rows)
+
+    # Phase 2.7 initial scope: Hipparcos main table (stable, well-known columns).
+    # Columns: RA_ICRS, DE_ICRS, Vmag, HIP
+    if q.catalog != "I/239/hip_main":
+        raise ValueError("online mode only supports catalog I/239/hip_main")
+
+    return (
+        "SELECT TOP {top} "
+        "  HIP AS hip_id, "
+        "  RA_ICRS AS ra_deg, "
+        "  DE_ICRS AS dec_deg, "
+        "  Vmag AS mag_v "
+        "FROM \"{table}\" "
+        "WHERE 1=CONTAINS( "
+        "  POINT('ICRS', RA_ICRS, DE_ICRS), "
+        "  CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.6f}) "
+        ")"
+    ).format(top=top, table=q.catalog, ra=ra, dec=dec, radius=radius)
+
+
+def _query_vizier_online(q: VizierCatalogQuery) -> Dict[str, Any]:
+    try:
+        import httpx  # type: ignore
+    except Exception as e:
+        raise RuntimeError("httpx_not_available") from e
+
+    url = str(os.getenv(VIZIER_TAP_SYNC_URL_ENV, _DEFAULT_VIZIER_TAP_SYNC_URL) or _DEFAULT_VIZIER_TAP_SYNC_URL).strip()
+    if not url:
+        url = _DEFAULT_VIZIER_TAP_SYNC_URL
+
+    timeout_s = max(0.5, _env_float(CATALOG_ONLINE_TIMEOUT_S_ENV, 10.0))
+    adql = _build_vizier_tap_adql(q)
+
+    headers = {
+        "user-agent": "Zero2x-OneAstronomy/7.5 (Astro-GIS catalog)",
+        "accept": "text/csv, text/plain, */*",
+    }
+
+    payload = {
+        "request": "doQuery",
+        "lang": "adql",
+        "format": "csv",
+        "query": adql,
+    }
+
+    with httpx.Client(timeout=timeout_s, headers=headers, follow_redirects=True) as client:
+        resp = client.post(url, data=payload)
+        resp.raise_for_status()
+        text = resp.text or ""
+
+    sources: List[Dict[str, Any]] = []
+    reader = csv.DictReader(io.StringIO(text))
+    for i, row in enumerate(reader):
+        if i >= q.max_rows:
+            break
+
+        hip = str((row.get("hip_id") or row.get("HIP") or "")).strip()
+        if not hip:
+            continue
+
+        try:
+            ra = _normalize_ra_deg(float(row.get("ra_deg") or row.get("RA_ICRS") or 0.0))
+            dec = float(row.get("dec_deg") or row.get("DE_ICRS") or 0.0)
+        except Exception:
+            continue
+
+        mag_raw = row.get("mag_v")
+        try:
+            mag_v = float(mag_raw) if mag_raw not in (None, "") else 10.0
+        except Exception:
+            mag_v = 10.0
+
+        sources.append(
+            {
+                "id": f"VIZIER:{q.catalog}:HIP{hip}",
+                "name": f"HIP {hip}",
+                "ra_deg": float(ra),
+                "dec_deg": float(dec),
+                "mag_v": float(_clamp(mag_v, -1.0, 40.0)),
+                "otype": "Star",
+            }
+        )
+
+    return {
+        "meta": {
+            "provider": "vizier",
+            "catalog": q.catalog,
+            "mode": "online",
+            "upstream": {"kind": "tap", "url": url},
+            "query": {
+                "catalog": q.catalog,
+                "ra_deg": float(q.ra_deg),
+                "dec_deg": float(q.dec_deg),
+                "radius_deg": float(q.radius_deg),
+                "max_rows": int(q.max_rows),
+            },
+        },
+        "sources": sources,
+    }
+
+
+def query_vizier_catalog(
+    *,
+    catalog: str,
+    ra_deg: float,
+    dec_deg: float,
+    radius_deg: float,
+    max_rows: int,
+) -> Dict[str, Any]:
+    """Query a VizieR-like catalog.
+
+    Default mode is offline deterministic fixture data.
+    Online queries are opt-in and safe-to-fail.
+    """
+
+    mode = str(os.getenv(CATALOG_MODE_ENV, "fixture") or "fixture").strip().lower()
+    if mode not in ("fixture", "online"):
+        mode = "fixture"
+
+    cat = _validate_vizier_catalog_id(catalog)
+    ra = _normalize_ra_deg(ra_deg)
+    dec = _validate_dec_deg(dec_deg)
+    radius = _validate_radius_deg(radius_deg)
+    max_rows_i = int(max_rows)
+    if max_rows_i < 1:
+        raise ValueError("maxRows must be >= 1")
+    max_rows_i = min(max_rows_i, 2000)
+
+    q = VizierCatalogQuery(
+        catalog=cat,
+        ra_deg=float(ra),
+        dec_deg=float(dec),
+        radius_deg=float(radius),
+        max_rows=int(max_rows_i),
+    )
+
+    if mode == "online":
+        key = _cache_key_vizier(q)
+        cached = _cache_get(key)
+        if cached is not None:
+            try:
+                cached_meta = cached.get("meta") if isinstance(cached, dict) else None
+                if isinstance(cached_meta, dict):
+                    cached_meta["cached"] = True
+            except Exception:
+                pass
+            return cached
+
+        fallback = _env_bool(CATALOG_ONLINE_FALLBACK_ENV, True)
+        try:
+            out = _query_vizier_online(q)
+            try:
+                out_meta = out.get("meta") if isinstance(out, dict) else None
+                if isinstance(out_meta, dict):
+                    out_meta["cached"] = False
+            except Exception:
+                pass
+            _cache_set(key, out)
+            return out
+        except Exception as e:
+            if not fallback:
+                raise
+            mode = "fixture"
+            requested_mode = "online"
+            fallback_reason = f"{type(e).__name__}"
+
+    seed = _seed_for_vizier_query(catalog=cat, ra=ra, dec=dec, radius=radius, max_rows=max_rows_i)
+    rng = random.Random(seed)
+
+    cap = math.radians(radius)
+    area_frac = (1.0 - math.cos(cap)) / 2.0
+    expected = int(_clamp(3500.0 * area_frac, 10.0, float(max_rows_i)))
+    n = int(_clamp(expected + rng.randint(-3, 3), 1.0, float(max_rows_i)))
+
+    sources: List[Dict[str, Any]] = []
+    for i in range(n):
+        sra, sdec = _sample_on_cap(rng, ra0_deg=ra, dec0_deg=dec, radius_deg=radius)
+        mag_v = _clamp(rng.gauss(11.0, 2.4), -1.0, 22.0)
+        sources.append(
+            {
+                "id": f"VIZIER:FIX:{cat}:{seed:x}:{i}",
+                "name": f"MockCatalog-{cat}-{(seed + i) % 100000:05d}",
+                "ra_deg": float(sra),
+                "dec_deg": float(sdec),
+                "mag_v": float(mag_v),
+                "otype": "Star",
+            }
+        )
+
+    meta: Dict[str, Any] = {
+        "provider": "vizier",
+        "catalog": cat,
+        "mode": mode,
+        "query": {
+            "catalog": cat,
+            "ra_deg": float(ra),
+            "dec_deg": float(dec),
+            "radius_deg": float(radius),
+            "max_rows": int(max_rows_i),
+        },
+    }
+    if mode == "fixture" and "requested_mode" in locals():
+        meta["requested_mode"] = requested_mode
+        meta["fallback_reason"] = fallback_reason
+
+    return {
+        "meta": {**meta},
         "sources": sources,
     }

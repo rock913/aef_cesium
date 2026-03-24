@@ -1,7 +1,17 @@
 <template>
   <div class="three-twin-root w-full h-full" aria-label="Three Twin">
-    <div ref="aladinUnderlay" class="aladin-underlay" aria-label="HiPS Underlay"></div>
     <div ref="container" class="three-twin w-full h-full" aria-label="Three WebGL"></div>
+
+    <!-- Astro-GIS Phase 3+: minimal catalog hover/pick HUD (HTML overlay). -->
+    <div
+      v-if="catalogHudVisible"
+      class="catalog-hud"
+      :style="{ left: `${catalogHudX}px`, top: `${catalogHudY}px` }"
+      aria-label="Catalog HUD"
+    >
+      <div class="catalog-hud-title">{{ catalogHudTitle }}</div>
+      <div class="catalog-hud-meta">{{ catalogHudMeta }}</div>
+    </div>
   </div>
 </template>
 
@@ -21,7 +31,6 @@ import { disposeThreeEngine } from './threeDispose.js'
 import { executeQuantumDive } from './quantumDive.js'
 import { createBloomPipeline, updateBloomParams } from './threePostprocessing.js'
 import { mapLayersToThreeParams } from './threeLayerMapping.js'
-import { destroyAladin, initAladinLiteV3, setAladinSurvey, setAladinView } from '../../../utils/astronomy/aladinLiteAdapter.js'
 
 const emit = defineEmits(['ready'])
 
@@ -30,7 +39,13 @@ const props = defineProps({
 })
 
 const container = ref(null)
-const aladinUnderlay = ref(null)
+
+// Astro-GIS Phase 3+: catalog hover/pick tooltip.
+const catalogHudVisible = ref(false)
+const catalogHudX = ref(0)
+const catalogHudY = ref(0)
+const catalogHudTitle = ref('')
+const catalogHudMeta = ref('')
 const store = useResearchStore()
 const astroStore = useAstroStore()
 
@@ -46,10 +61,17 @@ let bloomPass = null
 let animationId = null
 let onResize = null
 
-let _aladin = null
-let _hipsWantedVisible = false
-let _hipsLastSyncAt = 0
-let _hipsLastSurvey = ''
+let _deepSkyMesh = null
+let _deepSkyUniforms = null
+let _deepSkyTime = 0
+
+// Astro-GIS Phase 2 (update_patch.md): optional texture-based skybox (equirectangular).
+// Still single-canvas, single Three.js pipeline (no DOM/canvas underlays).
+let _deepSkyTextureMesh = null
+let _deepSkyTextureMaterial = null
+let _deepSkyTextureTex = null
+let _deepSkyTextureWanted = false
+let _deepSkyTextureLoadErr = ''
 
 let _catalogMesh = null
 let _catalogUniforms = null
@@ -57,6 +79,22 @@ let _catalogWantedVisible = false
 let _catalogLastQueryKey = ''
 let _catalogLastFetchAt = 0
 let _catalogAbort = null
+
+let _catalogActiveLayerId = ''
+let _catalogSources = []
+let _catalogHoverIndex = -1
+let _catalogPinnedIndex = -1
+let _catalogPointerMoveHandler = null
+let _catalogPointerDownHandler = null
+const _catalogRaycaster = new THREE.Raycaster()
+const _catalogMouse = new THREE.Vector2()
+
+// Rendering/perf: hard cap for catalog Points in large FOVs.
+const CATALOG_MAX_RENDER_POINTS = 1200
+
+// Cinematic Polish engineeringization: maintain stable baselines for restore.
+let _bloomBaseline = null
+let _cameraBaseline = null
 
 let macroMesh = null
 let microRoot = null
@@ -83,6 +121,103 @@ let _storyToken = 0
 const MACRO_SKY_RADIUS = 100
 // Align the injected sky with the default camera facing direction.
 const MACRO_RA_OFFSET_DEG = 180
+// Keep a literal default here so baseline computations don't depend on later-in-file constants.
+const MACRO_BASE_OPACITY_DEFAULT = 0.25
+
+function _clamp01(v, fallback = 1) {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback
+}
+
+function _getMacroLayerState() {
+  try {
+    return astroStore.astroGis.value?.layers?.[ASTRO_GIS_LAYER_IDS.MACRO_SDSS] || null
+  } catch (_) {
+    return null
+  }
+}
+
+function _computeMacroOpacityBaseline() {
+  const macroL = _getMacroLayerState()
+  const layerOpacity = _clamp01(macroL?.opacity, 1)
+  const baseOpacity = _clamp01(macroL?.style?.baseOpacity, MACRO_BASE_OPACITY_DEFAULT)
+  return _clamp01(baseOpacity * layerOpacity, MACRO_BASE_OPACITY_DEFAULT)
+}
+
+function _restoreCinematicBaseline({ camera: restoreCamera = true, bloom: restoreBloom = true, macroOpacity: restoreMacroOpacity = true } = {}) {
+  // Keep name substring stable for wiring gates: restoreCinematicBaseline
+  try {
+    if (restoreMacroOpacity) {
+      const u = macroMesh?.material?.uniforms
+      const target = _computeMacroOpacityBaseline()
+      if (u?.u_opacity) {
+        try {
+          if (gsap?.to) gsap.to(u.u_opacity, { value: target, duration: 0.6, ease: 'power2.out' })
+          else u.u_opacity.value = target
+        } catch (_) {
+          u.u_opacity.value = target
+        }
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    if (restoreBloom && bloomPass && _bloomBaseline) {
+      const strength = Number(_bloomBaseline.strength)
+      const threshold = Number(_bloomBaseline.threshold)
+      const radius = Number(_bloomBaseline.radius)
+      if (Number.isFinite(strength) && Number.isFinite(threshold) && Number.isFinite(radius)) {
+        gsap?.to ? gsap.to(bloomPass, { strength, threshold, radius, duration: 0.8, ease: 'power2.out' }) : Object.assign(bloomPass, { strength, threshold, radius })
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    if (restoreCamera && camera && _cameraBaseline) {
+      const fov = Number(_cameraBaseline.fov)
+      const z = Number(_cameraBaseline.z)
+      if (Number.isFinite(fov)) {
+        gsap?.to
+          ? gsap.to(camera, {
+            fov,
+            duration: 0.8,
+            ease: 'power2.out',
+            onUpdate: () => {
+              try {
+                camera.updateProjectionMatrix?.()
+              } catch (_) {
+                // ignore
+              }
+            },
+          })
+          : (camera.fov = fov)
+      }
+      if (camera?.position && Number.isFinite(z)) {
+        gsap?.to ? gsap.to(camera.position, { z, duration: 0.8, ease: 'power2.out' }) : (camera.position.z = z)
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // update_patch.md: ensure background yields/recovers deterministically across interrupts.
+  try {
+    if (_deepSkyUniforms?.u_dim) _deepSkyUniforms.u_dim.value = 1.0
+  } catch (_) {
+    // ignore
+  }
+
+  // Keep texture-skybox opacity in sync with dim restore.
+  try {
+    _syncDeepSkyTextureOpacity()
+  } catch (_) {
+    // ignore
+  }
+}
 
 function _sleep(ms) {
   const t = Number(ms)
@@ -109,6 +244,13 @@ function _cancelStoryFlow() {
   }
   try {
     _setMacroRedshiftScale(0)
+  } catch (_) {
+    // ignore
+  }
+
+  // Phase 2.7: ensure cinematic state does not drift across STOP.
+  try {
+    _restoreCinematicBaseline({ camera: true, bloom: true, macroOpacity: true })
   } catch (_) {
     // ignore
   }
@@ -276,6 +418,61 @@ const _inpaintMouse = new THREE.Vector2()
 
 let _csstGroup = null
 
+function _formatCatalogHudMeta(source) {
+  if (!source || typeof source !== 'object') return ''
+  const mag = Number(source?.mag_v)
+  const magStr = Number.isFinite(mag) ? `V=${mag.toFixed(2)}` : ''
+  const otype = String(source?.otype || '').trim()
+  const ra = Number(source?.ra_deg)
+  const dec = Number(source?.dec_deg)
+  const radec = (Number.isFinite(ra) && Number.isFinite(dec)) ? `RA=${ra.toFixed(2)}°, Dec=${dec.toFixed(2)}°` : ''
+  return [magStr, otype, radec].filter(Boolean).join(' · ')
+}
+
+function _hideCatalogHud() {
+  catalogHudVisible.value = false
+  catalogHudTitle.value = ''
+  catalogHudMeta.value = ''
+  _catalogHoverIndex = -1
+}
+
+function _showCatalogHudAt(index, xPx, yPx) {
+  const i = Number(index)
+  if (!Number.isFinite(i) || i < 0 || i >= _catalogSources.length) return _hideCatalogHud()
+  const s = _catalogSources[i]
+  const name = String(s?.name || s?.id || 'Catalog Object').trim() || 'Catalog Object'
+  catalogHudTitle.value = name
+  catalogHudMeta.value = _formatCatalogHudMeta(s)
+  catalogHudX.value = Math.max(0, Math.floor(Number(xPx) || 0))
+  catalogHudY.value = Math.max(0, Math.floor(Number(yPx) || 0))
+  catalogHudVisible.value = true
+}
+
+function sampleCatalogSources(sources, maxPoints = CATALOG_MAX_RENDER_POINTS, seedKey = '') {
+  const list = Array.isArray(sources) ? sources : []
+  const cap = Math.max(1, Math.min(2000, Math.floor(Number(maxPoints) || CATALOG_MAX_RENDER_POINTS)))
+  if (list.length <= cap) return list
+
+  // Deterministic sampling: hash ids with a seed so the selected set is stable
+  // for the same query (avoids flicker while orbiting).
+  const seed = _hashSeed(`catalog-sample:${seedKey}`)
+  const keyOf = (s) => String(s?.id || s?.name || '').trim() || JSON.stringify(s)
+  const score = (k) => {
+    // 32-bit FNV-like mix with seed.
+    const t = `${seed}|${k}`
+    let h = 2166136261
+    for (let i = 0; i < t.length; i += 1) {
+      h ^= t.charCodeAt(i)
+      h = Math.imul(h, 16777619)
+    }
+    return h >>> 0
+  }
+
+  const ranked = list.map((s) => ({ s, h: score(keyOf(s)) }))
+  ranked.sort((a, b) => a.h - b.h)
+  return ranked.slice(0, cap).map((x) => x.s)
+}
+
 function _abortCatalogFetch() {
   if (!_catalogAbort) return
   try {
@@ -344,13 +541,120 @@ function _ensureCatalogLayer() {
   }
 }
 
+function _unbindCatalogPointerHandlers() {
+  if (!_catalogPointerMoveHandler || !renderer?.domElement) {
+    _catalogPointerMoveHandler = null
+    _catalogPointerDownHandler = null
+    return
+  }
+  try {
+    renderer.domElement.removeEventListener('pointermove', _catalogPointerMoveHandler)
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (_catalogPointerDownHandler) renderer.domElement.removeEventListener('pointerdown', _catalogPointerDownHandler)
+  } catch (_) {
+    // ignore
+  }
+  _catalogPointerMoveHandler = null
+  _catalogPointerDownHandler = null
+}
+
+function _bindCatalogPointerHandlers() {
+  if (!renderer?.domElement || !camera) return
+  if (_catalogPointerMoveHandler) return
+
+  _catalogPointerMoveHandler = (ev) => {
+    try {
+      if (!_catalogMesh?.visible || !_catalogSources?.length) {
+        if (_catalogPinnedIndex < 0) _hideCatalogHud()
+        return
+      }
+
+      const rect = renderer.domElement.getBoundingClientRect()
+      const w = Math.max(1, rect.width)
+      const h = Math.max(1, rect.height)
+      const x = ((ev.clientX - rect.left) / w) * 2 - 1
+      const y = -(((ev.clientY - rect.top) / h) * 2 - 1)
+      _catalogMouse.set(x, y)
+
+      _catalogRaycaster.setFromCamera(_catalogMouse, camera)
+      // Threshold is in world units for Points; keep small (sky-sphere radius ~100).
+      _catalogRaycaster.params.Points = _catalogRaycaster.params.Points || {}
+      _catalogRaycaster.params.Points.threshold = 0.9
+
+      const hits = _catalogRaycaster.intersectObject(_catalogMesh, false)
+      const hit = hits && hits.length ? hits[0] : null
+      const idx = Number(hit?.index)
+      if (!Number.isFinite(idx) || idx < 0 || idx >= _catalogSources.length) {
+        _catalogHoverIndex = -1
+        if (_catalogPinnedIndex < 0) _hideCatalogHud()
+        return
+      }
+
+      _catalogHoverIndex = idx
+      if (_catalogPinnedIndex < 0) {
+        _showCatalogHudAt(idx, (ev.clientX - rect.left) + 14, (ev.clientY - rect.top) + 14)
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  _catalogPointerDownHandler = (ev) => {
+    try {
+      if (!_catalogMesh?.visible || !_catalogSources?.length) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      const w = Math.max(1, rect.width)
+      const h = Math.max(1, rect.height)
+      const x = ((ev.clientX - rect.left) / w) * 2 - 1
+      const y = -(((ev.clientY - rect.top) / h) * 2 - 1)
+      _catalogMouse.set(x, y)
+      _catalogRaycaster.setFromCamera(_catalogMouse, camera)
+      _catalogRaycaster.params.Points = _catalogRaycaster.params.Points || {}
+      _catalogRaycaster.params.Points.threshold = 0.9
+
+      const hits = _catalogRaycaster.intersectObject(_catalogMesh, false)
+      const hit = hits && hits.length ? hits[0] : null
+      const idx = Number(hit?.index)
+      if (!Number.isFinite(idx) || idx < 0 || idx >= _catalogSources.length) {
+        _catalogPinnedIndex = -1
+        _hideCatalogHud()
+        return
+      }
+
+      _catalogPinnedIndex = idx
+      _showCatalogHudAt(idx, (ev.clientX - rect.left) + 14, (ev.clientY - rect.top) + 14)
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  try {
+    renderer.domElement.addEventListener('pointermove', _catalogPointerMoveHandler, { passive: true })
+  } catch (_) {
+    // ignore
+  }
+  try {
+    renderer.domElement.addEventListener('pointerdown', _catalogPointerDownHandler, { passive: true })
+  } catch (_) {
+    // ignore
+  }
+}
+
 function _updateCatalogSources(sources) {
   if (!_catalogMesh) _ensureCatalogLayer()
   if (!_catalogMesh?.geometry) return
 
-  const list = Array.isArray(sources) ? sources : []
+  const list = sampleCatalogSources(Array.isArray(sources) ? sources : [], CATALOG_MAX_RENDER_POINTS, _catalogLastQueryKey)
   const n = Math.max(0, Math.min(2000, list.length))
   const radius = MACRO_SKY_RADIUS + 0.8
+
+  _catalogSources = list
+  _catalogHoverIndex = -1
+  _catalogPinnedIndex = -1
+  _hideCatalogHud()
 
   const pos = new Float32Array(n * 3)
   const mags = new Float32Array(n)
@@ -393,7 +697,9 @@ async function _maybeFetchCatalog(layer, view, nowMs) {
   if (!_catalogWantedVisible) return
   if (typeof fetch !== 'function') return
 
-  const endpoint = String(layer?.source?.endpoint || '/api/astro-gis/catalog/simbad').trim() || '/api/astro-gis/catalog/simbad'
+  const provider = String(layer?.source?.provider || '').trim().toLowerCase()
+  const defaultEndpoint = provider === 'vizier' ? '/api/astro-gis/catalog/vizier' : '/api/astro-gis/catalog/simbad'
+  const endpoint = String(layer?.source?.endpoint || defaultEndpoint).trim() || defaultEndpoint
   const maxRows = Math.max(1, Math.min(2000, Math.floor(Number(layer?.style?.maxRows) || 600)))
   const radiusDeg = Math.max(0.5, Math.min(45, Number(view?.fovDeg || 60) * 0.55))
   const key = _catalogQueryKey({ raDeg: view.raDeg, decDeg: view.decDeg, radiusDeg, maxRows })
@@ -406,7 +712,15 @@ async function _maybeFetchCatalog(layer, view, nowMs) {
   _abortCatalogFetch()
   _catalogAbort = new AbortController()
 
-  const url = `${endpoint}?ra=${encodeURIComponent(view.raDeg)}&dec=${encodeURIComponent(view.decDeg)}&radius=${encodeURIComponent(radiusDeg)}&maxRows=${encodeURIComponent(maxRows)}`
+  let url = `${endpoint}?ra=${encodeURIComponent(view.raDeg)}&dec=${encodeURIComponent(view.decDeg)}&radius=${encodeURIComponent(radiusDeg)}&maxRows=${encodeURIComponent(maxRows)}`
+  try {
+    if (provider === 'vizier') {
+      const catalog = String(layer?.style?.catalog || '').trim()
+      if (catalog) url += `&catalog=${encodeURIComponent(catalog)}`
+    }
+  } catch (_) {
+    // ignore
+  }
 
   let data = null
   try {
@@ -433,7 +747,8 @@ function _applyAstroGisLayerState(astroGis) {
   const gottaL = layers[ASTRO_GIS_LAYER_IDS.DEMO_GOTTA] || null
   const inpaintL = layers[ASTRO_GIS_LAYER_IDS.DEMO_INPAINT] || null
   const hipsL = layers[ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND] || null
-  const catalogL = layers[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
+  const catalogSimbadL = layers[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
+  const catalogVizierL = layers[ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER] || null
 
   if (macroMesh) {
     try {
@@ -445,11 +760,21 @@ function _applyAstroGisLayerState(astroGis) {
       const u = macroMesh?.material?.uniforms || _macroRedshiftShader?.uniforms
       const op = macroL ? Number(macroL.opacity) : 1
       const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
-      if (u?.u_opacity) u.u_opacity.value = MACRO_BASE_OPACITY * clamped
+      const baseOpacityRaw = Number(macroL?.style?.baseOpacity)
+      const baseOpacity = Number.isFinite(baseOpacityRaw) ? Math.max(0, Math.min(1, baseOpacityRaw)) : MACRO_BASE_OPACITY
+      if (u?.u_opacity) u.u_opacity.value = baseOpacity * clamped
       if (u?.u_size) {
         const ps = Number(macroL?.style?.pointSize)
-        if (Number.isFinite(ps)) u.u_size.value = Math.max(1, Math.min(64, ps))
+        if (Number.isFinite(ps)) u.u_size.value = Math.max(1, Math.min(250, ps))
       }
+      // Heatmap palette parameters (Near/Mid/Far) can be overridden via layer store.
+      const pal = macroL?.style?.palette
+      const near = Array.isArray(pal?.near) ? pal.near : null
+      const mid = Array.isArray(pal?.mid) ? pal.mid : null
+      const far = Array.isArray(pal?.far) ? pal.far : null
+      if (u?.u_colorNear?.value && near && near.length >= 3) u.u_colorNear.value.set(Number(near[0]) || 0, Number(near[1]) || 0, Number(near[2]) || 0)
+      if (u?.u_colorMid?.value && mid && mid.length >= 3) u.u_colorMid.value.set(Number(mid[0]) || 0, Number(mid[1]) || 0, Number(mid[2]) || 0)
+      if (u?.u_colorFar?.value && far && far.length >= 3) u.u_colorFar.value.set(Number(far[0]) || 0, Number(far[1]) || 0, Number(far[2]) || 0)
     } catch (_) {
       // ignore
     }
@@ -517,37 +842,85 @@ function _applyAstroGisLayerState(astroGis) {
     }
   }
 
-  // Phase 2: HiPS background underlay (Aladin Lite v3) - best effort.
+  // Astro-GIS Phase 2: Deep Sky Background (single-canvas native skybox).
   try {
     const wanted = hipsL ? !!hipsL.visible : false
-    _hipsWantedVisible = wanted
+    if (wanted) _ensureDeepSkyBackground()
 
-    if (aladinUnderlay.value) {
-      const op = hipsL ? Number(hipsL.opacity) : 1
-      const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
-      aladinUnderlay.value.style.opacity = wanted ? String(clamped) : '0'
+    const presetRaw = String(hipsL?.style?.preset || 'procedural').trim().toLowerCase()
+    const preset = (presetRaw === 'texture') ? 'texture' : ((presetRaw === 'black' || presetRaw === 'off') ? 'black' : 'procedural')
+
+    // Two-gear strategy (update_patch.md): procedural/black baseline, optional texture preset.
+    _deepSkyTextureWanted = wanted && (preset === 'texture')
+    if (preset === 'texture' && wanted) {
+      const texturePath = String(hipsL?.style?.texturePath || '/assets/eso_milkyway_8k.jpg').trim() || '/assets/eso_milkyway_8k.jpg'
+      _ensureDeepSkyTextureSkybox(texturePath)
     }
 
-    if (wanted) {
-      void _ensureHiPSUnderlay(hipsL)
+    const texReady = !!_deepSkyTextureMesh
+    const showTexture = wanted && (preset === 'texture') && texReady
+    const showProcedural = wanted && (!showTexture)
+    if (_deepSkyMesh) _deepSkyMesh.visible = showProcedural
+    if (_deepSkyTextureMesh) _deepSkyTextureMesh.visible = showTexture
+
+    const op = hipsL ? Number(hipsL.opacity) : 1
+    const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
+
+    const starDensityRaw = Number(hipsL?.style?.starDensity)
+    const starDensity = Number.isFinite(starDensityRaw) ? Math.max(0, Math.min(1, starDensityRaw)) : 0.65
+    const milkyWay = hipsL?.style?.milkyWay === undefined ? true : !!hipsL.style.milkyWay
+
+    const textureOpacityRaw = Number(hipsL?.style?.textureOpacity)
+    const textureOpacity = Number.isFinite(textureOpacityRaw) ? Math.max(0, Math.min(1, textureOpacityRaw)) : 0.85
+
+    if (_deepSkyUniforms?.u_opacity) _deepSkyUniforms.u_opacity.value = clamped
+
+    const proceduralOff = (preset === 'black' || preset === 'texture')
+    if (_deepSkyUniforms?.u_starDensity) _deepSkyUniforms.u_starDensity.value = proceduralOff ? 0 : starDensity
+    if (_deepSkyUniforms?.u_milkyWay) _deepSkyUniforms.u_milkyWay.value = proceduralOff ? 0 : (milkyWay ? 1 : 0)
+
+    if (_deepSkyTextureMaterial) {
+      const ud = (_deepSkyTextureMaterial.userData && typeof _deepSkyTextureMaterial.userData === 'object') ? _deepSkyTextureMaterial.userData : (_deepSkyTextureMaterial.userData = {})
+      ud.__astroBaseOpacity = textureOpacity
+      ud.__astroLayerOpacity = clamped
+      _syncDeepSkyTextureOpacity()
     }
   } catch (_) {
     // ignore
   }
 
-  // Phase 3: SIMBAD catalog overlay (best-effort; backend defaults to offline fixtures).
+  // Phase 3+: catalog overlay (SIMBAD/VizieR) (best-effort; backend defaults to offline fixtures).
   try {
-    const wanted = catalogL ? !!catalogL.visible : false
+    const activeCatalogL = (catalogVizierL && catalogVizierL.visible) ? catalogVizierL : ((catalogSimbadL && catalogSimbadL.visible) ? catalogSimbadL : null)
+    const wanted = !!activeCatalogL
     _catalogWantedVisible = wanted
+
+    const activeId = String(activeCatalogL?.id || '').trim()
+    if (activeId && activeId !== _catalogActiveLayerId) {
+      _catalogActiveLayerId = activeId
+      _catalogLastQueryKey = ''
+      _catalogLastFetchAt = 0
+      _abortCatalogFetch()
+      _catalogSources = []
+      _catalogHoverIndex = -1
+      _catalogPinnedIndex = -1
+      _hideCatalogHud()
+    }
+
     if (wanted) {
       _ensureCatalogLayer()
       if (_catalogMesh) _catalogMesh.visible = true
     } else {
       if (_catalogMesh) _catalogMesh.visible = false
       _abortCatalogFetch()
+      _catalogActiveLayerId = ''
+      _catalogSources = []
+      _catalogHoverIndex = -1
+      _catalogPinnedIndex = -1
+      _hideCatalogHud()
     }
 
-    const op = catalogL ? Number(catalogL.opacity) : 1
+    const op = activeCatalogL ? Number(activeCatalogL.opacity) : 1
     const clamped = Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1
     if (_catalogUniforms?.u_opacity) _catalogUniforms.u_opacity.value = 0.9 * clamped
   } catch (_) {
@@ -574,45 +947,184 @@ function _computeMacroViewRaDecFov() {
   }
 }
 
-async function _ensureHiPSUnderlay(hipsLayer) {
-  if (!_hipsWantedVisible) return
-  if (!aladinUnderlay.value) return
+function _ensureDeepSkyBackground() {
+  if (_deepSkyMesh || !macroScene) return
+  const geo = new THREE.SphereGeometry(5000, 48, 32)
+  const uniforms = {
+    u_time: { value: 0 },
+    u_opacity: { value: 1 },
+    u_dim: { value: 1 },
+    u_starDensity: { value: 0.65 },
+    u_milkyWay: { value: 1 },
+    u_seed: { value: _hashSeed('deep-sky-v1') },
+  }
 
-  if (!_aladin) {
-    const view = _computeMacroViewRaDecFov() || { raDeg: 0, decDeg: 0, fovDeg: 60 }
-    const survey = String(hipsLayer?.style?.survey || 'P/DSS2/color').trim() || 'P/DSS2/color'
-    try {
-      _aladin = await initAladinLiteV3({
-        container: aladinUnderlay.value,
-        raDeg: view.raDeg,
-        decDeg: view.decDeg,
-        fovDeg: view.fovDeg,
-        survey,
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      varying vec3 vDir;
+      uniform float u_time;
+      uniform float u_opacity;
+      uniform float u_dim;
+      uniform float u_starDensity;
+      uniform float u_milkyWay;
+      uniform float u_seed;
+
+      float hash12(vec2 p) {
+        float h = dot(p, vec2(127.1, 311.7)) + u_seed * 0.00013;
+        return fract(sin(h) * 43758.5453123);
+      }
+
+      vec3 deepBase(vec2 uv) {
+        // Slight gradient: darker zenith, subtle blue lift near horizon.
+        float y = uv.y;
+        return mix(vec3(0.004, 0.006, 0.012), vec3(0.010, 0.014, 0.024), smoothstep(0.0, 1.0, y));
+      }
+
+      float starLayer(vec2 uv, float scale, float density, float timeJitter) {
+        vec2 p = uv * scale;
+        vec2 cell = floor(p);
+        vec2 f = fract(p) - 0.5;
+        float r = length(f);
+        float rnd = hash12(cell);
+
+        // Density controls the threshold; larger density means more stars.
+        float threshold = 1.0 - clamp(density, 0.0, 1.0) * 0.18;
+        float on = step(threshold, rnd);
+
+        float tw = 0.75 + 0.25 * sin(u_time * 2.0 + rnd * 6.2831 + timeJitter);
+        float size = mix(0.10, 0.02, rnd);
+        float core = smoothstep(size, 0.0, r);
+        return on * core * tw;
+      }
+
+      void main() {
+        // Convert direction to equirectangular uv.
+        vec3 d = normalize(vDir);
+        float lon = atan(d.z, d.x);
+        float lat = asin(clamp(d.y, -1.0, 1.0));
+        vec2 uv = vec2(lon / (6.28318530718) + 0.5, lat / 3.14159265359 + 0.5);
+
+        vec3 col = deepBase(uv);
+
+        float density = clamp(u_starDensity, 0.0, 1.0);
+        float s1 = starLayer(uv, 900.0, density, 1.0);
+        float s2 = starLayer(uv, 1800.0, density * 0.8, 2.3) * 0.8;
+        float s3 = starLayer(uv, 3600.0, density * 0.6, 3.7) * 0.6;
+        float stars = clamp(s1 + s2 + s3, 0.0, 1.5);
+
+        // Milky-way-ish band: a soft diagonal haze.
+        float band = 0.0;
+        if (u_milkyWay > 0.5) {
+          float curve = 0.25 * sin(lon * 0.75) + 0.10 * sin(lon * 2.0);
+          float dist = abs(lat - curve);
+          band = exp(-dist * dist * 18.0);
+        }
+
+        vec3 starCol = mix(vec3(0.85, 0.90, 1.00), vec3(1.00, 0.92, 0.85), smoothstep(0.3, 1.0, stars));
+        col += starCol * stars * 0.55;
+        col += vec3(0.08, 0.10, 0.14) * band * 0.65;
+
+        col = clamp(col, 0.0, 1.0);
+        gl_FragColor = vec4(col, clamp(u_opacity * u_dim, 0.0, 1.0));
+      }
+    `,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.BackSide,
+  })
+  mat.toneMapped = false
+
+  const mesh = new THREE.Mesh(geo, mat)
+  mesh.frustumCulled = false
+  mesh.renderOrder = -1000
+  mesh.visible = false
+  macroScene.add(mesh)
+  _deepSkyMesh = mesh
+  _deepSkyUniforms = uniforms
+}
+
+function _syncDeepSkyTextureOpacity() {
+  const mat = _deepSkyTextureMaterial
+  if (!mat) return
+  const ud = (mat.userData && typeof mat.userData === 'object') ? mat.userData : (mat.userData = {})
+  const baseOpacity = _clamp01(ud.__astroBaseOpacity, 0.85)
+  const layerOpacity = _clamp01(ud.__astroLayerOpacity, 1.0)
+  const dim = _clamp01(_deepSkyUniforms?.u_dim?.value, 1.0)
+  mat.opacity = _clamp01(baseOpacity * layerOpacity * dim, 0.85)
+  mat.needsUpdate = true
+}
+
+function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg') {
+  if (_deepSkyTextureMesh || !macroScene) return
+
+  // update_patch.md: Native texture skybox uses an inside-out sphere.
+  const textureLoader = new THREE.TextureLoader()
+  textureLoader.load(
+    String(texturePath || '/assets/eso_milkyway_8k.jpg'),
+    (texture) => {
+      try {
+        texture.mapping = THREE.EquirectangularReflectionMapping
+        texture.colorSpace = THREE.SRGBColorSpace
+      } catch (_) {
+        // ignore
+      }
+
+      const sphereGeo = new THREE.SphereGeometry(8000, 64, 64)
+      sphereGeo.scale(-1, 1, 1)
+
+      const sphereMat = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.85,
+        // update_patch.md: tint down to a deep grey-blue so 3D points own the highlight.
+        color: new THREE.Color(0.15, 0.18, 0.25),
+        // update_patch.md: strict depth isolation.
+        depthWrite: false,
+        depthTest: false,
       })
-      _hipsLastSurvey = survey
-    } catch (_) {
-      _aladin = null
+      sphereMat.toneMapped = false
+
+      const skyboxMesh = new THREE.Mesh(sphereGeo, sphereMat)
+      skyboxMesh.frustumCulled = false
+      skyboxMesh.visible = false
+      // update_patch.md: force render pipeline to the bottom.
+      skyboxMesh.renderOrder = -99
+
+      macroScene.add(skyboxMesh)
+
+      _deepSkyTextureMesh = skyboxMesh
+      _deepSkyTextureMaterial = sphereMat
+      _deepSkyTextureTex = texture
+
+      try {
+        const ud = (sphereMat.userData && typeof sphereMat.userData === 'object') ? sphereMat.userData : (sphereMat.userData = {})
+        if (ud.__astroBaseOpacity === undefined) ud.__astroBaseOpacity = 0.85
+        if (ud.__astroLayerOpacity === undefined) ud.__astroLayerOpacity = 1.0
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        _syncDeepSkyTextureOpacity()
+      } catch (_) {
+        // ignore
+      }
+    },
+    undefined,
+    (err) => {
+      _deepSkyTextureLoadErr = String(err?.message || err || 'texture load error')
     }
-  }
-
-  if (!_aladin) return
-
-  try {
-    const survey = String(hipsLayer?.style?.survey || '').trim()
-    if (survey && survey !== _hipsLastSurvey) {
-      setAladinSurvey(_aladin, survey)
-      _hipsLastSurvey = survey
-    }
-  } catch (_) {
-    // ignore
-  }
-
-  try {
-    const view = _computeMacroViewRaDecFov()
-    if (view) setAladinView(_aladin, view)
-  } catch (_) {
-    // ignore
-  }
+  )
 }
 let _csstPlanes = null
 let _csstActive = false
@@ -633,8 +1145,8 @@ const MICRO_MAX_INSTANCES = 12000
 
 // update_patch.md (Cinematic Polish): macro cosmic web readability is dominated by
 // the “overlap trick” (big halo + low opacity) and a heatmap palette.
-const MACRO_BASE_OPACITY = 0.15
-const MACRO_BASE_POINT_SIZE = 45.0
+const MACRO_BASE_OPACITY = 0.25
+const MACRO_BASE_POINT_SIZE = 80.0
 
 function _hashSeed(s) {
   const t = String(s || 'sio2')
@@ -676,8 +1188,12 @@ function _buildMacroScene(scene) {
       u_redshift_scale: { value: 0.0 },
       u_max_depth: { value: Number(_macroRedshiftMaxDepth) || 52.0 },
       // Additive blending must start dark; the halo shader provides perceived brightness.
-      u_opacity: { value: 0.15 },
-      u_size: { value: 45.0 },
+      u_opacity: { value: 0.25 },
+      u_size: { value: 80.0 },
+      // Cinematic polish: 3-stop heatmap palette (Near/Mid/Far).
+      u_colorNear: { value: new THREE.Vector3(0.02, 0.40, 0.80) },
+      u_colorMid: { value: new THREE.Vector3(0.60, 0.10, 0.70) },
+      u_colorFar: { value: new THREE.Vector3(1.00, 0.40, 0.05) },
     },
     vertexShader: [
       'attribute float aRedshift;',
@@ -685,6 +1201,7 @@ function _buildMacroScene(scene) {
       'uniform float u_max_depth;',
       'uniform float u_size;',
       'varying float vRedshift;',
+      'varying vec3 vWorldPos;',
       'void main() {',
       '  vRedshift = aRedshift;',
       '  vec3 localPos = position;',
@@ -697,6 +1214,7 @@ function _buildMacroScene(scene) {
       '  vec3 dir = baseDist > 0.0001 ? (localPos / baseDist) : vec3(0.0, 0.0, 1.0);',
       '  float currentDist = baseDist + (z * u_max_depth * s);',
       '  vec3 finalPos = dir * currentDist;',
+      '  vWorldPos = finalPos;',
       '',
       '  vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);',
       '  gl_Position = projectionMatrix * mvPosition;',
@@ -704,30 +1222,39 @@ function _buildMacroScene(scene) {
       '  // Perspective size attenuation. Keep within a safe pixel range.',
       '  float dist = max(1.0, length(mvPosition.xyz));',
       '  float size = u_size * (300.0 / dist);',
-      '  gl_PointSize = clamp(size, 2.0, 80.0);',
+      '  gl_PointSize = clamp(size, 1.0, 250.0);',
       '}',
     ].join('\n'),
     fragmentShader: [
       'precision highp float;',
       'varying float vRedshift;',
+      'varying vec3 vWorldPos;',
       'uniform float u_redshift_scale;',
       'uniform float u_opacity;',
+      'uniform vec3 u_colorNear;',
+      'uniform vec3 u_colorMid;',
+      'uniform vec3 u_colorFar;',
       'void main() {',
       '  // Soft particle: draw a glowing disk in the fragment shader.',
       '  vec2 cxy = 2.0 * gl_PointCoord - 1.0;',
       '  float r = dot(cxy, cxy);',
       '  if (r > 1.0) discard;',
-      '  float alpha = exp(-r * 5.0);',
+      '  // update_patch.md (Cinematic Polish 2.0): fat halo (long tail for overlap).',
+      '  float alpha = pow(1.0 - sqrt(r), 2.5);',
       '  float zBurst = clamp(vRedshift * clamp(u_redshift_scale, 0.0, 1.0), 0.0, 1.0);',
+      '  // update_patch.md: void exaggeration hack (density mask via low-frequency pseudo-noise).',
+      '  float noise = sin(vWorldPos.x * 0.015) * sin(vWorldPos.y * 0.015) * sin(vWorldPos.z * 0.015);',
+      '  float densityMask = smoothstep(-0.2, 0.6, noise);',
+      '  densityMask = max(0.1, densityMask);',
       '  // Cinematic heatmap palette for depth read (near/mid/far).',
-      '  vec3 colorNear = vec3(0.02, 0.40, 0.80);',
-      '  vec3 colorMid  = vec3(0.60, 0.10, 0.70);',
-      '  vec3 colorFar  = vec3(1.00, 0.40, 0.05);',
-      '  vec3 finalColor = mix(colorNear, colorMid, smoothstep(0.0, 0.5, zBurst));',
-      '  finalColor = mix(finalColor, colorFar, smoothstep(0.5, 1.0, zBurst));',
-      '  finalColor += (colorFar * zBurst * 0.8);',
-      '  float depthFade = 1.0 - (zBurst * 0.2);',
-      '  gl_FragColor = vec4(finalColor * alpha, clamp(u_opacity, 0.0, 1.0) * alpha * depthFade);',
+      '  vec3 colorNear = u_colorNear;',
+      '  vec3 colorMid  = u_colorMid;',
+      '  vec3 colorFar  = u_colorFar;',
+      '  vec3 finalColor = mix(colorNear, colorMid, smoothstep(0.0, 0.4, zBurst));',
+      '  finalColor = mix(finalColor, colorFar, smoothstep(0.4, 1.0, zBurst));',
+      '  finalColor += (colorFar * zBurst * 1.5 * densityMask);',
+      '  float depthFade = 1.0 - (zBurst * 0.3);',
+      '  gl_FragColor = vec4(finalColor * alpha, clamp(u_opacity, 0.0, 1.0) * densityMask * depthFade);',
       '}',
     ].join('\n'),
     transparent: true,
@@ -1256,7 +1783,6 @@ async function _captureTransientEvent(payload = null) {
             try {
               const p = curve.getPoint(Math.max(0, Math.min(1, s.t)))
               camera.position.copy(p)
-              camera.lookAt(pos)
               if (controls) {
                 controls.target.copy(pos)
                 controls.update?.()
@@ -1672,7 +2198,7 @@ function _stopCsstDecomposition({ restoreCamera = false } = {}) {
   // Restore macro brightness when leaving CSST overlay.
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: MACRO_BASE_OPACITY, duration: 0.6, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: _computeMacroOpacityBaseline(), duration: 0.6, ease: 'power2.out' })
   } catch (_) {
     // ignore
   }
@@ -1705,10 +2231,19 @@ function _stopCsstDecomposition({ restoreCamera = false } = {}) {
 async function _executeRedshiftBurst(payload = null) {
   if (!macroMesh) return
 
+  // Phase 2.7: cinematic burst params are layer-store-controlled, with stable defaults.
+  const macroL = _getMacroLayerState()
+  const burst = macroL?.style?.burst || null
+  const burstDollyFov = Number(burst?.dollyFov)
+  const burstPushInZ = Number(burst?.pushInZ)
+  const burstBloomThr = Number(burst?.bloom?.threshold)
+  const burstBloomStr = Number(burst?.bloom?.strength)
+
   // Cinematic polish (update_patch.md): store values for safe restore.
   let prevFov = null
   let prevZ = null
   let prevBloom = null
+  let prevDeepSkyDim = null
 
   // Scene dominance: redshift burst should never be occluded by modal inpaint.
   try {
@@ -1743,7 +2278,29 @@ async function _executeRedshiftBurst(payload = null) {
 
   try {
     const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: MACRO_BASE_OPACITY, duration: 0.45, ease: 'power2.out' })
+    if (u?.u_opacity) gsap.to(u.u_opacity, { value: _computeMacroOpacityBaseline(), duration: 0.45, ease: 'power2.out' })
+  } catch (_) {
+    // ignore
+  }
+
+  // update_patch.md: dim deep sky background so the burst owns the highlight.
+  try {
+    if ((_deepSkyMesh?.visible || _deepSkyTextureMesh?.visible) && _deepSkyUniforms?.u_dim) {
+      prevDeepSkyDim = Number(_deepSkyUniforms.u_dim.value)
+      if (!Number.isFinite(prevDeepSkyDim)) prevDeepSkyDim = 1
+      gsap.to(_deepSkyUniforms.u_dim, {
+        value: 0.12,
+        duration: 2.0,
+        ease: 'power2.out',
+        onUpdate: () => {
+          try {
+            _syncDeepSkyTextureOpacity()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
+    }
   } catch (_) {
     // ignore
   }
@@ -1755,7 +2312,8 @@ async function _executeRedshiftBurst(payload = null) {
       if (camera?.position) prevZ = Number(camera.position.z)
 
       gsap.to(camera, {
-        fov: 95,
+        // Wiring gate default: fov: 95
+        fov: Number.isFinite(burstDollyFov) ? burstDollyFov : 95,
         duration: 3.5,
         ease: 'power2.inOut',
         onUpdate: () => {
@@ -1769,7 +2327,7 @@ async function _executeRedshiftBurst(payload = null) {
 
       if (camera?.position && Number.isFinite(prevZ)) {
         gsap.to(camera.position, {
-          z: prevZ - 30,
+          z: prevZ - (Number.isFinite(burstPushInZ) ? burstPushInZ : 30),
           duration: 3.5,
           ease: 'power2.inOut',
           onUpdate: () => {
@@ -1790,7 +2348,13 @@ async function _executeRedshiftBurst(payload = null) {
   try {
     if (bloomPass) {
       prevBloom = { strength: Number(bloomPass.strength), threshold: Number(bloomPass.threshold) }
-      gsap.to(bloomPass, { threshold: 0.4, strength: 2.2, duration: 2.0, ease: 'power2.out' })
+      gsap.to(bloomPass, {
+        // Wiring gate defaults: threshold: 0.3, strength: 2.8
+        threshold: Number.isFinite(burstBloomThr) ? burstBloomThr : 0.3,
+        strength: Number.isFinite(burstBloomStr) ? burstBloomStr : 2.8,
+        duration: 2.0,
+        ease: 'power2.out',
+      })
     }
   } catch (_) {
     // ignore
@@ -1865,6 +2429,25 @@ async function _executeRedshiftBurst(payload = null) {
   try {
     if (bloomPass && prevBloom && Number.isFinite(prevBloom.threshold) && Number.isFinite(prevBloom.strength)) {
       gsap.to(bloomPass, { threshold: prevBloom.threshold, strength: prevBloom.strength, duration: 1.2, ease: 'power2.out' })
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    if (_deepSkyUniforms?.u_dim && Number.isFinite(prevDeepSkyDim)) {
+      gsap.to(_deepSkyUniforms.u_dim, {
+        value: prevDeepSkyDim,
+        duration: 1.2,
+        ease: 'power2.out',
+        onUpdate: () => {
+          try {
+            _syncDeepSkyTextureOpacity()
+          } catch (_) {
+            // ignore
+          }
+        },
+      })
     }
   } catch (_) {
     // ignore
@@ -2038,8 +2621,7 @@ function _stopModalInpaint() {
 
   // Restore macro brightness when leaving inpaint.
   try {
-    const u = macroMesh?.material?.uniforms
-    if (u?.u_opacity) gsap.to(u.u_opacity, { value: MACRO_BASE_OPACITY, duration: 0.6, ease: 'power2.out' })
+    _restoreCinematicBaseline({ macroOpacity: true, bloom: false, camera: false })
   } catch (_) {
     // ignore
   }
@@ -2227,6 +2809,13 @@ async function spinMacroCamera({ duration = 3.0, revolutions = 1.0 } = {}) {
     // ignore
   }
 
+  const prevControlsEnabled = controls ? !!controls.enabled : null
+  try {
+    if (controls) controls.enabled = false
+  } catch (_) {
+    // ignore
+  }
+
   const r = Math.max(6, Math.hypot(camera.position.x, camera.position.z) || 12)
   const start = Math.atan2(camera.position.z, camera.position.x)
   const state = { t: 0 }
@@ -2241,14 +2830,26 @@ async function spinMacroCamera({ duration = 3.0, revolutions = 1.0 } = {}) {
         try {
           camera.position.x = Math.cos(a) * r
           camera.position.z = Math.sin(a) * r
-          camera.lookAt(0, 0, 0)
+          if (controls) {
+            controls.target.set(0, 0, 0)
+            controls.update?.()
+          }
         } catch (_) {
           // ignore
         }
       },
-      onComplete: resolve,
+      onComplete: () => {
+        _macroSpinTween = null
+        resolve()
+      },
     })
   })
+
+  try {
+    if (controls && prevControlsEnabled !== null) controls.enabled = prevControlsEnabled
+  } catch (_) {
+    // ignore
+  }
 }
 
 async function rebuildMicroLattice(options = {}) {
@@ -2446,6 +3047,36 @@ function initEngine() {
     bloomPass = null
   }
 
+  // Phase 2.7: snapshot deterministic baselines to avoid long-term drift.
+  try {
+    if (bloomPass) {
+      _bloomBaseline = {
+        strength: Number(bloomPass.strength),
+        threshold: Number(bloomPass.threshold),
+        radius: Number(bloomPass.radius),
+      }
+    }
+  } catch (_) {
+    _bloomBaseline = null
+  }
+  try {
+    if (camera) {
+      _cameraBaseline = {
+        fov: Number(camera.fov),
+        z: Number(camera.position?.z),
+      }
+    }
+  } catch (_) {
+    _cameraBaseline = null
+  }
+
+  // Phase 3+: hover/pick HUD for catalog points.
+  try {
+    _bindCatalogPointerHandlers()
+  } catch (_) {
+    // ignore
+  }
+
   // If a deterministic OneAstronomy action was dispatched before ThreeTwin was ready,
   // attempt to run it now (e.g., first click on a preset that also switches scale).
   try {
@@ -2477,33 +3108,30 @@ function animate() {
     // ignore
   }
 
-  // Phase 2: debounce-sync HiPS underlay to the current Three camera.
+  // Astro-GIS Phase 2: animate deep-sky shader (subtle twinkle).
   try {
-    const astro = astroStore.astroGis.value
-    const hipsL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND] || null
-    const wanted = !!hipsL?.visible
-    const sync = hipsL?.style?.fovSync !== false
-    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
-    if (wanted && sync) {
-      _hipsWantedVisible = true
-      if (!_aladin) {
-        // Try to init lazily when toggled on.
-        void _ensureHiPSUnderlay(hipsL)
-      } else if (now - _hipsLastSyncAt > 260) {
-        _hipsLastSyncAt = now
-        const view = _computeMacroViewRaDecFov()
-        if (view) setAladinView(_aladin, view)
-      }
+    if (_deepSkyUniforms?.u_time && _deepSkyMesh?.visible) {
+      _deepSkyTime += 1 / 60
+      _deepSkyUniforms.u_time.value = _deepSkyTime
     }
   } catch (_) {
     // ignore
   }
 
-  // Phase 3: debounce-fetch SIMBAD catalog points for the current view.
+  // Keep texture skybox opacity synced with dim/layer opacity.
+  try {
+    if (_deepSkyTextureMesh?.visible && _deepSkyTextureMaterial) _syncDeepSkyTextureOpacity()
+  } catch (_) {
+    // ignore
+  }
+
+  // Phase 3+: debounce-fetch catalog points (SIMBAD/VizieR) for the current view.
   try {
     const astro = astroStore.astroGis.value
-    const catL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
-    const wanted = !!catL?.visible
+    const simbadL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
+    const vizierL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER] || null
+    const catL = (vizierL && vizierL.visible) ? vizierL : ((simbadL && simbadL.visible) ? simbadL : null)
+    const wanted = !!catL
     const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
     if (wanted) {
       _catalogWantedVisible = true
@@ -2684,14 +3312,18 @@ onBeforeUnmount(() => {
   }
 
   try {
-    destroyAladin(_aladin, aladinUnderlay.value)
+    _abortCatalogFetch()
   } catch (_) {
     // ignore
   }
-  _aladin = null
 
   try {
-    _abortCatalogFetch()
+    _unbindCatalogPointerHandlers()
+  } catch (_) {
+    // ignore
+  }
+  try {
+    _hideCatalogHud()
   } catch (_) {
     // ignore
   }
@@ -2707,11 +3339,22 @@ onBeforeUnmount(() => {
       _inpaintMesh?.geometry,
       _catalogMesh?.material,
       _catalogMesh?.geometry,
+      _deepSkyTextureMesh?.material,
+      _deepSkyTextureMesh?.geometry,
+      _deepSkyTextureTex,
       ...(_csstTextures || []),
     ],
     animationId,
     cancelAnimationFrameFn: cancelAnimationFrame,
   })
+
+  _deepSkyMesh = null
+  _deepSkyUniforms = null
+  _deepSkyTextureMesh = null
+  _deepSkyTextureMaterial = null
+  _deepSkyTextureTex = null
+  _deepSkyTextureWanted = false
+  _deepSkyTextureLoadErr = ''
 
   renderer = null
   camera = null
@@ -2756,6 +3399,16 @@ onBeforeUnmount(() => {
   _catalogLastQueryKey = ''
   _catalogLastFetchAt = 0
   _catalogAbort = null
+
+  _catalogActiveLayerId = ''
+  _catalogSources = []
+  _catalogHoverIndex = -1
+  _catalogPinnedIndex = -1
+  _catalogPointerMoveHandler = null
+  _catalogPointerDownHandler = null
+
+  _bloomBaseline = null
+  _cameraBaseline = null
 })
 </script>
 
@@ -2764,16 +3417,36 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.aladin-underlay {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .three-twin {
   position: relative;
-  z-index: 1;
+  z-index: 10;
+  pointer-events: auto !important;
+}
+
+.catalog-hud {
+  position: absolute;
+  z-index: 20;
+  min-width: 180px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(8, 10, 20, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  pointer-events: none !important;
+  transform: translate(0, 0);
+}
+
+.catalog-hud-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.catalog-hud-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.88;
 }
 </style>

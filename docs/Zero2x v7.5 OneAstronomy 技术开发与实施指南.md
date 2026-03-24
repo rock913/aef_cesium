@@ -1,6 +1,6 @@
 Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
-版本：v1.5 | 状态：主开发执行标准（Main）| 更新时间：2026-03-23
+版本：v1.6 | 状态：主开发执行标准（Main）| 更新时间：2026-03-24
 
 文档关系（请以本文件为主）：
 - 科学叙事/愿景蓝图：`docs/Zero2x v7.5：OneAstronomy 驱动的数字孪生宇宙与科学示范蓝图.md`
@@ -20,11 +20,16 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 电影级渲染特调门禁（Cinematic Polish）：Overlap Trick（大光晕+低透明度）+ Heatmap Palette + Dolly Zoom + Bloom tighten/restore
 - GOTTA 捕获：网络 schema + Spline Dive（CatmullRomCurve3）
 - Inpaint：World Anchor（payload/world-pos 或 ra/dec；可回退 GOTTA 最近目标）
-- Astro-GIS Phase 1–3：图层状态树（layer store）+ HiPS 底图（Aladin Lite best-effort）+ SIMBAD Catalog Points 叠加 + 后端契约测试/Dev&Prod smoke
+- Astro-GIS Phase 1–3：图层状态树（layer store）+ Deep Sky Background（单 Three.js 管线 / Native Skybox）+ SIMBAD Catalog Points 叠加 + 后端契约测试/Dev&Prod smoke
+- Deep Sky Background（Texture Skybox）资产准备：ESO 一键脚本（`tools/prepare_eso_milkyway_8k.sh`）+ 生成物 gitignore（避免误提交大文件）
+- Phase 2.7：Cinematic Polish 工程化（关键参数纳入 layer store + STOP/取消路径 restore baseline，避免长期漂移）
+- Phase 2.7：Catalog 可用性增强（hover/pick HUD + 大视场点数上限 + 确定性抽样，避免卡顿/闪烁）
+- Phase 2.7：Provider 扩展（VizieR 端点 + 前端图层/参数 UI + pytest 契约门禁）
+- Phase 2.8（部分）：Cinematic Polish 2.0（Fat Halo + Void Exaggeration + 点大小上限解锁 + Bloom tighten 参数升级）
 
 下一步（必须先写 Gate 再改实现）：
-- Astro-GIS（增强）：Catalog online provider 扩展（VizieR / 更多 band）+ label/hover/pick + 性能剖析（大视场点数上限与抽样策略）
-- Cinematic Polish（增强）：把关键调参（`u_size/u_opacity/heatmap`、Dolly Zoom、Bloom tighten）纳入 layer store / preset，并补齐“恢复基线”的门禁（避免长期状态漂移）
+- Astro-GIS（增强 / Phase 2.8 候选）：Catalog online provider 扩展（VizieR 多 catalog/更多列；安全 ADQL 白名单）+ label 常驻/过滤（mag/otype）+ 性能剖析（视场变化/抽样/交互拾取成本）
+- Cinematic Polish（增强 / Phase 2.9 候选）：Preset 化（多套 palette/bloom/dolly 参数一键切换）+ 更细的“恢复基线”门禁（覆盖更多中断路径与异常回退）
 
 ## 0) 核心设计哲学（从蓝图整合而来）
 
@@ -87,9 +92,9 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 过曝症状：数据量暴增到 2–5 万后，`AdditiveBlending` 叠加溢出 → 画面变成粉白糊糊、丢失暗弱层次。
 - 约束（必须同时满足）：
   - tiny sample 禁止收缩宏观 draw count（保留程序化星海作为底座）。
-  - 宏观粒子必须“沙子化”：实例半径收敛到高密度安全区（当前实现为 `SphereGeometry(0.015, ...)`；下一步将迁移到 `THREE.Points` 的 soft-particle）。
-  - 宏观 Shader 底色必须极暗，透明度必须收敛（当前实现默认 `u_opacity ≈ 0.15`），高光交给叠加与 Bloom。
-  - 红移爆裂期间 Bloom 必须“tighten → restore”（示例：burst 时 `threshold≈0.4, strength≈2.2`，结束后恢复到基线），避免长期过曝与状态漂移。
+  - 宏观粒子必须“沙子化”：宏观渲染使用 `THREE.Points` + soft-particle shader（点精灵光晕），禁止回退到“可读为糖果球”的球体实例渲染。
+  - 宏观 Shader 底色必须极暗，透明度必须收敛（当前实现默认 `u_opacity ≈ 0.25`），高光交给叠加与 Bloom。
+  - 红移爆裂期间 Bloom 必须“tighten → restore”（示例：burst 时 `threshold≈0.3, strength≈2.8`，结束后恢复到基线），避免长期过曝与状态漂移。
 
 1.2) 宏观天球基底必须符合物理常识（Sky-Sphere Baseline）
 - 症状：默认画面出现“规则的螺旋圆盘/飞碟盘”，会让红移爆裂读成“圆柱体/拉面”。
@@ -117,11 +122,14 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
 1) 宇宙网成型秘诀：Overlap Trick（大光晕 + 低透明度叠加）
 - 核心：不要试图“清晰画出每一颗星系”；要让密集区靠 AdditiveBlending 自动烧出丝状高光。
-- 推荐默认值（宏观 Points Shader）：
-  - `u_size ≈ 45`（光晕更大，增加重叠概率）
-  - `u_opacity ≈ 0.15`（单点几乎不可见，把亮度交给聚集区的叠加）
-  - `alpha = exp(-r * 5.0)`（更陡的高斯衰减：中心亮、边缘柔）
-- 点大小衰减：建议 `gl_PointSize = u_size * (300.0 / length(mvPosition.xyz))`，并 `clamp(..., 2.0, 80.0)`。
+- 当前默认（Cinematic Polish 2.0 / 已落地，且应有 Vitest wiring gate）：
+  - `u_size ≈ 80`，`u_opacity ≈ 0.25`
+  - Fat Halo：`alpha = pow(1.0 - sqrt(r), 2.5)`（长尾让重叠更容易发生）
+  - Void Exaggeration：`densityMask`（示例：`sin(vWorldPos.x * 0.015) * ...` + `smoothstep` + `max(0.1, ...)`）
+  - 点大小衰减：`gl_PointSize = clamp(u_size * (300.0 / dist), 1.0, 250.0)`
+  - `depthFade` 继续保留（避免爆裂时远处过曝）
+
+（历史 / Phase 2.7 基线）曾使用更陡的 `exp(-r * 5.0)` 与更小的 pointSize 上限；当前以 2.0 为准。
 
 2) HDR 纵深读数：Heatmap Palette（三段热力学调色盘）
 - 目的：让近/中/远（红移/深度）在色温上形成强纵深感。
@@ -133,10 +141,29 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - 可选加成：相机轻微 push-in（例如沿 z 轴推进 30），让“时空被拉扯”的透视畸变更明显。
 
 4) Bloom 只点亮“丝状骨架”
-- 约束：红移爆裂期间可临时压低 Bloom 阈值并增强强度（示例：`threshold≈0.4, strength≈2.2`），只让密集的星系团/丝状结构发光；结束后必须恢复到基线。
+- 约束：红移爆裂期间可临时压低 Bloom 阈值并增强强度（示例：`threshold≈0.3, strength≈2.8`），只让密集的星系团/丝状结构发光；结束后必须恢复到基线。
 
 5) Demo 1（CSST）背景呼吸感
 - 约束：CSST 分解时宏观背景不应被压到“纯黑虚空”；推荐将宏观不透明度维持在 `0.25–0.30` 区间（仍能读到环境层次）。
+
+### 1.6 交互稳定性门禁（Mouse / Controls / DOM）
+
+说明：update_patch.md 指出的“鼠标失效”属于**工程硬故障**，必须纳入可回归约束。目标是保证：Three.js 画布始终能收到指针事件；OrbitControls 不会被运镜逻辑锁死。
+
+1) DOM 遮挡与 pointer-events
+- 约束：任何覆盖在 Three.js 画布之上的全屏层（HUD、占位层）默认必须 `pointer-events: none`；只有具体面板/按钮可 `pointer-events: auto`。
+- **基线决策**：坚决抵制“多 Canvas / DOM underlay 叠加”作为天文底图方案；深空背景必须在 Three.js 单一渲染管线内完成（避免交互抢占、像素对齐误差、后处理割裂与移动端兼容问题）。
+
+2) OrbitControls 与 GSAP 运镜公约（硬规则）
+- 禁止：在 GSAP `onUpdate` / render loop 中持续调用 `camera.lookAt(...)`（OrbitControls 的“死穴”，会导致拖拽/缩放锁死或弹回）。
+- 必须：运镜期间只修改 `controls.target`，并调用 `controls.update()`；必要时短暂 `controls.enabled = false`，运镜结束后恢复。
+
+3) 初始化绑定正确性（最低限）
+- 约束：`new OrbitControls(camera, renderer.domElement)` 必须绑定到 `renderer.domElement`，禁止绑定到不稳定/被覆盖的外部容器。
+
+4) 沉浸感推进（“相机入网”）
+- 目标：避免“站在宇宙外看发光脑花”。红移爆裂期间建议：更激进的 push-in（例如 `pushInZ≈30–60`，强沉浸可取 60）+ 大 FOV（`60→95`）组合，使丝状结构从镜头两侧掠过。
+- 注意：沉浸感调参必须仍满足“Bloom tighten→restore”“baseline restore”门禁，避免长期漂移。
 
 ---
 
@@ -215,7 +242,8 @@ localPos.xyz = dir * currentDist;
 
 Phase 2.5 约束：Spline Dive（弧线跃迁）
 - 触发 `CAPTURE_TRANSIENT_EVENT` 后，相机必须使用 `THREE.CatmullRomCurve3` 做弧线飞行，而不是直线 tween。
-- 运镜期间相机必须持续 `lookAt(targetPos)`，并同步 `OrbitControls.target`，避免到达后视点漂移。
+- 运镜期间**禁止**在 `onUpdate`/render loop 中持续调用 `camera.lookAt(...)`（OrbitControls 死锁风险）。
+- 必须：用 `controls.target` 指向目标，并在更新 target 后调用 `controls.update()`；到达后确保 target 与视点一致，避免视点漂移。
 
 ### 任务 4：模态互生 Inpaint（START_MODAL_INPAINT / STOP_MODAL_INPAINT）
 
@@ -366,25 +394,51 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 当前实现状态（2026-03-23）：
 - Cosmic Web 已切换为 `THREE.Points` soft-particle 路径，并由 Vitest wiring gate 防回归。
 - Astro-GIS layer store + UI（LayerTree）已落地，并与 ThreeTwin 的运行态映射闭环。
-- Astro-GIS Phase 2（HiPS）与 Phase 3（Catalog）已落地；后端有 pytest 契约门禁，Makefile 含 dev/prod smoke。
+- Astro-GIS Phase 2（Deep Sky Background）与 Phase 3（Catalog）已落地；后端有 pytest 契约门禁，Makefile 含 dev/prod smoke。
 
-### Phase 2.7（下一步 / TDD 驱动）：Cinematic Polish 工程化 + Astro-GIS 交互能力
+### Phase 2.7（已完成 / TDD 驱动）：Cinematic Polish 工程化 + Astro-GIS 交互能力
 
-目标 A：Cinematic Polish 工程化（从“硬编码调参”到“可控 + 可恢复 + 可验收”）
-- Gate（先写）：
-  - 断言宏观 Points Shader 的“Overlap Trick”默认值存在（`u_opacity≈0.15`、`u_size≈45`、`exp(-r * 5.0)`）
-  - 断言 Heatmap Palette 三段插值存在（Near/Mid/Far + `smoothstep` 两段）
-  - 断言 Redshift Burst 包含 Dolly Zoom（`fov→95` + `updateProjectionMatrix`）
-  - 断言 Bloom tighten 必须 restore（burst 中 `threshold≈0.4,strength≈2.2`，结束恢复到初始化值）
-- Green：
-  - 将 `u_size/u_opacity/palette` 做成 layer store 可控项（可按 preset 设定），并提供“恢复基线”动作或在 STOP 时统一回滚。
+交付目标 A：Cinematic Polish 工程化（从“硬编码调参”到“可控 + 可恢复 + 可验收”）
+- Gate（Vitest wiring gate，先红后绿）：
+  - 宏观 Points Shader 的 Overlap Trick（2.0）默认值存在（`u_opacity≈0.25`、`u_size≈80`、`alpha = pow(1.0 - sqrt(r), 2.5)`、`densityMask`、size cap 250）
+  - Heatmap Palette 三段插值存在（Near/Mid/Far + `smoothstep` 两段）
+  - Redshift Burst 包含 Dolly Zoom（`fov→95` + `camera.updateProjectionMatrix()`）
+  - Bloom tighten 可回滚（burst 中 `threshold≈0.3,strength≈2.8`，STOP/结束后恢复到 baseline）
+- Green（实现落地）：
+  - 将 `baseOpacity/palette(near/mid/far)/burst(dollyFov/pushInZ/bloom)` 纳入 Astro-GIS layer store（默认值在 `astroStore`）
+  - ThreeTwin 在 STOP / 叙事取消路径中统一调用 `restoreCinematicBaseline`，避免长时间状态漂移
 
-目标 B：Astro-GIS Phase 3+（可用性增强）
-- Gate（先写）：
-  - 断言 Catalog overlay 支持 hover/pick（至少有 raycast / closest-point 的最小路径），并能在 UI 显示 name/mag/otype。
-  - 断言大视场点数上限与抽样策略存在（避免一次画 5–10 万条导致卡顿）。
-- Green：
-  - 增加 label/hover/pick（先最小 HUD/tooltip），并为 SIMBAD/VizieR 扩展 provider/波段提供接口位。
+交付目标 B：Astro-GIS Phase 3+（可用性增强：hover/pick + 性能安全）
+- Gate（Vitest wiring gate，先红后绿）：
+  - Catalog overlay 支持 hover/pick（raycast 最小路径）并以 HTML HUD 显示 `name/mag/otype/ra/dec`
+  - 大视场点数硬上限 + 确定性抽样（避免一次渲染数万点造成卡顿/闪烁）
+- Green（实现落地）：
+  - ThreeTwin 增加 `catalog-hud` overlay + `Raycaster` hover/pick（`pointermove/pointerdown`）
+  - 新增 `CATALOG_MAX_RENDER_POINTS` 与 `sampleCatalogSources()`（deterministic sampling）
+
+交付目标 C：Provider 扩展（SIMBAD → VizieR）
+- Frontend：新增 layer id `CATALOG_VIZIER`，LayerTree 暴露 `maxRows` 与 `catalog`（默认 `I/239/hip_main`）
+- Backend：新增端点 `GET /api/astro-gis/catalog/vizier`（默认 fixture，在线模式可选）
+  - 参数：`ra, dec, radius, maxRows, catalog`
+  - 安全约束：catalog id 进行白名单格式校验，默认离线 fixture 保证单测/离线部署稳定
+
+验收/回归（建议作为最小交付证明）：
+- Backend：`make test-fast`
+- Frontend：`cd frontend && npm test`
+
+落地文件索引（便于 Review/回归定位）：
+- Frontend
+  - Astro-GIS layer ids + Cinematic 默认参数：`frontend/src/stores/astroStore.js`
+  - 图层 UI（VizieR 参数：maxRows/catalog）：`frontend/src/views/workbench/components/LayerTree.vue`
+  - UI→layer store 同步（VizieR layer/params）：`frontend/src/WorkbenchApp.vue`
+  - 引擎实现（HUD、raycast、sampling cap、cinematic baseline restore、VizieR endpoint wiring）：`frontend/src/views/workbench/engines/ThreeTwin.vue`
+- Backend
+  - Catalog service（fixture/online/caching + VizieR 安全校验）：`backend/astro_gis_catalog.py`
+  - API routes：`backend/main.py`
+- Tests (Gates)
+  - 前端 wiring gate（Phase 2.7 tokens：`catalog-hud`、`sampleCatalogSources`、`restoreCinematicBaseline`、`/api/astro-gis/catalog/vizier` 等）：`frontend/tests/threeTwinWiring.test.js`
+  - layer store contract（新增 `CATALOG_VIZIER` 可见性/重置约定）：`frontend/tests/astroGisLayerStore.test.js`
+  - 后端契约测试（SIMBAD + VizieR schema / determinism / invalid params→400）：`tests/test_astro_gis_catalog_api.py`
 
 ---
 
@@ -403,6 +457,7 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - Phase 2.5：断言 GOTTA 使用 `CatmullRomCurve3` 做 Spline Dive
 - Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
 - 反回归：断言宏观天球基底为 sky-sphere（包含 `MACRO_SKY_RADIUS = 100`），并禁止出现螺旋盘种子与 RA/Dec 压扁系数（例如 `* 0.35`）
+- Phase 2（Deep Sky Background / Two-Gear）：断言 `preset: texture` 存在且满足单管线规训（`TextureLoader` + `EquirectangularReflectionMapping` + `SRGBColorSpace` + `sphereGeo.scale(-1, 1, 1)` + `depthWrite/test:false` + `renderOrder` 负值 + tinting），并禁止出现任何 DOM underlay（如 `aladin`）
 
 2) `frontend/tests/engineScaleRouterWiring.test.js`
 - 断言 macro→micro 的切换仍通过 `executeQuantumDive` 路径
@@ -446,192 +501,78 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - 必须使用天球球壳（各向同性），禁止任何轴向压扁系数（例如 `* 0.35`）。
 - tiny sample 只能“局部注入”，不能把宏观 draw count 收缩到样本量（避免画面坍缩）。
 
-（伪代码片段，仅表达意图；以 `coordinateMath.raDecToUnitVector()` 为准）
+实现约定（避免伪代码重复；以真实代码为准）：
 
-```js
-const rawData = await fetch('/data/astronomy/sdss_micro_sample.json').then((r) => r.json())
-const dir = coordinateMath.raDecToUnitVector(ra + 180, dec)
-const pos = new THREE.Vector3(dir.x, dir.z, dir.y).multiplyScalar(100)
-```
-
-
-任务 1：CSST 复杂星系精细结构分解
-
-触发指令：DECOMPOSE_CSST_GALAXY
-
-视觉逻辑：相机飞向特定的星系坐标，弹出三个层叠的半透明 PlaneGeometry，分别代表核球、盘、棒的分解图。
-
-// 1. 运镜飞向目标星系
-const targetPos = raDecToCartesian(targetRA, targetDec, 95); // 稍微靠近
-gsap.to(camera.position, {
-  x: targetPos.x, y: targetPos.y, z: targetPos.z,
-  duration: 2.5, ease: "power2.inOut",
-  onUpdate: () => camera.lookAt(targetPos) // 紧盯目标
-});
-
-// 2. 挂载 CSST 分解图层 (Three.js Group)
-csstGroup.position.copy(targetPos);
-// Z轴错开展开动画
-gsap.to(diskPlane.position, { z: -2, duration: 1.5 });
-gsap.to(bulgePlane.position, { z: 0, duration: 1.5 });
-gsap.to(barPlane.position, { z: 2, duration: 1.5 });
-
-
-任务 2：精密宇宙学与红移立体爆裂 (Jean-Paul Kneib 协作)
-
-触发指令：EXECUTE_REDSHIFT_PREDICTION
-
-视觉逻辑：背景星系不再是平面。通过 GSAP 驱动 u_redshift_scale，让粒子沿原点射线方向急速拉远（真实物理深度还原）。
-
-// Shader 顶点核心计算：
-// float realDistance = 100.0 + (aRedshift * u_max_depth * u_redshift_scale);
-// vec3 finalPos = normalize(localPos.xyz) * realDistance;
-
-// 清理任务 1 的遗留
-gsap.to(csstGroup.scale, { x: 0, y: 0, z: 0, duration: 0.5 });
-
-// 相机后撤，纵览全宇宙（按实际实现调参）
-gsap.to(camera.position, { x: 0, y: 0, z: 250, duration: 3.0 })
-
-// 触发红移大爆裂 (斯隆长城)
-gsap.to(instancedMesh.material.uniforms.u_redshift_scale, {
-  value: 1.0, 
-  duration: 4.0, 
-  ease: "power3.inOut" 
-});
-// 同时改变粒子颜色，红移越大的变成粉紫色
-
-
-任务 3：GOTTA 智能时域网络与瞬变源捕获
-
-触发指令：CAPTURE_TRANSIENT_EVENT
-
-视觉逻辑：在庞大的三维宇宙网中，某个坐标突然闪烁刺眼的白光。相机使用样条曲线（Spline）跃迁飞去。
-
-// 1. 在指定坐标生成高亮闪烁材质
-const gottaPos = raDecToCartesian(gottaRA, gottaDec, 100 + gottaZ * maxDepth);
-transientSprite.position.copy(gottaPos);
-transientSprite.visible = true;
-// 闪烁动画
-gsap.fromTo(transientSprite.material, { opacity: 0.2 }, { opacity: 1, yoyo: true, repeat: -1 });
-
-// 2. 样条曲线运镜 (CatmullRom)
-const startPos = camera.position.clone();
-const midPos = startPos.clone().lerp(gottaPos, 0.5).add(new THREE.Vector3(50, 50, 0)); // 制造弧线跃迁感
-const curve = new THREE.CatmullRomCurve3([startPos, midPos, gottaPos.clone().multiplyScalar(0.95)]);
-
-gsap.to({ t: 0 }, {
-  t: 1, duration: 3.5, ease: "power2.inOut",
-  onUpdate: function() {
-    camera.position.copy(curve.getPoint(this.targets()[0].t));
-    camera.lookAt(gottaPos);
-  },
-  onComplete: () => {
-    // 唤起 ECharts 绘制光变曲线 HUD
-    astroStore.showTransientHUD(gottaData);
-  }
-});
-
-
-任务 4：模态互生与物理一致性微调 (Modal Inpainting)
-
-触发指令：START_MODAL_INPAINT
-
-视觉逻辑：雷达扫描波纹掠过，可见光纹理褪变为 X 射线纹理。需要极强的边缘羽化（Vignette）。
-
-// Inpaint WebGPU Shader 片元核心 (伪代码)
-void main() {
-    vec4 texOpt = texture2D(u_optical, vUv);
-    vec4 texXray = texture2D(u_xray, vUv);
-    
-    // 扫描雷达波纹计算
-    float d = distance(vUv, u_center);
-    float mask = smoothstep(u_radius + 0.05, u_radius - 0.05, d);
-    
-    // 模态混合
-    vec3 mixedColor = mix(texOpt.rgb, texXray.rgb, mask);
-    
-    // 边缘羽化遮罩 (Vignette) -> 彻底消除面片感
-    float distToCenter = distance(vUv, vec2(0.5));
-    float vignette = smoothstep(0.5, 0.3, distToCenter);
-    
-    gl_FragColor = vec4(mixedColor * vignette, 1.0); 
-    // AdditiveBlending 模式下，黑色(0,0,0)即完全透明
-}
-
-
-三、 Copilot 协同叙事与前端状态机约定
-
-开发团队在处理 WorkbenchApp.vue 时，必须将右侧的 021 Copilot 视为“科学解说员”。交互通过预置对话推进：
-
-触发器 (Preset Click)
-
-Store Action (astroStore)
-
-Copilot 打印日志流 (模拟 Agent)
-
-3D 画布响应 (ThreeTwin)
-
-Demo 1 (CSST)
-
-DECOMPOSE_CSST_GALAXY
-
-"接收 CSST 测光数据... 运行 OneAstronomy 进行形态学解构..."
-
-相机飞入 -> 呼出三层分解面片
-
-Demo 2 (Redshift)
-
-EXECUTE_REDSHIFT_PREDICTION
-
-"连线 Jean-Paul Kneib 团队... 预测暗弱星系红移... 正在重构三维宇宙学结构..."
-
-销毁分解图 -> 相机拉远 -> 粒子沿视线拉伸爆裂
-
-Demo 3 (GOTTA)
-
-CAPTURE_TRANSIENT_EVENT
-
-"GOTTA 监测网报警！发现异常时域波形。极速跃迁定位目标源..."
-
-宇宙网某处闪烁 -> 弧线跃迁运镜 -> 呼出光变图
-
-Demo 4 (Inpaint)
-
-START_MODAL_INPAINT
-
-"启动基础模型物理图谱互生... 反推目标 X 射线辐射场分布..."
-
-背景星系变暗(透明度0.1) -> 雷达扫描 X射线替换
-
-技术收尾规范：
 - 所有任务在 `frontend/src/views/workbench/engines/ThreeTwin.vue` 内执行，并由 `astroStore.currentAgentAction` 驱动。
-- 任何任务开始必须先执行 Scene Authority 清理/退让；STOP 动作必须可随时打断“一键四幕剧本”。
+- Demo→Action 映射以 `frontend/src/stores/astroStore.js` + Workbench Preset 为准。
+- Copilot 输出只要求“可解释 + 可追溯”：数据阶段/模型阶段/物理阶段/视觉阶段四段日志即可。
+
+必须满足的叙事/工程约束（门禁已存在或应补齐）：
+
+- 序幕（数据织物）：`/data/astronomy/sdss_micro_sample.json` 加载失败不得阻塞首帧；tiny sample 不得坍缩宏观 draw count。
+- Demo 1（CSST）：必须 circle mask + edge feather/vignette；必须 tilt + side-view 运镜避免贴纸感；触发 redshift/inpaint 必须自动清理（Scene Authority）。
+- Demo 2（Redshift Burst）：必须真·径向膨胀；必须 Dolly Zoom（FOV pull + `camera.updateProjectionMatrix()`）；Bloom tighten 必须能 restore baseline。
+- Demo 3（GOTTA）：必须 CatmullRomCurve3 样条跃迁；到达后必须同步 `controls.target`，避免视点漂移。
+- Demo 4（Inpaint）：必须 Additive + depthTest/write 关闭 + 强边缘羽化；必须支持 world anchor payload，并允许回退 GOTTA 最近目标。
 
 ---
 
 ## 7) Astro-GIS（对标 Cesium 的天文图层化）——分期落地
 
-愿景：把 OneAstronomy 从“特效 Demo”升级为可扩展的虚拟天文台：HiPS（影像底图）+ TAP/SIMBAD/VizieR（星表要素）+ Three.js（业务 3D 图层）。
+愿景：把 OneAstronomy 从“特效 Demo”升级为可扩展的虚拟天文台：影像底图（未来可演进为 HiPS/巡天贴图，但必须保持单 Three.js 管线）+ TAP/SIMBAD/VizieR（星表要素）+ Three.js（业务 3D 图层）。
 
 Phase 1（Foundation / 已完成）：图层状态树（Astro Layer Store）
 - 目标：在 `astroStore` 建立标准的 layer state（visible/opacity/style/source），并由 `ThreeTwin.vue` 将其映射到 Three.js 资产。
 - 当前落地：LayerTree UI 可控显隐/透明度；并与 Demo 场景霸权规则兼容。
 
-Phase 2（Deep Sky Background / 里程碑）：HiPS 影像底图 + 视场同步
-- 推荐方案：集成 Aladin Lite v3 作为底层 Canvas（Z-index: 0），Three.js 作为上层透明业务层（Z-index: 1）。
-- 关键：把 Three.js 相机（视向 / FOV）映射为 Aladin 的 RA/Dec/FOV，实现一镜到底的底图联动。
+Phase 2（Deep Sky Background / 里程碑）：单管线深空背景（Native Skybox）
+- **正确方案（本项目基线 / 已实现）**：Deep Sky Background 必须作为 Three.js 场景内的背景资产（翻转天球/skybox shader），与宏观点云同一渲染上下文、同一后处理链路。
+- 关键收益：无多 Canvas 叠加；不抢 OrbitControls 指针事件；Bloom/色调映射/截图一致；移动端层级更稳定。
+
+两档切换策略（Two-Gear Strategy / 来自 update_patch.md，已工程化）：
+- Gear 1（默认态）：`preset: procedural | black`
+  - 目的：首帧稳定、离线可用、低资源占用。
+  - 约束：必须仍在 Three.js 单管线内（翻转天球 + shader），禁止 DOM/Canvas underlay。
+- Gear 2（按需开启）：`preset: texture`（Native 8K Equirectangular Texture）
+  - 目的：在演示需要“真实巡天影像质感”时启用，但仍保持 One Universe 的单一渲染上下文。
+  - 工程规训（必须满足，且建议由 Vitest wiring gate 防回归）：
+    - 贴图加载：`THREE.TextureLoader()`；`texture.mapping = THREE.EquirectangularReflectionMapping`；`texture.colorSpace = THREE.SRGBColorSpace`
+    - 几何：超大天球并反转内表面（`sphereGeo.scale(-1, 1, 1)`）
+    - 材质：`THREE.MeshBasicMaterial` 且 `depthWrite: false`、`depthTest: false`（绝对深度隔离，避免与点云穿插）
+    - 底图压暗（Tinting）：`color ≈ (0.15, 0.18, 0.25)` + `opacity ≈ 0.85`，确保宇宙网高光不被底图抢走
+    - 渲染顺序：`renderOrder = -99`（或任何“显著小于 0 的负值”，强制垫底）
+  - 资产约定：纹理文件不应强绑定到仓库（许可证/体积风险）；推荐由部署方放入 `frontend/public/assets/` 并通过 `texturePath` 配置加载。
+  - 一键生成（推荐）：在仓库根目录执行 `bash tools/prepare_eso_milkyway_8k.sh`，会自动下载 ESO 源图、缩放到 8192×4096、原子写入并清理源文件（生成物已被 .gitignore 排除）。
+- 演进方向（未来 Phase 2.x）：若需要“真实巡天影像（HiPS/DSS2/WISE 等）”，应以单管线方式实现（例如：服务端瓦片/拼接 → 贴图到天球；或直接在 Three.js 内做 HiPS tile selection + texture atlas），而非引入外部 DOM/Canvas underlay。
+
+弃用声明：
+- Aladin Lite underlay 方案在本项目中视为弃用/不再推荐（多 Canvas 叠加违背 One Universe 的单一渲染上下文原则，并引入交互与后处理分裂）。
 
 Phase 3（Vector Features / 里程碑）：Catalog 要素层（SIMBAD/VizieR）
 - 目标：视场停止（debounce）后请求当前 FOV 区域的星表数据，渲染为 Instanced/Sprite/Label，并可被图层状态树统一管理。
 
-后端接口与模式约定（Catalog / SIMBAD）：
-- Endpoint：`GET /api/astro-gis/catalog/simbad?ra_deg=...&dec_deg=...&radius_deg=...&max_rows=...`
+后端接口与模式约定（Catalog / SIMBAD & VizieR）：
+
+通用约定：
 - 默认模式：离线 deterministic fixture（CI/离线环境稳定，且契约可回归）
-- Online 模式（显式开启才走网络；失败默认回退 fixture）：
-  - `ASTRO_GIS_CATALOG_MODE=online`（否则默认 `fixture`）
-  - `ASTRO_GIS_CATALOG_ONLINE_TIMEOUT_S=8`（秒，默认 8）
-  - `ASTRO_GIS_CATALOG_ONLINE_FALLBACK=1`（默认 1；设 0 则 online 失败直接抛错）
-  - `ASTRO_GIS_SIMBAD_TAP_SYNC_URL=https://simbad.cds.unistra.fr/simbad/sim-tap/sync`（可覆写）
-  - `ASTRO_GIS_CATALOG_CACHE_TTL_S=30`（秒，默认 30）
-  - `ASTRO_GIS_CATALOG_CACHE_MAX_ITEMS=256`（默认 256）
+- Online 模式：显式开启才走网络；失败默认回退 fixture（可配置为不回退）
+
+SIMBAD：
+- Endpoint：`GET /api/astro-gis/catalog/simbad?ra=...&dec=...&radius=...&maxRows=...`
+
+VizieR：
+- Endpoint：`GET /api/astro-gis/catalog/vizier?catalog=I/239/hip_main&ra=...&dec=...&radius=...&maxRows=...`
+- 现阶段在线模式范围（Phase 2.7）：仅允许 `catalog=I/239/hip_main`（Hipparcos 主表），避免泛化 ADQL 带来的安全与稳定性风险。
+
+Online 模式（对 SIMBAD/VizieR 共同生效）：
+- `ASTRO_GIS_CATALOG_MODE=online`（否则默认 `fixture`）
+- `ASTRO_GIS_CATALOG_ONLINE_TIMEOUT_S=8`（秒；VizieR 默认可略高，实际实现为 best-effort）
+- `ASTRO_GIS_CATALOG_ONLINE_FALLBACK=1`（默认 1；设 0 则 online 失败直接抛错）
+
+上游 TAP Sync URL（可覆写）：
+- `ASTRO_GIS_SIMBAD_TAP_SYNC_URL=https://simbad.cds.unistra.fr/simbad/sim-tap/sync`
+- `ASTRO_GIS_VIZIER_TAP_SYNC_URL=https://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync`
+
+缓存（在线模式推荐开启；对 SIMBAD/VizieR 共同生效）：
+- `ASTRO_GIS_CATALOG_CACHE_TTL_S=30`（秒，默认 30）
+- `ASTRO_GIS_CATALOG_CACHE_MAX_ITEMS=256`（默认 256）

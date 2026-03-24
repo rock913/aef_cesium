@@ -14,6 +14,7 @@ describe('Astro-GIS layer store (Phase 1 foundation)', () => {
     expect(ASTRO_GIS_LAYER_IDS.MACRO_SDSS).toBe('astro-macro-sdss')
     expect(ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND).toBe('astro-hips-background')
     expect(ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD).toBe('astro-catalog-simbad')
+    expect(ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER).toBe('astro-catalog-vizier')
   })
 
   it('provides default layers with visibility contract', () => {
@@ -21,10 +22,12 @@ describe('Astro-GIS layer store (Phase 1 foundation)', () => {
     const macro = store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.MACRO_SDSS)
     const hips = store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND)
     const simbad = store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD)
+    const vizier = store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER)
 
     expect(macro?.visible).toBe(true)
     expect(hips?.visible).toBe(false)
     expect(simbad?.visible).toBe(false)
+    expect(vizier?.visible).toBe(false)
   })
 
   it('clamps opacity and bumps version', () => {
@@ -43,23 +46,26 @@ describe('Astro-GIS layer store (Phase 1 foundation)', () => {
     const store = useAstroStore()
     store.patchAstroGisLayer(ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, {
       visible: true,
-      style: { survey: 'P/allWISE/color' },
-      source: { provider: 'aladin-lite-v3' },
+      style: { preset: 'black', starDensity: 0.2, milkyWay: false },
+      source: { provider: 'three-native' },
     })
 
     const l = store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND)
     expect(l?.visible).toBe(true)
-    expect(l?.style?.survey).toBe('P/allWISE/color')
-    expect(l?.source?.provider).toBe('aladin-lite-v3')
+    expect(l?.style?.preset).toBe('black')
+    expect(l?.style?.milkyWay).toBe(false)
+    expect(l?.source?.provider).toBe('three-native')
   })
 
   it('reset restores demo layers visible and optional layers hidden', () => {
     const store = useAstroStore()
     store.setAstroGisLayerVisible(ASTRO_GIS_LAYER_IDS.MACRO_SDSS, false)
     store.setAstroGisLayerVisible(ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, true)
+    store.setAstroGisLayerVisible(ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, true)
     __resetAstroStoreForTests()
 
     expect(store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.MACRO_SDSS)?.visible).toBe(true)
     expect(store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD)?.visible).toBe(false)
+    expect(store.getAstroGisLayer(ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER)?.visible).toBe(false)
   })
 })

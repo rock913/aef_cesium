@@ -21,7 +21,7 @@ def test_client():
     # Ensure we import this repo's backend/main.py (not some other workspace module).
     sys.modules.pop("main", None)
 
-    import main as main_module
+    import main as main_module  # pyright: ignore[reportMissingImports]
 
     # Avoid real EE init during FastAPI startup.
     main_module.init_earth_engine = lambda: None
@@ -95,4 +95,58 @@ class TestAstroGisCatalogSimbad:
     )
     def test_invalid_params_400(self, test_client: TestClient, params: dict):
         resp = test_client.get("/api/astro-gis/catalog/simbad", params=params)
+        assert resp.status_code == 400
+
+
+class TestAstroGisCatalogVizier:
+    def test_returns_fixture_schema(self, test_client: TestClient):
+        resp = test_client.get(
+            "/api/astro-gis/catalog/vizier",
+            params={"catalog": "I/239/hip_main", "ra": 150.1, "dec": 2.22, "radius": 12.5, "maxRows": 25},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert isinstance(data, dict)
+        assert "meta" in data
+        assert "sources" in data
+
+        meta = data["meta"]
+        assert meta.get("provider") == "vizier"
+        assert meta.get("mode") in ("fixture", "online")
+        assert meta.get("catalog") == "I/239/hip_main"
+
+        q = meta.get("query")
+        assert isinstance(q, dict)
+        assert set(q.keys()) >= {"catalog", "ra_deg", "dec_deg", "radius_deg", "max_rows"}
+        assert q.get("catalog") == "I/239/hip_main"
+
+        sources = data["sources"]
+        assert isinstance(sources, list)
+        assert 1 <= len(sources) <= 25
+        for s in sources[:5]:
+            _assert_source_shape(s)
+
+    def test_deterministic_for_same_query(self, test_client: TestClient):
+        params = {"catalog": "I/239/hip_main", "ra": 10.5, "dec": -20.25, "radius": 5.0, "maxRows": 50}
+        resp1 = test_client.get("/api/astro-gis/catalog/vizier", params=params)
+        resp2 = test_client.get("/api/astro-gis/catalog/vizier", params=params)
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        assert resp1.json() == resp2.json()
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"catalog": "I/239/hip_main", "ra": 0, "dec": 91, "radius": 5, "maxRows": 10},
+            {"catalog": "I/239/hip_main", "ra": 0, "dec": -91, "radius": 5, "maxRows": 10},
+            {"catalog": "I/239/hip_main", "ra": 0, "dec": 0, "radius": 0, "maxRows": 10},
+            {"catalog": "I/239/hip_main", "ra": 0, "dec": 0, "radius": 100, "maxRows": 10},
+            {"catalog": "I/239/hip_main", "ra": 0, "dec": 0, "radius": 5, "maxRows": 0},
+            {"catalog": "bad catalog", "ra": 0, "dec": 0, "radius": 5, "maxRows": 10},
+            {"catalog": "\"I/239/hip_main\"", "ra": 0, "dec": 0, "radius": 5, "maxRows": 10},
+        ],
+    )
+    def test_invalid_params_400(self, test_client: TestClient, params: dict):
+        resp = test_client.get("/api/astro-gis/catalog/vizier", params=params)
         assert resp.status_code == 400

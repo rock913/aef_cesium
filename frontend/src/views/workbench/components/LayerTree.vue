@@ -146,26 +146,63 @@
           </div>
 
           <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND">
-            <span class="pk">Survey</span>
+            <span class="pk">Preset</span>
+            <select class="sel" :value="String(l.params.preset || 'procedural')" @change="setParam(l.id, 'preset', $event?.target?.value)">
+              <option value="procedural">Procedural Deep Space</option>
+              <option value="black">Black</option>
+              <option value="texture">Texture Skybox (Equirectangular)</option>
+            </select>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND && String(l.params.preset || 'procedural').trim().toLowerCase() !== 'texture'">
+            <span class="pk">Star Density</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              :value="Number(l.params.starDensity ?? 0.65)"
+              @input="setParam(l.id, 'starDensity', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.starDensity) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND && String(l.params.preset || 'procedural').trim().toLowerCase() !== 'texture'">
+            <span class="pk">Milky Way</span>
+            <input
+              class="chk"
+              type="checkbox"
+              :checked="l.params.milkyWay === undefined ? true : !!l.params.milkyWay"
+              @change="setParam(l.id, 'milkyWay', $event?.target?.checked)"
+            />
+            <span class="pv">{{ (l.params.milkyWay === false) ? 'OFF' : 'ON' }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND && String(l.params.preset || 'procedural').trim().toLowerCase() === 'texture'">
+            <span class="pk">Texture Opacity</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              :value="Number(l.params.textureOpacity ?? 0.85)"
+              @input="setParam(l.id, 'textureOpacity', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtPct(l.params.textureOpacity) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND && String(l.params.preset || 'procedural').trim().toLowerCase() === 'texture'">
+            <span class="pk">Texture Path</span>
             <input
               class="txt"
               type="text"
               spellcheck="false"
-              :value="String(l.params.survey || '')"
-              placeholder="P/DSS2/color"
-              @change="setParam(l.id, 'survey', $event?.target?.value)"
+              :value="String(l.params.texturePath || '')"
+              placeholder="/assets/eso_milkyway_8k.jpg"
+              @change="setParam(l.id, 'texturePath', $event?.target?.value)"
             />
-          </div>
-
-          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND">
-            <span class="pk">FOV Sync</span>
-            <input
-              class="chk"
-              type="checkbox"
-              :checked="l.params.fovSync === undefined ? true : !!l.params.fovSync"
-              @change="setParam(l.id, 'fovSync', $event?.target?.checked)"
-            />
-            <span class="pv">{{ (l.params.fovSync === false) ? 'OFF' : 'ON' }}</span>
           </div>
 
           <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD">
@@ -180,6 +217,32 @@
               @input="setParam(l.id, 'maxRows', $event?.target?.value)"
             />
             <span class="pv">{{ fmtNum(l.params.maxRows) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER">
+            <span class="pk">Max Rows</span>
+            <input
+              class="rng"
+              type="range"
+              min="50"
+              max="2000"
+              step="50"
+              :value="Number(l.params.maxRows ?? 800)"
+              @input="setParam(l.id, 'maxRows', $event?.target?.value)"
+            />
+            <span class="pv">{{ fmtNum(l.params.maxRows) }}</span>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER">
+            <span class="pk">Catalog</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.catalog || '')"
+              placeholder="I/239/hip_main"
+              @change="setParam(l.id, 'catalog', $event?.target?.value)"
+            />
           </div>
 
           <div class="param" v-if="String(l.id) === 'micro-atoms'">
@@ -372,6 +435,7 @@ const macroLayers = computed(() => {
     ASTRO_GIS_LAYER_IDS.DEMO_INPAINT,
     ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND,
     ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD,
+    ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER,
   ])
   return threeLayers.value.filter((l) => ids.has(String(l?.id || '')))
 })
@@ -407,7 +471,7 @@ function setParam(id, key, raw) {
   const next = (props.layers || []).map((l) => {
     if (l.id !== id) return l
     const params = { ...(l.params || {}) }
-    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior' || k === 'pointSize' || k === 'maxRows') {
+    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior' || k === 'pointSize' || k === 'maxRows' || k === 'starDensity' || k === 'textureOpacity') {
       const n = Number(raw)
       if (Number.isFinite(n)) params[k] = n
       return { ...l, params }
@@ -416,12 +480,16 @@ function setParam(id, key, raw) {
       params.palette = String(raw || '').trim()
       return { ...l, params }
     }
-    if (k === 'survey') {
-      params.survey = String(raw || '').trim()
+    if (k === 'preset') {
+      params.preset = String(raw || '').trim().toLowerCase()
       return { ...l, params }
     }
-    if (k === 'fovSync') {
-      params.fovSync = !!raw
+    if (k === 'milkyWay') {
+      params.milkyWay = !!raw
+      return { ...l, params }
+    }
+    if (k === 'texturePath') {
+      params.texturePath = String(raw || '').trim()
       return { ...l, params }
     }
     return l
@@ -538,6 +606,16 @@ function fmtNum(v) {
 }
 
 .txt {
+  flex: 1;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.90);
+}
+
+.sel {
   flex: 1;
   height: 24px;
   padding: 0 8px;
