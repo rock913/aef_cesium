@@ -127,11 +127,11 @@ const state = reactive({
       [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND]: {
         id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND,
         name: 'Deep Sky Background',
-        visible: false,
+        visible: true,
         opacity: 1.0,
         style: {
           // Single-canvas native background (no multi-canvas / DOM underlay).
-          preset: 'procedural',
+          preset: 'texture',
           starDensity: 0.65,
           milkyWay: true,
           // update_patch.md: optional second gear (native texture skybox).

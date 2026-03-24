@@ -945,7 +945,7 @@ const layers = ref([
   { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } },
-  { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: false, params: { opacity: 1.0, preset: 'procedural', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } },
+  { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: true, params: { opacity: 1.0, preset: 'texture', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } },
   { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } },
   { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main' } },
 ])
@@ -1007,7 +1007,7 @@ function _normalizeLayers(arr) {
     [ASTRO_GIS_LAYER_IDS.DEMO_CSST, { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, name: 'Astro · Demo CSST', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } }],
-    [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: false, params: { opacity: 1.0, preset: 'procedural', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } }],
+    [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: true, params: { opacity: 1.0, preset: 'texture', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } }],
     [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } }],
     [ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main' } }],
   ])
@@ -2000,7 +2000,7 @@ function onCopilotSelectPreset(preset) {
         { id: ASTRO_GIS_LAYER_IDS.DEMO_CSST, enabled: true, params: { opacity: 1.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, enabled: true, params: { opacity: 1.0 } },
         { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, enabled: true, params: { opacity: 1.0 } },
-        { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, enabled: false, params: { opacity: 1.0, preset: 'procedural', starDensity: 0.65, milkyWay: true } },
+        { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, enabled: true, params: { opacity: 1.0, preset: 'texture', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } },
         { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, enabled: false, params: { opacity: 1.0, maxRows: 600 } },
       ])
     } catch (_) {
