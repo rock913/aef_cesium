@@ -206,13 +206,17 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Inside sky sphere with depth isolation + forced render order.
     expect(s).toContain('depthWrite: false')
     expect(s).toContain('depthTest: false')
-    expect(s).toContain('renderOrder = -99')
+    expect(s).toContain('renderOrder = -999')
 
     // BackSide material is the canonical inside-sphere approach.
     expect(s).toContain('THREE.BackSide')
 
     // Mild tinting so the background yields to the cosmic web highlight.
     expect(s).toContain('color: 0x888888')
+
+    // Async-load safety: after the texture finishes loading, the layer-state must be
+    // re-applied so the texture mesh becomes visible without requiring a UI tweak.
+    expect(s).toContain('Critical: texture is loaded asynchronously')
   })
 
   it('prevents mouse interaction loss: canvas must accept pointer events and overlays must not steal them', () => {

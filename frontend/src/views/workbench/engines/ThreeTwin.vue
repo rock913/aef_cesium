@@ -1111,7 +1111,7 @@ function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg'
       skyboxMesh.frustumCulled = false
       skyboxMesh.visible = false
       // update_patch.md: force render pipeline to the bottom.
-      skyboxMesh.renderOrder = -99
+      skyboxMesh.renderOrder = -999
 
       macroScene.add(skyboxMesh)
 

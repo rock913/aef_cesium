@@ -1,6 +1,6 @@
 Zero2x v7.5 OneAstronomy 技术开发与实施指南
 
-版本：v1.6 | 状态：主开发执行标准（Main）| 更新时间：2026-03-24
+版本：v1.7 | 状态：主开发执行标准（Main）| 更新时间：2026-03-24
 
 文档关系（请以本文件为主）：
 - 科学叙事/愿景蓝图：`docs/Zero2x v7.5：OneAstronomy 驱动的数字孪生宇宙与科学示范蓝图.md`
@@ -22,6 +22,7 @@ Zero2x v7.5 OneAstronomy 技术开发与实施指南
 - Inpaint：World Anchor（payload/world-pos 或 ra/dec；可回退 GOTTA 最近目标）
 - Astro-GIS Phase 1–3：图层状态树（layer store）+ Deep Sky Background（单 Three.js 管线 / Native Skybox）+ SIMBAD Catalog Points 叠加 + 后端契约测试/Dev&Prod smoke
 - Deep Sky Background（Texture Skybox）资产准备：ESO 一键脚本（`tools/prepare_eso_milkyway_8k.sh`）+ 生成物 gitignore（避免误提交大文件）
+- Deep Sky Background（Texture Skybox）工程硬约束已收敛：`renderOrder = -999` 绝对垫底 + `BackSide` + `depthWrite/test:false` + 贴图异步加载完成后强制回刷 layer-state（修复 Earth→Sky 首次切换“贴图加载了但不显示”）
 - Phase 2.7：Cinematic Polish 工程化（关键参数纳入 layer store + STOP/取消路径 restore baseline，避免长期漂移）
 - Phase 2.7：Catalog 可用性增强（hover/pick HUD + 大视场点数上限 + 确定性抽样，避免卡顿/闪烁）
 - Phase 2.7：Provider 扩展（VizieR 端点 + 前端图层/参数 UI + pytest 契约门禁）
@@ -457,7 +458,9 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - Phase 2.5：断言 GOTTA 使用 `CatmullRomCurve3` 做 Spline Dive
 - Phase 2.5：断言 `_startModalInpaint(payload)` 支持 payload 锚定（并可回退 GOTTA 最近目标）
 - 反回归：断言宏观天球基底为 sky-sphere（包含 `MACRO_SKY_RADIUS = 100`），并禁止出现螺旋盘种子与 RA/Dec 压扁系数（例如 `* 0.35`）
-- Phase 2（Deep Sky Background / Two-Gear）：断言 `preset: texture` 存在且满足单管线规训（`TextureLoader` + `EquirectangularReflectionMapping` + `SRGBColorSpace` + `sphereGeo.scale(-1, 1, 1)` + `depthWrite/test:false` + `renderOrder` 负值 + tinting），并禁止出现任何 DOM underlay（如 `aladin`）
+- Phase 2（Deep Sky Background / Two-Gear）：断言 `preset: texture` 存在且满足单管线规训（`TextureLoader` + `SRGBColorSpace` + mipmaps/minFilter + `BackSide` + `depthWrite/test:false` + `renderOrder = -999` + mild tinting），并禁止出现任何 DOM underlay（如 `aladin`）
+  - 关键反回归：**禁止**将该贴图当作 envMap 使用（不得出现 `EquirectangularReflectionMapping`）；优先用 `material.side = THREE.BackSide` 而非几何 `scale(-1,1,1)`
+  - 关键反回归：贴图异步加载完成后必须回刷一次 layer-state（否则会出现“贴图 ready 但 showTexture 条件从未重新计算”的隐性黑屏）
 
 2) `frontend/tests/engineScaleRouterWiring.test.js`
 - 断言 macro→micro 的切换仍通过 `executeQuantumDive` 路径
@@ -482,6 +485,26 @@ with open('frontend/public/data/astronomy/sdss_micro_sample.json', 'w') as f:
 - Red：门禁覆盖“无方形边界”“离开 macro 自动清理”“触发 inpaint 收缩 redshift”
 - Green：保持现有实现
 - Refactor：把“场景霸权规则”集中到一处，避免分散在多个函数里难以维护
+
+任务 D：update_patch.md 终极修复收敛（交互 + 天球层级 + 8K 贴图稳定性）
+
+目标：把“鼠标失效 / 天球遮挡 / 8K 贴图黑屏或不显示 / 切换场景后状态漂移”等高频故障，固化为可回归的工程硬约束。
+
+- Red（先写 Gate）：在 `frontend/tests/threeTwinWiring.test.js` 增加/加严以下门禁（wiring tokens 即可）
+  - Canvas 与 HUD：必须存在 `.three-twin { pointer-events: auto !important; z-index: 10; }`，且 HUD/overlay 默认 `pointer-events: none`
+  - OrbitControls 死锁：禁止出现 `camera.lookAt(`，运镜必须通过 `controls.target` + `controls.update()`
+  - Texture Skybox：必须满足 `BackSide` + `depthWrite/test:false` + `renderOrder = -999` + mipmaps/minFilter + mild tinting（`0x888888`）
+  - Texture Skybox 异步一致性：必须存在“贴图加载完成后回刷 layer-state”的逻辑（防 Earth→Sky 首次切换不显示贴图）
+  - 相机裁剪面：`PerspectiveCamera(..., 0.1, 50000)`（或等价）防天球裁剪
+
+- Green（实现落地）：只做最小代码改动满足 Gate
+  - Deep Sky Texture onLoad 回调内：加载完成后调用一次 `_applyAstroGisLayerState(astroStore.astroGis.value)` 或 bump `astroGis.version`
+  - Skybox `renderOrder` 固定为 `-999`（强制垫底）；前景资产维持正 renderOrder（inpaint/markers/catalog 等）
+  - 保持“单管线”：禁止引入 DOM underlay（Aladin/多 canvas）
+
+- Refactor（可选，且不改变外部行为）：抽离小函数，让规训更难被误改
+  - `applyDeepSkyDimming({ targetDim, duration })`
+  - `ensureTextureSkybox({ texturePath })`（onLoad 内统一处置：mipmaps/filters/colorspace/renderOrder/opacity sync）
 
 ---
 
@@ -536,14 +559,16 @@ Phase 2（Deep Sky Background / 里程碑）：单管线深空背景（Native Sk
 - Gear 2（按需开启）：`preset: texture`（Native 8K Equirectangular Texture）
   - 目的：在演示需要“真实巡天影像质感”时启用，但仍保持 One Universe 的单一渲染上下文。
   - 工程规训（必须满足，且建议由 Vitest wiring gate 防回归）：
-    - 贴图加载：`THREE.TextureLoader()`；`texture.mapping = THREE.EquirectangularReflectionMapping`；`texture.colorSpace = THREE.SRGBColorSpace`
-    - 几何：超大天球并反转内表面（`sphereGeo.scale(-1, 1, 1)`）
+    - 贴图加载：`THREE.TextureLoader()`；`texture.colorSpace = THREE.SRGBColorSpace`
+      - 重要：本项目将该资源作为 `MeshBasicMaterial.map` 的**普通贴图**使用，**禁止**设置 `EquirectangularReflectionMapping`（那是 envMap 反射用，会引入错误假象与亮度/方向问题）
+    - 几何：超大天球（equirect pano → sphere map），优先用 `material.side = THREE.BackSide` 渲染内表面（不强依赖几何翻转）
     - 材质：`THREE.MeshBasicMaterial` 且 `depthWrite: false`、`depthTest: false`（绝对深度隔离，避免与点云穿插）
     - 采样质量：`texture.generateMipmaps = true` + `texture.minFilter = THREE.LinearMipmapLinearFilter`
     - 内表面渲染：优先用 `material.side = THREE.BackSide`（避免几何翻转带来的包围盒/剔除异常）
     - 底图压暗（Tinting）：建议使用温和灰度（例如 `0x888888`）+ `opacity ≈ 0.8`，避免“乘黑”导致 8K 底图全黑/隐身
-    - 渲染顺序：`renderOrder = -99`（或任何“显著小于 0 的负值”，强制垫底）
+    - 渲染顺序：`renderOrder = -999`（强制打破透明物体中心排序；确保天球永远最先渲染、不遮挡前景）
     - 相机裁剪面：若存在大尺度拉远/跃迁，建议将 `camera.far` 扩大到 `>= 50000`，避免天球被裁剪或离开天球后读成纯黑
+    - 异步加载一致性：贴图加载完成后必须回刷一次 layer-state（或 bump 版本）以重新计算 `showTexture`，避免“切换到 sky 后贴图完成但仍停留在 procedural fallback”
   - 资产约定：纹理文件不应强绑定到仓库（许可证/体积风险）；推荐由部署方放入 `frontend/public/assets/` 并通过 `texturePath` 配置加载。
   - 一键生成（推荐）：在仓库根目录执行 `bash tools/prepare_eso_milkyway_8k.sh`，会自动下载 ESO 源图、缩放到 8192×4096、原子写入并清理源文件（生成物已被 .gitignore 排除）。
 - 演进方向（未来 Phase 2.x）：若需要“真实巡天影像（HiPS/DSS2/WISE 等）”，应以单管线方式实现（例如：服务端瓦片/拼接 → 贴图到天球；或直接在 Three.js 内做 HiPS tile selection + texture atlas），而非引入外部 DOM/Canvas underlay。
