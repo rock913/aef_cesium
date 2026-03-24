@@ -49,12 +49,33 @@ const threeWrap = ref(null)
 const cesiumViewerRef = ref(null)
 
 // P0: Earth→Sky one-shot handover (camera height threshold triggers macro scale).
+const HANDOVER_ENABLED = (() => {
+  const raw = String(import.meta.env.VITE_EARTH_TO_SKY_HANDOVER || '').trim().toLowerCase()
+  if (!raw) return true
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+})()
+
 const HANDOVER_HEIGHT_KM = (() => {
   const raw = String(import.meta.env.VITE_EARTH_TO_SKY_HANDOVER_HEIGHT_KM || '').trim()
   const km = Number(raw)
-  return Number.isFinite(km) && km > 0 ? km : 20000
+  // Default threshold should be reachable in typical Cesium zoom-out.
+  return Number.isFinite(km) && km > 0 ? km : 8000
 })()
 const HANDOVER_HEIGHT_M = HANDOVER_HEIGHT_KM * 1000
+
+const DEBUG_HANDOVER = (() => {
+  const raw = String(import.meta.env.VITE_DEBUG_EARTH_TO_SKY_HANDOVER || '').trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+})()
+
+function _handoverLog(...args) {
+  if (!DEBUG_HANDOVER) return
+  try {
+    console.info('[EngineScaleRouter:handover]', ...args)
+  } catch (_) {
+    // ignore
+  }
+}
 
 let _autoHandoverUnsub = null
 let _autoHandoverTriggered = false
@@ -96,7 +117,7 @@ function onCesiumViewerReady(viewer) {
 
   // Install camera-height driven auto-handover.
   try {
-    _installEarthToSkyAutoHandover(viewer)
+    if (HANDOVER_ENABLED) _installEarthToSkyAutoHandover(viewer)
   } catch (_) {
     // ignore
   }
@@ -128,26 +149,40 @@ function _installEarthToSkyAutoHandover(viewer) {
         const h = Number(viewer.camera?.positionCartographic?.height)
         if (!Number.isFinite(h)) return
 
-        if (_autoHandoverPrevH === null) _autoHandoverPrevH = h
-        const dh = h - _autoHandoverPrevH
+        if (_autoHandoverPrevH === null) {
+          _autoHandoverPrevH = h
+          return
+        }
+        const prevH = _autoHandoverPrevH
+        const dh = h - prevH
         _autoHandoverPrevH = h
 
+        const crossedUp = prevH < HANDOVER_HEIGHT_M && h >= HANDOVER_HEIGHT_M
+
         // Detect zoom-out intent (height increasing across several samples).
-        if (dh > 2500) _autoHandoverZoomOutScore = Math.min(6, _autoHandoverZoomOutScore + 1)
+        // NOTE: Cesium emits many small `camera.changed` deltas during wheel zoom;
+        // using a huge per-sample threshold can prevent ever accumulating intent.
+        const DH_INTENT_M = 25
+        if (dh > DH_INTENT_M) _autoHandoverZoomOutScore = Math.min(8, _autoHandoverZoomOutScore + 1)
+        else if (dh < -DH_INTENT_M) _autoHandoverZoomOutScore = Math.max(0, _autoHandoverZoomOutScore - 2)
         else _autoHandoverZoomOutScore = Math.max(0, _autoHandoverZoomOutScore - 1)
 
         // Allow re-trigger if user comes back down.
         if (_autoHandoverTriggered && h < HANDOVER_HEIGHT_M * 0.7) {
           _autoHandoverTriggered = false
           _autoHandoverZoomOutScore = 0
+          _handoverLog('reset', { h, thresholdM: HANDOVER_HEIGHT_M })
         }
 
         if (_autoHandoverTriggered) return
         if (store.currentScale.value !== 'earth') return
         if (h < HANDOVER_HEIGHT_M) return
-        if (_autoHandoverZoomOutScore < 3) return
+
+        // Trigger if we just crossed the threshold or if we've seen consistent zoom-out intent.
+        if (!crossedUp && _autoHandoverZoomOutScore < 2) return
 
         _autoHandoverTriggered = true
+        _handoverLog('trigger', { h, thresholdM: HANDOVER_HEIGHT_M, dh, crossedUp, score: _autoHandoverZoomOutScore })
         try {
           tryHandoverEarthToThree()
         } catch (_) {

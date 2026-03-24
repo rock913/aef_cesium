@@ -19,5 +19,8 @@ describe('Earth→Sky auto handover wiring (P0 one-shot)', () => {
 
     // Configurable threshold (fallback ok), but must be wired through env.
     expect(s).toContain('VITE_EARTH_TO_SKY_HANDOVER_HEIGHT_KM')
+
+    // Optional kill-switch to disable auto-handover for demos/debug.
+    expect(s).toContain('VITE_EARTH_TO_SKY_HANDOVER')
   })
 })

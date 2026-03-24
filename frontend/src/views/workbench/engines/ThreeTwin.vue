@@ -111,6 +111,47 @@ const _catalogMouse = new THREE.Vector2()
 // Rendering/perf: hard cap for catalog Points in large FOVs.
 const CATALOG_MAX_RENDER_POINTS = 1200
 
+// Stage 3: fetch catalog only after user stops interacting.
+const CATALOG_FETCH_DEBOUNCE_MS = 280
+const CATALOG_FETCH_MAX_FOV_DEG = 15
+let _catalogFetchTimer = null
+let _catalogFetchRequested = false
+let _catalogPrevWanted = false
+
+function _cancelScheduledCatalogFetch() {
+  if (_catalogFetchTimer) {
+    try {
+      clearTimeout(_catalogFetchTimer)
+    } catch (_) {
+      // ignore
+    }
+  }
+  _catalogFetchTimer = null
+  _catalogFetchRequested = false
+}
+
+function _scheduleCatalogFetch(reason = '', delayMs = CATALOG_FETCH_DEBOUNCE_MS) {
+  _cancelScheduledCatalogFetch()
+
+  const d = Math.max(0, Math.floor(Number(delayMs) || 0))
+  try {
+    _catalogFetchTimer = setTimeout(() => {
+      _catalogFetchTimer = null
+      _catalogFetchRequested = true
+    }, d)
+  } catch (_) {
+    _catalogFetchTimer = null
+    _catalogFetchRequested = true
+  }
+}
+
+function _getWantedCatalogLayer() {
+  const astro = astroStore.astroGis.value
+  const simbadL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
+  const vizierL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER] || null
+  return (vizierL && vizierL.visible) ? vizierL : ((simbadL && simbadL.visible) ? simbadL : null)
+}
+
 // Cinematic Polish engineeringization: maintain stable baselines for restore.
 let _bloomBaseline = null
 let _cameraBaseline = null
@@ -3427,6 +3468,14 @@ function initEngine() {
   controls = markRaw(new OrbitControls(camera, renderer.domElement))
   controls.enableDamping = true
 
+  // Stage 3: catalog fetch should happen after interaction ends.
+  try {
+    controls.addEventListener('start', () => _cancelScheduledCatalogFetch())
+    controls.addEventListener('end', () => _scheduleCatalogFetch('controls:end'))
+  } catch (_) {
+    // ignore
+  }
+
   macroScene = markRaw(new THREE.Scene())
   microScene = markRaw(new THREE.Scene())
   macroScene.background = new THREE.Color('#050816')
@@ -3572,17 +3621,45 @@ function animate() {
 
   // Phase 3+: debounce-fetch catalog points (SIMBAD/VizieR) for the current view.
   try {
-    const astro = astroStore.astroGis.value
-    const simbadL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD] || null
-    const vizierL = astro?.layers?.[ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER] || null
-    const catL = (vizierL && vizierL.visible) ? vizierL : ((simbadL && simbadL.visible) ? simbadL : null)
+    const scale = String(store.currentScale.value || '').trim().toLowerCase()
+    if (scale !== 'macro') {
+      _catalogPrevWanted = false
+      _catalogWantedVisible = false
+      _cancelScheduledCatalogFetch()
+      try {
+        _abortCatalogFetch()
+      } catch (_) {
+        // ignore
+      }
+      if (catalogHudVisible.value) _hideCatalogHud()
+      if (catalogLabels.value.length) _hideCatalogLabels()
+      return
+    }
+
+    const catL = _getWantedCatalogLayer()
     const wanted = !!catL
     const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
     if (wanted) {
       _catalogWantedVisible = true
       if (!_catalogMesh) _ensureCatalogLayer()
-      const view = _computeMacroViewRaDecFov()
-      if (view) void _maybeFetchCatalog(catL, view, now)
+
+      // If catalog becomes visible, trigger a first fetch immediately.
+      if (!_catalogPrevWanted) _scheduleCatalogFetch('catalog:visible', 0)
+      _catalogPrevWanted = true
+
+      // Only fetch after user stops interacting (debounced) and avoid huge-FOV queries.
+      if (_catalogFetchRequested) {
+        _catalogFetchRequested = false
+        const view = _computeMacroViewRaDecFov()
+        if (view && Number(view.fovDeg) <= CATALOG_FETCH_MAX_FOV_DEG) {
+          void _maybeFetchCatalog(catL, view, now)
+        }
+      }
+    }
+    if (!wanted) {
+      _catalogPrevWanted = false
+      _catalogWantedVisible = false
+      _cancelScheduledCatalogFetch()
     }
 
     // Phase 2.8: persistent labels anchored to points.
@@ -3769,6 +3846,13 @@ defineExpose({
 })
 
 onBeforeUnmount(() => {
+  try {
+    _cancelScheduledCatalogFetch()
+  } catch (_) {
+    // ignore
+  }
+  _catalogPrevWanted = false
+
   try {
     window.removeEventListener('resize', onResize)
   } catch (_) {

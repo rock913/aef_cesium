@@ -15,17 +15,24 @@
   - GOTTA 标记：弃用 `CanvasTexture + SpriteMaterial`，改为程序化 `ShaderMaterial`（SDF 风格）billboard plane，提升近距离边缘质量
 - P0 跨域转场（Earth→Sky handover）
   - 在“双引擎常驻挂载 + opacity crossfade”结构上补齐自动触发：监听 Cesium `camera.changed`，当相机高度超过阈值且判断为持续 zoom-out 时，执行相机姿态同步并自动切换 scale 到 `macro`
-  - 阈值可配置：`VITE_EARTH_TO_SKY_HANDOVER_HEIGHT_KM`（默认 20000km）
+  - 阈值可配置：`VITE_EARTH_TO_SKY_HANDOVER_HEIGHT_KM`（默认 8000km；更贴近常规缩放可达范围）
+  - 总开关：`VITE_EARTH_TO_SKY_HANDOVER=0/1`（便于演示/排障）
+  - 排障开关：`VITE_DEBUG_EARTH_TO_SKY_HANDOVER=1` 时输出触发/重置关键日志
 - 宏观宇宙视觉稳态（补强项）
   - Macro SDSS 已加入随 zoom 的 auto-tune（点大小/透明度/bloom 基线收敛），降低“光球糊团”复发概率
 
+阶段三（P2）推进（本次补充）：
+
+- Astro-GIS Catalog 拉取从“每帧尝试”升级为“OrbitControls `end` 触发 + debounce + FOV 上限过滤”，避免拖动/缩放时频繁打接口
+
 TDD/门禁：
 
-- 新增 3 个前端测试门禁：
+- 新增 4 个前端测试门禁：
   - `frontend/tests/inpaintShaderQuality.test.js`
   - `frontend/tests/gottaMarkerProceduralShader.test.js`
   - `frontend/tests/earthToSkyAutoHandoverWiring.test.js`
-- Vitest 结果：`npm test` 全绿（58 files / 169 tests）
+  - `frontend/tests/catalogFetchDebounceOnControlsEnd.test.js`
+- Vitest 结果：`npm test` 全绿（59 files / 170 tests）
 
 对应提交（便于回溯）：
 
@@ -123,8 +130,8 @@ void main() {
 
 // 监听 Cesium 相机高度 (伪代码)
 watch(() => cesiumStore.cameraHeight, (height) => {
-    // 当高度突破 20,000 km 且处于向上拉升状态
-    if (height > 20000 && userIsZoomingOut) {
+    // 当高度突破阈值（默认 8000km，可通过 env 配置）且处于向上拉升状态
+    if (height > HANDOVER_HEIGHT_KM && userIsZoomingOut) {
         // 1. 获取 Cesium 当前相机姿态并换算为赤道坐标 RA/Dec
         const { ra, dec } = getRaDecFromCesium(cesiumCamera);
         
