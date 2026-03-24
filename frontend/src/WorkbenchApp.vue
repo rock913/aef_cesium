@@ -946,8 +946,8 @@ const layers = ref([
   { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } },
   { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: true, params: { opacity: 1.0, preset: 'texture', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } },
-  { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } },
-  { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main' } },
+  { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600, magMax: '', otypeAllow: '', labelMode: 'top', labelTopN: 8 } },
+  { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main', magMax: '', otypeAllow: '', labelMode: 'top', labelTopN: 8 } },
 ])
 
 const charts = ref([])
@@ -1008,8 +1008,8 @@ function _normalizeLayers(arr) {
     [ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, { id: ASTRO_GIS_LAYER_IDS.DEMO_GOTTA, name: 'Astro · Demo GOTTA', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, { id: ASTRO_GIS_LAYER_IDS.DEMO_INPAINT, name: 'Astro · Demo Inpaint', enabled: true, params: { opacity: 1.0 } }],
     [ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, { id: ASTRO_GIS_LAYER_IDS.HIPS_BACKGROUND, name: 'Astro · Deep Sky Background', enabled: true, params: { opacity: 1.0, preset: 'texture', starDensity: 0.65, milkyWay: true, textureOpacity: 0.85, texturePath: '/assets/eso_milkyway_8k.jpg' } }],
-    [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600 } }],
-    [ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main' } }],
+    [ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, { id: ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD, name: 'Astro · Catalog (SIMBAD)', enabled: false, params: { opacity: 1.0, maxRows: 600, magMax: '', otypeAllow: '', labelMode: 'top', labelTopN: 8 } }],
+    [ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, { id: ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER, name: 'Astro · Catalog (VizieR)', enabled: false, params: { opacity: 1.0, maxRows: 800, catalog: 'I/239/hip_main', magMax: '', otypeAllow: '', labelMode: 'top', labelTopN: 8 } }],
   ])
 
   const out = []
@@ -1075,11 +1075,37 @@ function _normalizeLayers(arr) {
       if (id === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
         const mr = Number(nextParams.maxRows)
         if (Number.isFinite(mr)) nextParams.maxRows = Math.max(50, Math.min(2000, Math.floor(mr)))
+
+        const mm = Number(nextParams.magMax)
+        if (nextParams.magMax === '' || nextParams.magMax === null || nextParams.magMax === undefined) nextParams.magMax = ''
+        else if (Number.isFinite(mm)) nextParams.magMax = Math.max(-1, Math.min(40, mm))
+
+        if (nextParams.otypeAllow !== undefined) nextParams.otypeAllow = String(nextParams.otypeAllow || '').trim()
+
+        if (nextParams.labelMode !== undefined) {
+          const lm = String(nextParams.labelMode || '').trim().toLowerCase()
+          nextParams.labelMode = (lm === 'off' || lm === 'pinned' || lm === 'top') ? lm : 'top'
+        }
+        const ln = Number(nextParams.labelTopN)
+        if (Number.isFinite(ln)) nextParams.labelTopN = Math.max(0, Math.min(20, Math.floor(ln)))
       }
       if (id === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER) {
         const mr = Number(nextParams.maxRows)
         if (Number.isFinite(mr)) nextParams.maxRows = Math.max(50, Math.min(2000, Math.floor(mr)))
         if (nextParams.catalog !== undefined) nextParams.catalog = String(nextParams.catalog || '').trim()
+
+        const mm = Number(nextParams.magMax)
+        if (nextParams.magMax === '' || nextParams.magMax === null || nextParams.magMax === undefined) nextParams.magMax = ''
+        else if (Number.isFinite(mm)) nextParams.magMax = Math.max(-1, Math.min(40, mm))
+
+        if (nextParams.otypeAllow !== undefined) nextParams.otypeAllow = String(nextParams.otypeAllow || '').trim()
+
+        if (nextParams.labelMode !== undefined) {
+          const lm = String(nextParams.labelMode || '').trim().toLowerCase()
+          nextParams.labelMode = (lm === 'off' || lm === 'pinned' || lm === 'top') ? lm : 'top'
+        }
+        const ln = Number(nextParams.labelTopN)
+        if (Number.isFinite(ln)) nextParams.labelTopN = Math.max(0, Math.min(20, Math.floor(ln)))
       }
     }
     out.push({
@@ -1129,12 +1155,38 @@ function _syncAstroGisFromLayers(nextLayers) {
     if (id === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD) {
       const mr = Number(l?.params?.maxRows)
       if (Number.isFinite(mr)) patch.style.maxRows = mr
+
+      const mm = Number(l?.params?.magMax)
+      if (l?.params?.magMax === '' || l?.params?.magMax === null || l?.params?.magMax === undefined) patch.style.magMax = null
+      else if (Number.isFinite(mm)) patch.style.magMax = mm
+
+      const oa = String(l?.params?.otypeAllow || '').trim()
+      patch.style.otypeAllow = oa
+
+      const lm = String(l?.params?.labelMode || '').trim().toLowerCase()
+      patch.style.labelMode = (lm === 'off' || lm === 'pinned' || lm === 'top') ? lm : 'top'
+
+      const ln = Number(l?.params?.labelTopN)
+      if (Number.isFinite(ln)) patch.style.labelTopN = ln
     }
     if (id === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER) {
       const mr = Number(l?.params?.maxRows)
       if (Number.isFinite(mr)) patch.style.maxRows = mr
       const catalog = String(l?.params?.catalog || '').trim()
       if (catalog) patch.style.catalog = catalog
+
+      const mm = Number(l?.params?.magMax)
+      if (l?.params?.magMax === '' || l?.params?.magMax === null || l?.params?.magMax === undefined) patch.style.magMax = null
+      else if (Number.isFinite(mm)) patch.style.magMax = mm
+
+      const oa = String(l?.params?.otypeAllow || '').trim()
+      patch.style.otypeAllow = oa
+
+      const lm = String(l?.params?.labelMode || '').trim().toLowerCase()
+      patch.style.labelMode = (lm === 'off' || lm === 'pinned' || lm === 'top') ? lm : 'top'
+
+      const ln = Number(l?.params?.labelTopN)
+      if (Number.isFinite(ln)) patch.style.labelTopN = ln
     }
 
     try {

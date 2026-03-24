@@ -219,6 +219,53 @@
             <span class="pv">{{ fmtNum(l.params.maxRows) }}</span>
           </div>
 
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD">
+            <span class="pk">Mag ≤</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.magMax ?? '')"
+              placeholder="(blank)"
+              @change="setParam(l.id, 'magMax', $event?.target?.value)"
+            />
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD">
+            <span class="pk">OType Allow</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.otypeAllow ?? '')"
+              placeholder="Star,Galaxy,Quasar"
+              @change="setParam(l.id, 'otypeAllow', $event?.target?.value)"
+            />
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD">
+            <span class="pk">Labels</span>
+            <select class="sel" :value="String(l.params.labelMode || 'top')" @change="setParam(l.id, 'labelMode', $event?.target?.value)">
+              <option value="off">Off</option>
+              <option value="pinned">Pinned Only</option>
+              <option value="top">Top N</option>
+            </select>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_SIMBAD && String(l.params.labelMode || 'top').trim().toLowerCase() === 'top'">
+            <span class="pk">Top N</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="20"
+              step="1"
+              :value="Number(l.params.labelTopN ?? 8)"
+              @input="setParam(l.id, 'labelTopN', $event?.target?.value)"
+            />
+            <span class="pv">{{ Math.round(Number(l.params.labelTopN ?? 8)) }}</span>
+          </div>
+
           <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER">
             <span class="pk">Max Rows</span>
             <input
@@ -243,6 +290,53 @@
               placeholder="I/239/hip_main"
               @change="setParam(l.id, 'catalog', $event?.target?.value)"
             />
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER">
+            <span class="pk">Mag ≤</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.magMax ?? '')"
+              placeholder="(blank)"
+              @change="setParam(l.id, 'magMax', $event?.target?.value)"
+            />
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER">
+            <span class="pk">OType Allow</span>
+            <input
+              class="txt"
+              type="text"
+              spellcheck="false"
+              :value="String(l.params.otypeAllow ?? '')"
+              placeholder="Star,Galaxy"
+              @change="setParam(l.id, 'otypeAllow', $event?.target?.value)"
+            />
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER">
+            <span class="pk">Labels</span>
+            <select class="sel" :value="String(l.params.labelMode || 'top')" @change="setParam(l.id, 'labelMode', $event?.target?.value)">
+              <option value="off">Off</option>
+              <option value="pinned">Pinned Only</option>
+              <option value="top">Top N</option>
+            </select>
+          </div>
+
+          <div class="param" v-if="String(l.id) === ASTRO_GIS_LAYER_IDS.CATALOG_VIZIER && String(l.params.labelMode || 'top').trim().toLowerCase() === 'top'">
+            <span class="pk">Top N</span>
+            <input
+              class="rng"
+              type="range"
+              min="0"
+              max="20"
+              step="1"
+              :value="Number(l.params.labelTopN ?? 8)"
+              @input="setParam(l.id, 'labelTopN', $event?.target?.value)"
+            />
+            <span class="pv">{{ Math.round(Number(l.params.labelTopN ?? 8)) }}</span>
           </div>
 
           <div class="param" v-if="String(l.id) === 'micro-atoms'">
@@ -471,7 +565,7 @@ function setParam(id, key, raw) {
   const next = (props.layers || []).map((l) => {
     if (l.id !== id) return l
     const params = { ...(l.params || {}) }
-    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior' || k === 'pointSize' || k === 'maxRows' || k === 'starDensity' || k === 'textureOpacity') {
+    if (k === 'opacity' || k === 'threshold' || k === 'strength' || k === 'radius' || k === 'transmission' || k === 'ior' || k === 'pointSize' || k === 'maxRows' || k === 'starDensity' || k === 'textureOpacity' || k === 'labelTopN') {
       const n = Number(raw)
       if (Number.isFinite(n)) params[k] = n
       return { ...l, params }
@@ -490,6 +584,23 @@ function setParam(id, key, raw) {
     }
     if (k === 'texturePath') {
       params.texturePath = String(raw || '').trim()
+      return { ...l, params }
+    }
+    if (k === 'catalog') {
+      params.catalog = String(raw || '').trim()
+      return { ...l, params }
+    }
+    if (k === 'magMax') {
+      // Keep as string-ish; normalization happens in WorkbenchApp.
+      params.magMax = String(raw ?? '').trim()
+      return { ...l, params }
+    }
+    if (k === 'otypeAllow') {
+      params.otypeAllow = String(raw ?? '').trim()
+      return { ...l, params }
+    }
+    if (k === 'labelMode') {
+      params.labelMode = String(raw || '').trim().toLowerCase()
       return { ...l, params }
     }
     return l

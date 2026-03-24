@@ -28,6 +28,7 @@ CATALOG_MODE_ENV = "ASTRO_GIS_CATALOG_MODE"  # fixture | online
 
 SIMBAD_TAP_SYNC_URL_ENV = "ASTRO_GIS_SIMBAD_TAP_SYNC_URL"
 VIZIER_TAP_SYNC_URL_ENV = "ASTRO_GIS_VIZIER_TAP_SYNC_URL"
+VIZIER_ALLOWED_CATALOGS_ENV = "ASTRO_GIS_VIZIER_ALLOWED_CATALOGS"  # comma-separated allowlist for online mode
 CATALOG_ONLINE_TIMEOUT_S_ENV = "ASTRO_GIS_CATALOG_ONLINE_TIMEOUT_S"
 CATALOG_ONLINE_FALLBACK_ENV = "ASTRO_GIS_CATALOG_ONLINE_FALLBACK"  # 1|0
 CATALOG_CACHE_TTL_S_ENV = "ASTRO_GIS_CATALOG_CACHE_TTL_S"
@@ -416,6 +417,21 @@ def _validate_vizier_catalog_id(catalog: str) -> str:
     return c
 
 
+def _vizier_online_allowlist() -> set[str]:
+    raw = str(os.getenv(VIZIER_ALLOWED_CATALOGS_ENV, "") or "").strip()
+    if not raw:
+        # Default is deliberately narrow for safety.
+        return {"I/239/hip_main"}
+    out: set[str] = set()
+    for part in raw.split(","):
+        c = str(part or "").strip()
+        if not c:
+            continue
+        if _VIZIER_CATALOG_RE.match(c):
+            out.add(c)
+    return out or {"I/239/hip_main"}
+
+
 def _seed_for_vizier_query(*, catalog: str, ra: float, dec: float, radius: float, max_rows: int) -> int:
     msg = f"catalog={catalog};ra={ra:.6f};dec={dec:.6f};radius={radius:.6f};max_rows={int(max_rows)}"
     h = hashlib.sha256(msg.encode("utf-8")).hexdigest()
@@ -442,20 +458,35 @@ def _build_vizier_tap_adql(q: VizierCatalogQuery) -> str:
     radius = float(q.radius_deg)
     top = int(q.max_rows)
 
-    # Phase 2.7 initial scope: Hipparcos main table (stable, well-known columns).
-    # Columns: RA_ICRS, DE_ICRS, Vmag, HIP
-    if q.catalog != "I/239/hip_main":
-        raise ValueError("online mode only supports catalog I/239/hip_main")
+    # Phase 2.8: multi-catalog online support behind an explicit allowlist.
+    # Default allowlist remains narrow; deployments can expand it via env.
+    #
+    # We keep the ADQL strictly parameterized: only the table id is interpolated
+    # (and it is validated + allowlisted).
+    if q.catalog == "I/239/hip_main":
+        # Hipparcos main table (stable, well-known columns).
+        # Columns: RA_ICRS, DE_ICRS, Vmag, HIP
+        return (
+            "SELECT TOP {top} "
+            "  HIP AS hip_id, "
+            "  RA_ICRS AS ra_deg, "
+            "  DE_ICRS AS dec_deg, "
+            "  Vmag AS mag_v "
+            "FROM \"{table}\" "
+            "WHERE 1=CONTAINS( "
+            "  POINT('ICRS', RA_ICRS, DE_ICRS), "
+            "  CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.6f}) "
+            ")"
+        ).format(top=top, table=q.catalog, ra=ra, dec=dec, radius=radius)
 
+    # Best-effort generic query path: assumes RAJ2000/DEJ2000 exist.
+    # If the chosen table does not have these columns, the request may fail and
+    # (optionally) fall back to deterministic fixtures.
     return (
-        "SELECT TOP {top} "
-        "  HIP AS hip_id, "
-        "  RA_ICRS AS ra_deg, "
-        "  DE_ICRS AS dec_deg, "
-        "  Vmag AS mag_v "
+        "SELECT TOP {top} * "
         "FROM \"{table}\" "
         "WHERE 1=CONTAINS( "
-        "  POINT('ICRS', RA_ICRS, DE_ICRS), "
+        "  POINT('ICRS', RAJ2000, DEJ2000), "
         "  CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.6f}) "
         ")"
     ).format(top=top, table=q.catalog, ra=ra, dec=dec, radius=radius)
@@ -491,36 +522,56 @@ def _query_vizier_online(q: VizierCatalogQuery) -> Dict[str, Any]:
         resp.raise_for_status()
         text = resp.text or ""
 
+    def _pick_first(row: dict, keys: list[str]) -> Optional[str]:
+        for k in keys:
+            if k in row and row.get(k) not in (None, ""):
+                return str(row.get(k))
+            # Some TAP exports normalize header case.
+            lk = k.lower()
+            if lk in row and row.get(lk) not in (None, ""):
+                return str(row.get(lk))
+            uk = k.upper()
+            if uk in row and row.get(uk) not in (None, ""):
+                return str(row.get(uk))
+        return None
+
     sources: List[Dict[str, Any]] = []
     reader = csv.DictReader(io.StringIO(text))
     for i, row in enumerate(reader):
         if i >= q.max_rows:
             break
 
-        hip = str((row.get("hip_id") or row.get("HIP") or "")).strip()
-        if not hip:
+        ra_raw = _pick_first(row, ["ra_deg", "RA_ICRS", "RAJ2000", "_RAJ2000"])
+        dec_raw = _pick_first(row, ["dec_deg", "DE_ICRS", "DEJ2000", "_DEJ2000"])
+        if ra_raw is None or dec_raw is None:
             continue
 
         try:
-            ra = _normalize_ra_deg(float(row.get("ra_deg") or row.get("RA_ICRS") or 0.0))
-            dec = float(row.get("dec_deg") or row.get("DE_ICRS") or 0.0)
+            ra = _normalize_ra_deg(float(ra_raw))
+            dec = float(dec_raw)
         except Exception:
             continue
 
-        mag_raw = row.get("mag_v")
+        mag_raw = _pick_first(row, ["mag_v", "Vmag", "VTmag", "Gmag", "Rmag", "Jmag", "Hmag", "Kmag"])
         try:
             mag_v = float(mag_raw) if mag_raw not in (None, "") else 10.0
         except Exception:
             mag_v = 10.0
 
+        obj_id = (_pick_first(row, ["hip_id", "HIP", "Source", "source_id", "TYC", "Tyc", "Gaia", "2MASS"]) or "").strip()
+        if not obj_id:
+            obj_id = f"ROW{i}"
+
+        otype = (_pick_first(row, ["otype", "OTYPE", "class", "Class", "SpType", "sptype"]) or "Star").strip() or "Star"
+
         sources.append(
             {
-                "id": f"VIZIER:{q.catalog}:HIP{hip}",
-                "name": f"HIP {hip}",
+                "id": f"VIZIER:{q.catalog}:{obj_id}",
+                "name": f"{obj_id}" if q.catalog != "I/239/hip_main" else f"HIP {obj_id.replace('HIP', '').strip() or obj_id}",
                 "ra_deg": float(ra),
                 "dec_deg": float(dec),
                 "mag_v": float(_clamp(mag_v, -1.0, 40.0)),
-                "otype": "Star",
+                "otype": otype,
             }
         )
 
@@ -578,6 +629,10 @@ def query_vizier_catalog(
     )
 
     if mode == "online":
+        allowed = _vizier_online_allowlist()
+        if cat not in allowed:
+            raise ValueError("catalog not allowed for online mode")
+
         key = _cache_key_vizier(q)
         cached = _cache_get(key)
         if cached is not None:

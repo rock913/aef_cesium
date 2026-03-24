@@ -145,7 +145,18 @@ const state = reactive({
         name: 'Catalog: SIMBAD',
         visible: false,
         opacity: 1.0,
-        style: { maxRows: 600, minMag: null },
+        style: {
+          maxRows: 600,
+          // Phase 2.8: client-side filters (optional; applied after fetch).
+          // Use magMax (brightness cutoff) and/or otypeAllow (comma-separated list).
+          magMax: null,
+          otypeAllow: '',
+          // Phase 2.8: label persistence options.
+          labelMode: 'top', // off | pinned | top
+          labelTopN: 8,
+          // Back-compat: older UI drafts used minMag (keep but do not rely on it).
+          minMag: null,
+        },
         source: { kind: 'catalog', provider: 'simbad', endpoint: '/api/astro-gis/catalog/simbad' },
       },
 
@@ -154,7 +165,18 @@ const state = reactive({
         name: 'Catalog: VizieR',
         visible: false,
         opacity: 1.0,
-        style: { maxRows: 800, minMag: null, catalog: 'I/239/hip_main' },
+        style: {
+          maxRows: 800,
+          catalog: 'I/239/hip_main',
+          // Phase 2.8: client-side filters (optional; applied after fetch).
+          magMax: null,
+          otypeAllow: '',
+          // Phase 2.8: label persistence options.
+          labelMode: 'top', // off | pinned | top
+          labelTopN: 8,
+          // Back-compat.
+          minMag: null,
+        },
         source: { kind: 'catalog', provider: 'vizier', endpoint: '/api/astro-gis/catalog/vizier' },
       },
     },

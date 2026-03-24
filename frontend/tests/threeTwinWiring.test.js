@@ -256,6 +256,13 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Provider expansion: VizieR endpoint should be present in wiring.
     expect(s).toContain('/api/astro-gis/catalog/vizier')
     expect(s).toContain('CATALOG_VIZIER')
+
+    // Phase 2.8: catalog filters + persistent labels should be wired.
+    expect(s).toContain('magMax')
+    expect(s).toContain('otypeAllow')
+    expect(s).toContain('labelMode')
+    expect(s).toContain('labelTopN')
+    expect(s).toContain('catalog-label')
   })
 
   it('prevents OrbitControls lock: scripted camera motion must not call camera.lookAt()', () => {
