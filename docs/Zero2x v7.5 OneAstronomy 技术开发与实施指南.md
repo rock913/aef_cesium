@@ -539,8 +539,11 @@ Phase 2（Deep Sky Background / 里程碑）：单管线深空背景（Native Sk
     - 贴图加载：`THREE.TextureLoader()`；`texture.mapping = THREE.EquirectangularReflectionMapping`；`texture.colorSpace = THREE.SRGBColorSpace`
     - 几何：超大天球并反转内表面（`sphereGeo.scale(-1, 1, 1)`）
     - 材质：`THREE.MeshBasicMaterial` 且 `depthWrite: false`、`depthTest: false`（绝对深度隔离，避免与点云穿插）
-    - 底图压暗（Tinting）：`color ≈ (0.15, 0.18, 0.25)` + `opacity ≈ 0.85`，确保宇宙网高光不被底图抢走
+    - 采样质量：`texture.generateMipmaps = true` + `texture.minFilter = THREE.LinearMipmapLinearFilter`
+    - 内表面渲染：优先用 `material.side = THREE.BackSide`（避免几何翻转带来的包围盒/剔除异常）
+    - 底图压暗（Tinting）：建议使用温和灰度（例如 `0x888888`）+ `opacity ≈ 0.8`，避免“乘黑”导致 8K 底图全黑/隐身
     - 渲染顺序：`renderOrder = -99`（或任何“显著小于 0 的负值”，强制垫底）
+    - 相机裁剪面：若存在大尺度拉远/跃迁，建议将 `camera.far` 扩大到 `>= 50000`，避免天球被裁剪或离开天球后读成纯黑
   - 资产约定：纹理文件不应强绑定到仓库（许可证/体积风险）；推荐由部署方放入 `frontend/public/assets/` 并通过 `texturePath` 配置加载。
   - 一键生成（推荐）：在仓库根目录执行 `bash tools/prepare_eso_milkyway_8k.sh`，会自动下载 ESO 源图、缩放到 8192×4096、原子写入并清理源文件（生成物已被 .gitignore 排除）。
 - 演进方向（未来 Phase 2.x）：若需要“真实巡天影像（HiPS/DSS2/WISE 等）”，应以单管线方式实现（例如：服务端瓦片/拼接 → 贴图到天球；或直接在 Three.js 内做 HiPS tile selection + texture atlas），而非引入外部 DOM/Canvas underlay。

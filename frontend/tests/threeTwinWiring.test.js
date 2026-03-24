@@ -197,19 +197,22 @@ describe('ThreeTwin wiring (v7 dispose gate)', () => {
     // Texture-based skybox must be single Three.js pipeline (no DOM underlays).
     expect(s).not.toContain('aladin')
 
-    // Correct equirectangular mapping + SRGB color space.
+    // SRGB color space + safe sampling.
     expect(s).toContain('TextureLoader')
-    expect(s).toContain('EquirectangularReflectionMapping')
     expect(s).toContain('SRGBColorSpace')
+    expect(s).toContain('generateMipmaps')
+    expect(s).toContain('LinearMipmapLinearFilter')
 
-    // Inside-out sphere with depth isolation + forced render order.
-    expect(s).toContain('sphereGeo.scale(-1, 1, 1)')
+    // Inside sky sphere with depth isolation + forced render order.
     expect(s).toContain('depthWrite: false')
     expect(s).toContain('depthTest: false')
     expect(s).toContain('renderOrder = -99')
 
-    // Tinting so the background yields to the cosmic web highlight.
-    expect(s).toContain('new THREE.Color(0.15, 0.18, 0.25)')
+    // BackSide material is the canonical inside-sphere approach.
+    expect(s).toContain('THREE.BackSide')
+
+    // Mild tinting so the background yields to the cosmic web highlight.
+    expect(s).toContain('color: 0x888888')
   })
 
   it('prevents mouse interaction loss: canvas must accept pointer events and overlays must not steal them', () => {

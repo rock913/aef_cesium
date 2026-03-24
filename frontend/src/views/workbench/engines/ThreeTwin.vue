@@ -1063,7 +1063,8 @@ function _syncDeepSkyTextureOpacity() {
   const baseOpacity = _clamp01(ud.__astroBaseOpacity, 0.85)
   const layerOpacity = _clamp01(ud.__astroLayerOpacity, 1.0)
   const dim = _clamp01(_deepSkyUniforms?.u_dim?.value, 1.0)
-  mat.opacity = _clamp01(baseOpacity * layerOpacity * dim, 0.85)
+  // Allow low-opacity tuning; do not clamp to a high minimum.
+  mat.opacity = _clamp01(baseOpacity * layerOpacity * dim, 1.0)
   mat.needsUpdate = true
 }
 
@@ -1076,21 +1077,24 @@ function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg'
     String(texturePath || '/assets/eso_milkyway_8k.jpg'),
     (texture) => {
       try {
-        texture.mapping = THREE.EquirectangularReflectionMapping
+        // NOTE: When using a texture as a regular `map` on SphereGeometry,
+        // do NOT switch to EquirectangularReflectionMapping (that's for env maps).
         texture.colorSpace = THREE.SRGBColorSpace
+        texture.generateMipmaps = true
+        texture.minFilter = THREE.LinearMipmapLinearFilter
       } catch (_) {
         // ignore
       }
 
       const sphereGeo = new THREE.SphereGeometry(8000, 64, 64)
-      sphereGeo.scale(-1, 1, 1)
 
       const sphereMat = new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
-        opacity: 0.85,
-        // update_patch.md: tint down to a deep grey-blue so 3D points own the highlight.
-        color: new THREE.Color(0.15, 0.18, 0.25),
+        opacity: 0.8,
+        // update_patch.md (upgrade): avoid over-darkening; keep a mild grey tint.
+        color: 0x888888,
+        side: THREE.BackSide,
         // update_patch.md: strict depth isolation.
         depthWrite: false,
         depthTest: false,
@@ -1111,7 +1115,7 @@ function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg'
 
       try {
         const ud = (sphereMat.userData && typeof sphereMat.userData === 'object') ? sphereMat.userData : (sphereMat.userData = {})
-        if (ud.__astroBaseOpacity === undefined) ud.__astroBaseOpacity = 0.85
+        if (ud.__astroBaseOpacity === undefined) ud.__astroBaseOpacity = 0.8
         if (ud.__astroLayerOpacity === undefined) ud.__astroLayerOpacity = 1.0
       } catch (_) {
         // ignore
@@ -3003,7 +3007,7 @@ function initEngine() {
       60,
       (container.value.clientWidth || window.innerWidth) / (container.value.clientHeight || window.innerHeight),
       0.1,
-      10000
+      50000
     )
   )
   camera.position.set(0, 8, 24)
@@ -3123,6 +3127,17 @@ function animate() {
     if (_deepSkyUniforms?.u_time && _deepSkyMesh?.visible) {
       _deepSkyTime += 1 / 60
       _deepSkyUniforms.u_time.value = _deepSkyTime
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  // Keep sky spheres centered on the camera to prevent “leaving the skybox”
+  // during large camera translations (dolly/push-in/out / long flights).
+  try {
+    if (camera) {
+      if (_deepSkyMesh?.visible) _deepSkyMesh.position.copy(camera.position)
+      if (_deepSkyTextureMesh?.visible) _deepSkyTextureMesh.position.copy(camera.position)
     }
   } catch (_) {
     // ignore
