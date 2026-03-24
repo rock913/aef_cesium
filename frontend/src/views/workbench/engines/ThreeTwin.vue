@@ -1076,6 +1076,12 @@ function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg'
   textureLoader.load(
     String(texturePath || '/assets/eso_milkyway_8k.jpg'),
     (texture) => {
+      // If the component was unmounted while the texture was inflight,
+      // bail out safely (avoid adding to a null scene).
+      if (!macroScene) {
+        try { texture?.dispose?.() } catch (_) { /* ignore */ }
+        return
+      }
       try {
         // NOTE: When using a texture as a regular `map` on SphereGeometry,
         // do NOT switch to EquirectangularReflectionMapping (that's for env maps).
@@ -1123,6 +1129,14 @@ function _ensureDeepSkyTextureSkybox(texturePath = '/assets/eso_milkyway_8k.jpg'
 
       try {
         _syncDeepSkyTextureOpacity()
+      } catch (_) {
+        // ignore
+      }
+
+      // Critical: texture is loaded asynchronously. Re-apply layer state so
+      // `showTexture` flips on immediately without requiring a UI change.
+      try {
+        _applyAstroGisLayerState(astroStore.astroGis.value)
       } catch (_) {
         // ignore
       }
