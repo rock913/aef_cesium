@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+backend/venv/
+backend/.venv/
+*.egg-info/
+*.egg
+
+# Local copies / archives
+old_version/
+
+# Environment variables (敏感信息)
+.env
+.env.*
+!.env.example
+
+# Local env copies
+.env_copy
+
+# Secrets (do not commit)
+docs/aef-project-*.json
+docs/aef.txt
+
+# Logs
+logs/
+*.log
+*.pid
+
+# Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Cesium
+frontend/.cesium/
+
+# Generated skybox assets (do not commit)
+frontend/public/assets/eso_milkyway_source.jpg
+frontend/public/assets/eso_milkyway_8k.jpg
+frontend/public/assets/eso_milkyway_8k.tmp.jpg

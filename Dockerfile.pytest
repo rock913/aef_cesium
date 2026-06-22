@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTEST_STUB_EE=1
+
+WORKDIR /app
+
+# Install backend deps required to import backend/main.py in unit tests.
+COPY backend/requirements.txt backend/requirements-dev.txt ./backend/
+RUN python -m pip install --upgrade pip \
+    && pip install -r backend/requirements-dev.txt
+
+# Copy the full repo so tests that assert script/layout presence can run.
+COPY . .
+
+CMD ["pytest", "-q"]

@@ -1,0 +1,25 @@
+{
+  "default": "mantle",
+  "pages": [
+    {
+      "id": "surface",
+      "title": "surface",
+      "file": "surface.html"
+    },
+    {
+      "id": "mantle",
+      "title": "mantle",
+      "file": "mantle.html"
+    },
+    {
+      "id": "core",
+      "title": "core",
+      "file": "core.html"
+    },    
+    {
+      "id": "plate drift",
+      "title": "plate drift",
+      "file": "plate_drift.html"
+    }
+  ]
+}

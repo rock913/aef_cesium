@@ -1,0 +1,23 @@
+[Unit]
+Description=OneEarth V6 Backend (FastAPI) on :8507
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Release layout: /opt/oneearth/cesium_app_v6/current -> /opt/oneearth/cesium_app_v6/releases/<id>
+WorkingDirectory=/opt/oneearth/cesium_app_v6/current
+
+# Pin production env file (DO NOT COMMIT SECRETS)
+Environment=ONEEARTH_PROFILE=v6
+Environment=ENV_FILE=/opt/oneearth/cesium_app_v6/.env.prod
+
+# Optional: set ION_ACCESS_TOKEN in ENV_FILE to enable `/api/debug/ion` without passing Authorization header
+
+ExecStart=/bin/bash -lc '/opt/oneearth/cesium_app_v6/current/run_backend.sh'
+Restart=always
+RestartSec=2
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

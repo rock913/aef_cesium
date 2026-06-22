@@ -1,0 +1,5 @@
+# Dev/test dependencies (CI, local testing)
+# Keep production runtime deps in requirements.txt
+-r requirements.txt
+
+pytest

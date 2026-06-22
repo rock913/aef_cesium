@@ -1,0 +1,408 @@
+// Leadership-friendly mission brief model for the “Commander Panel” UI.
+// Keeps text short (what / where / what to do) and supplies a legend that matches backend palettes.
+
+function _fmtNum(x, digits = 2) {
+  if (x === null || x === undefined) return '—'
+  const n = Number(x)
+  if (Number.isNaN(n)) return '—'
+  return n.toFixed(digits)
+}
+
+export function extractTagline(narrative) {
+  if (!narrative || typeof narrative !== 'string') return ''
+  const s = narrative
+    .replace(/\s+/g, ' ')
+    .replace(/[。！？!？]+/g, '。')
+    .trim()
+  if (!s) return ''
+  const first = s.split('。')[0]?.trim()
+  if (!first) return s.slice(0, 36)
+  return first.length > 42 ? first.slice(0, 42) + '…' : first
+}
+
+export function getChapterCode(missionId) {
+  // missionId like: ch1_yuhang
+  if (!missionId || typeof missionId !== 'string') return ''
+  const m = missionId.match(/^(ch\d+)/)
+  return m ? m[1].toUpperCase() : ''
+}
+
+function _buildStatsLine(stats) {
+  const totalKm2 = stats?.total_area_km2
+  const anomalyKm2 = stats?.anomaly_area_km2
+  const anomalyPct = stats?.anomaly_pct
+
+  const parts = []
+  if (typeof totalKm2 === 'number' && !Number.isNaN(totalKm2)) {
+    parts.push(`分析总面积: ${_fmtNum(totalKm2)} km²`)
+  }
+  if (typeof anomalyKm2 === 'number' && !Number.isNaN(anomalyKm2)) {
+    parts.push(`异常面积: ${_fmtNum(anomalyKm2)} km²`)
+  }
+  if (typeof anomalyPct === 'number' && !Number.isNaN(anomalyPct)) {
+    parts.push(`异常占比: ${_fmtNum(anomalyPct)}%`)
+  }
+
+  return parts.length ? parts.join(' | ') : '区域统计: —'
+}
+
+function _buildTechnicalOutput({ mission, modeId, operator, brief, mechanism, legends, technicalInsights, stats }) {
+  const title = mission?.title || mission?.name || '—'
+  const loc = mission?.location || '—'
+  const chapter = getChapterCode(mission?.id || '') || getChapterCode(modeId) || '—'
+
+  const statsLine = _buildStatsLine(stats)
+  const legendLines = Array.isArray(legends) && legends.length
+    ? legends.map((l) => `- ${String(l?.label || '').trim()}`).filter(Boolean)
+    : ['- —']
+
+  const insightLines = Array.isArray(technicalInsights) && technicalInsights.length
+    ? technicalInsights.map((s) => `- ${String(s).trim()}`).filter(Boolean)
+    : ['- —']
+
+  return [
+    '《Alpha Earth Demo 技术版输出》',
+    `任务: ${title} (${chapter} / ${loc})`,
+    `核心算子: ${operator || '—'}`,
+    statsLine.startsWith('区域统计:') ? statsLine : `区域统计: ${statsLine}`,
+    '',
+    '业务简报 (Brief)',
+    String(brief || '—').trim(),
+    '',
+    '算法机理',
+    String(mechanism || '—').trim(),
+    '',
+    '视觉图例',
+    ...legendLines,
+    '',
+    '核心洞察',
+    ...insightLines,
+    '',
+  ].join('\n')
+}
+
+export function buildCommanderBrief(modeId, mission, stats) {
+  const totalKm2 = stats?.total_area_km2
+  const anomalyKm2 = stats?.anomaly_area_km2
+  const anomalyPct = stats?.anomaly_pct
+
+  const commonInsights = []
+
+  // Stats sentence: keep it short; ch4/ch5 are categorical so “异常” may be N/A
+  if (typeof totalKm2 === 'number' && !Number.isNaN(totalKm2)) {
+    if (typeof anomalyPct === 'number' && !Number.isNaN(anomalyPct)) {
+      commonInsights.push(`总面积 ${_fmtNum(totalKm2)} km²，异常占比 ${_fmtNum(anomalyPct)}%。`)
+    } else if (typeof anomalyKm2 === 'number' && !Number.isNaN(anomalyKm2)) {
+      commonInsights.push(`总面积 ${_fmtNum(totalKm2)} km²，异常面积 ${_fmtNum(anomalyKm2)} km²。`)
+    } else {
+      commonInsights.push(`分析总面积 ${_fmtNum(totalKm2)} km²。`)
+    }
+  }
+
+  const title = mission?.title || ''
+  const location = mission?.location || ''
+
+  // Defaults
+  let operator = ''
+  let brief = '基于 AEF（64 维特征向量）对地表进行“Face ID”式对比与解构，输出可视化热区与统计指标。'
+  let mechanism = '基于 AEF 年度表征做空间对比，输出可视化热区与统计指标。'
+  let legends = [{ color: '#00F5FF', label: '高亮区域：值得关注的结构变化' }]
+  let insights = []
+  let technicalInsights = []
+
+  if (modeId === 'ch1_yuhang_faceid') {
+    operator = 'EuclideanDistance(V_2017, V_2024)'
+    brief = '中国数字经济的心脏地带，7 年间从城郊荒地变为高新产业矩阵。AEF 以欧氏距离锁定人类建筑对自然地表的彻底重写，作为不可篡改的城建审计铁证。'
+    mechanism = '欧氏距离：提取 2017 与 2024 年底座 64 维向量的欧氏距离，过滤微小变化，锁定彻底的物理重构。'
+    legends = [
+      { color: '#FF4500', label: '红黄高亮区域：特征剧烈变异区（新增建筑/基建）' },
+      { color: '#111111', label: '深色暗影区域：地表特征稳定区' },
+    ]
+    insights = [
+      ...commonInsights,
+      '优先核查高亮连片区域：对照城建台账形成审计结论。',
+    ]
+    technicalInsights = [
+      `[异动感知] 扫描比对显示，2017 至 2024 年间底层物理空间发生显著变化${typeof anomalyKm2 === 'number' ? `，异常面积约 ${_fmtNum(anomalyKm2)} km²` : ''}${typeof anomalyPct === 'number' ? `（${_fmtNum(anomalyPct)}%）` : ''}。`,
+      '[归因分析] 变异轨迹与重大园区、大科学装置、基础设施建设进程高度吻合。',
+      '[行动建议] 将高亮网格列入优先核查清单，联动城建台账形成客观审计结论。',
+    ]
+  } else if (modeId === 'ch2_maowusu_shield') {
+    operator = 'CosineSimilarity(V_2019, V_2024)'
+    brief = '联合国认可的治沙奇迹。传统遥感在秋冬季枯黄极易被质疑为“伪绿化”；AEF 以余弦相似度只看语义方向，强力证明退增的不是季节落叶，而是固定的防风林。'
+    mechanism = '余弦相似度：只看“语义方向”不看“大小”，排除秋冬枯黄与光照干扰。'
+    legends = [
+      { color: '#FF4500', label: '橙红/亮红区域：生态本质跃迁（沙漠向绿洲转化）' },
+      { color: '#006400', label: '深绿/深蓝色区：原有地貌结构保持稳定' },
+    ]
+    insights = [
+      ...commonInsights,
+      '若枯黄季节仍显示稳定，意味着“生态骨架”已成型，可用于共识印证与成效复核。',
+    ]
+    technicalInsights = [
+      `[异动感知] 2019–2024 年核心区呈现大面积显著特征重构${typeof anomalyPct === 'number' ? `，异常变化占比约 ${_fmtNum(anomalyPct)}%` : ''}。`,
+      '[归因分析] 余弦算法成功剥离季节假象，确证从流动沙丘向固定灌木林的不可逆跃迁。',
+      '[共识印证] “治沙奇迹”在 64 维空间得到数学验证，可用于质疑场景下的成效复核。',
+    ]
+  } else if (modeId === 'ch3_zhoukou_pulse') {
+    operator = 'InverseSpecificDimension(A02)'
+    brief = '光学影像仍是“绿油油的麦田”，但 A02 融合了微波介电常数响应，可透视根系缺氧、倒伏等隐形危机，在减产前发出预警。'
+    mechanism = '特定维度反演：抽取对农田胁迫极度敏感的 A02 维度，生成可解释的健康强度场。'
+    legends = [
+      { color: '#00F5FF', label: '亮青色/蓝色斑块：显著的农作物隐形衰退/内涝区' },
+      { color: '#E0FFFF', label: '浅白/透明背景：正常农田生长背景' },
+    ]
+    insights = [
+      ...commonInsights,
+      '优先核查高异常网格对应田块的地下水位与土壤含水量。',
+      '评估排水沟渠清淤/田间暗管布设，实施精准排涝。',
+    ]
+    technicalInsights = [
+      '[快速响应] 优先核查 AEF-A02 高异常网格对应田块的地下水位与土壤剖面含水量。',
+      '[治理干预] 评估排水沟渠清淤与田间暗管布设可行性，实施精准排涝以降低减产风险。',
+    ]
+  } else if (modeId === 'ch4_amazon_zeroshot') {
+    operator = 'ZeroShotKMeans(k=6)'
+    brief = '不给 AI 输入任何南美洲先验知识，直接一键聚类：系统自动切分原始林、砍伐鱼骨、水域等单元，证明 Alpha Earth Demo 具备全球即插即用的通用智能能力。'
+    mechanism = '零样本聚类：未输入样本标签，直接在 64 维空间执行无监督聚类，自动切分结构单元。'
+    legends = [
+      { color: '#006400', label: '暗绿色图斑：连片的原始热带雨林' },
+      { color: '#FF1493', label: '粉红/紫红图斑：鱼骨状开荒带与人类活动区' },
+      { color: '#F6C431', label: '橙黄图斑：次生演替带或裸露土壤' },
+    ]
+    insights = [
+      '关注“鱼骨状”边界与道路廊道：它们往往指向新增人类活动带。',
+      '可将紫红带与保护区边界叠加，生成巡查优先级清单。',
+    ]
+    technicalInsights = [
+      '[异动感知] 算力集群可在秒级自动切分复杂的生态割裂网络与砍伐边界。',
+      '[归因分析] 无需人为教导，AI 在向量空间内自主内化地表结构差异与演变规则。',
+      '[战略价值] 具备全球泛化与即插即用能力，可作为空间治理公共科技底座。',
+    ]
+  } else if (modeId === 'ch5_coastline_audit') {
+    operator = 'AEF × JRC (Generalized RF)'
+    brief = '严守 35% 自然岸线保有率：在多源共识的基础上引入“泛化与抗噪”弹性控制（Soft Margin + RF 正则化 + 形态学平滑），让审计级底图既不过拟合、也不碎片化。'
+    mechanism = 'V8.1 弹性控制：训练端采用软边界共识（JRC occurrence 阈值适度放宽，覆盖真实过渡态），并通过 RF 正则化（minLeafPopulation、bagFraction 等）抑制死记硬背局部噪声；推理端先做 focal_mode 多数滤波抹平椒盐碎斑，再 clip 到海岸带 Geofence，最后 mask 掉 0(水) 与 3(内陆)，画面只保留黄（滩涂）vs 红（硬化围垦）的连片证据带。'
+    legends = [
+      { color: '#F6C431', label: '金黄：自然滩涂/泥沙沉积带' },
+      { color: '#E23D28', label: '警告红：人工围垦/硬化堤坝/高强度开发斑块' },
+    ]
+    insights = [
+      '将红色高强度斑块与红线边界叠加，生成核查点位清单。',
+      '对“金黄滩涂”连片区做保有率统计，形成审计量化指标。',
+    ]
+    technicalInsights = [
+      '[弹性泛化] 软边界共识覆盖过渡态，避免“过严掩膜”导致的局部过拟合。',
+      '[RF 正则化] minLeafPopulation + bagFraction 强制学习宏观模式，降低碎片噪点。',
+      '[形态学平滑] focal_mode 多数滤波抹平椒盐碎斑，让边界更连贯可读。',
+      '[靶向聚焦] 渲染端加海岸带 Geofence + clip，物理切除内陆建筑/裸土的干扰信号。',
+      '[极致净化] clip 后再透明化水域与内陆，画面只剩黄 vs 红，适合汇报与举证。',
+      '[审计输出] 红色硬化斑块可直接用于红线预警、离任审计举证与存量核查底图。',
+    ]
+  } else if (modeId === 'ch6_water_pulse') {
+    operator = 'ΔA02(2024 - 2022)'
+    brief = '以 A02 跨年差分突出水体/湿地结构变异演化，捕捉水网连通性波动并量化淡水盈亏，为生态水文协同治理提供宏观账本。'
+    mechanism = '跨年差分：提取对含水量/淹没状态敏感的 A02 维度，做 2024-2022 差分以量化水网与湿地消长。'
+    legends = [
+      { color: '#1E4AFF', label: '亮蓝色：水体扩张与洲滩湿地恢复区' },
+      { color: '#FF5A36', label: '橙红色：水体持续退缩或泥沙淤积带' },
+    ]
+    insights = [
+      ...commonInsights,
+      '优先核查都昌—星子段主航道高值区的水下地形与连通性变化。',
+      '联动水利调度日志与时序影像，评估调蓄工程对生态水网的干预效能。',
+    ]
+    technicalInsights = [
+      '[勘测指令] 优先核查都昌—星子段主航道 ΔA02 高值区的水下地形与河床连通性变化。',
+      '[协同联动] 比对同期闸坝调度日志与遥感时序，评估调蓄工程对生态水网的真实干预效能。',
+    ]
+  } else if (modeId === 'ch7_disaster_warning') {
+    operator = 'AEF Diff × DEM Topology'
+    brief = '穿透云雨遮挡，在 16 维隐空间中极速捕捉地质剧变：利用 DEM 地形拓扑约束，锁定陡坡上植被(A01)断崖式暴跌的滑坡破裂带，与低洼河谷中介电常数(A02)异常涌动的山洪淹没区。'
+    mechanism = 'AEF 时序差分 × DEM 拓扑：提取灾前灾后 16 维向量的欧氏距离突变，叠加 Copernicus DEM 坡度 (>12°滑坡 / ≤12°山洪)，分别以 delta_A01(植被骤降) 与 delta_A02(水分骤增) 作为靶向诊断的物理铁证。'
+    legends = [
+      { color: '#00F5FF', label: '山洪淹没区 (Flash Flood)' },
+      { color: '#FF3300', label: '山体滑坡带 (Landslide)' },
+    ]
+    insights = [
+      ...commonInsights,
+      '优先排查沿河谷蔓延的青蓝色山洪斑块，评估河道溃决与村落淹没风险。',
+      '红色滑坡斑块集中在 >12° 陡坡区，物理语义突变确认为山体撕裂的证据链。',
+    ]
+    technicalInsights = [
+      '[滑坡] 高陡坡 (>12°) + 全局突变距离 >0.20 + delta_A01 < -0.15 → 植被掩埋+山体结构撕裂。',
+      '[山洪] 平缓河谷 (≤12°) + delta_A02 > 0.12 → 介电常数异常涌动 = 水体漫溢/河道溃决。',
+      '[金标准] Copernicus DEM GLO30 坡度约束 + AEF 16维欧氏距离时空差分，无需人工标注。',
+    ]
+  } else {
+    // Fallback: stay generic but still helpful
+    operator = 'AEF(64D) change scan'
+    insights = [
+      ...commonInsights,
+      `任务：${title || '—'}（${location || '—'}）`,
+    ]
+    technicalInsights = insights.slice(0)
+  }
+
+  // Clamp insights to 1–3 bullets for the typewriter UI.
+  const finalInsights = insights.filter(Boolean).slice(0, 3)
+
+  const technical = _buildTechnicalOutput({
+    mission,
+    modeId,
+    operator,
+    brief,
+    mechanism,
+    legends,
+    technicalInsights,
+    stats,
+  })
+
+  return {
+    brief,
+    mechanism,
+    legends,
+    insights: finalInsights,
+    technical,
+  }
+}
+
+function _stripBulletPrefix(line) {
+  return String(line)
+    .replace(/^\s*[-•*]\s+/, '')
+    .replace(/^\s*\d+[.)]\s+/, '')
+    .trim()
+}
+
+export function normalizeCommanderActionLine(line, maxLen = 34) {
+  if (!line || typeof line !== 'string') return ''
+  let s = line
+    .replace(/^\s*(建议|推荐|可考虑|可以|请|应当|应|需)\s*[:：]?\s*/g, '')
+    .replace(/^[\s-•*]+/g, '')
+    .trim()
+
+  // Remove trailing punctuation
+  s = s.replace(/[。；;\s]+$/g, '').trim()
+  if (!s) return ''
+
+  // Clamp length for a “telegraph” feel
+  if (typeof maxLen === 'number' && maxLen > 10 && s.length > maxLen) {
+    s = s.slice(0, maxLen).trim() + '…'
+  }
+  return s
+}
+
+function _splitToActionItems(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return []
+
+  // First pass: split by strong separators.
+  let parts = raw
+    .split(/(?:；|\n|\r\n|。)+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  // Second pass: if still a single long sentence, try soft split.
+  if (parts.length <= 1 && raw.length >= 28) {
+    parts = raw
+      .split(/，(?=并|同时|结合|对|将|优先)/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+
+  return parts
+    .map((s) => s.replace(/[。；\s]+$/g, '').trim())
+    .filter(Boolean)
+}
+
+// Extract 1–2 actionable recommendation bullets from backend /api/report text.
+// Preference order:
+// 1) Markdown/numbered bullets
+// 2) A "建议：..." line/section
+export function extractActionInsightsFromReport(reportText, maxItems = 2) {
+  if (!reportText || typeof reportText !== 'string') return []
+  const text = reportText.replace(/\r\n/g, '\n').trim()
+  if (!text) return []
+
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+
+  // 0) Prefer bracket-tag action lines in playbook style.
+  // Examples: [行动建议] ... / [治理干预] ... / [勘测指令] ... / [协同联动] ...
+  const tagged = lines
+    .filter((l) => /^\[(行动建议|治理干预|勘测指令|协同联动|决策支持|快速响应)\]/.test(l))
+    .map((l) => l.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .map((s) => normalizeCommanderActionLine(s))
+    .filter(Boolean)
+  if (tagged.length) return tagged.slice(0, Math.max(1, maxItems))
+
+  // 1) Bullet lines (LLM may output these)
+  const bulletLines = lines
+    .filter((l) => /^([-•*]\s+|\d+[.)]\s+)/.test(l))
+    .map(_stripBulletPrefix)
+    .filter(Boolean)
+
+  if (bulletLines.length) {
+    return bulletLines
+      .map((s) => normalizeCommanderActionLine(s))
+      .filter(Boolean)
+      .slice(0, Math.max(1, maxItems))
+  }
+
+  // 2) "建议：" inline
+  const inline = text.match(/建议\s*[:：]\s*([^\n]+)/)
+  if (inline && inline[1]) {
+    const items = _splitToActionItems(inline[1])
+      .map((s) => normalizeCommanderActionLine(s))
+      .filter(Boolean)
+    if (items.length) return items.slice(0, Math.max(1, maxItems))
+  }
+
+  // 3) "建议：" section (until next bracket header or end)
+  const section = text.match(/建议\s*[:：]\s*([\s\S]+?)\n(?=【|\S+[:：])|建议\s*[:：]\s*([\s\S]+)$/)
+  const sectionText = (section && (section[1] || section[2])) ? String(section[1] || section[2]).trim() : ''
+  if (sectionText) {
+    const items = _splitToActionItems(sectionText)
+      .map((s) => normalizeCommanderActionLine(s))
+      .filter(Boolean)
+    if (items.length) return items.slice(0, Math.max(1, maxItems))
+  }
+
+  return []
+}
+
+// Build a short, single-line reading hint from legends, e.g.
+// "判读：蓝=扩张/恢复；橙红=退缩/淤积"
+export function buildLegendHint(legends, maxPairs = 2, maxLen = 68) {
+  if (!Array.isArray(legends) || legends.length === 0) return ''
+
+  const pairs = []
+  for (const l of legends) {
+    const label = String(l?.label || '').trim()
+    if (!label) continue
+    const m = label.match(/^(.{1,16}?)[：:]\s*(.+)$/)
+    if (!m) continue
+
+    let key = String(m[1] || '').trim()
+    let val = String(m[2] || '').trim()
+
+    key = key
+      .replace(/(区域|斑块|高亮|暗影)$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (key.length > 10) key = key.slice(0, 10).trim()
+
+    val = val.replace(/[。；;\s]+$/g, '').trim()
+    if (!key || !val) continue
+
+    pairs.push(`${key}=${val}`)
+    if (pairs.length >= Math.max(1, maxPairs)) break
+  }
+
+  if (!pairs.length) return ''
+
+  let s = `判读：${pairs.join('；')}`
+  if (typeof maxLen === 'number' && maxLen > 24 && s.length > maxLen) {
+    s = s.slice(0, maxLen).trim() + '…'
+  }
+  return s
+}
