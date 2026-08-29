@@ -20,11 +20,25 @@ export function extractTagline(narrative) {
   return first.length > 42 ? first.slice(0, 42) + '…' : first
 }
 
-export function getChapterCode(missionId) {
-  // missionId like: ch1_yuhang
-  if (!missionId || typeof missionId !== 'string') return ''
-  const m = missionId.match(/^(ch\d+)/)
-  return m ? m[1].toUpperCase() : ''
+export function getChapterCode(missionOrId, apiMode = '') {
+  if (!missionOrId) return ''
+  // If an entire mission object is passed
+  if (typeof missionOrId === 'object') {
+    if (missionOrId.chapter) return String(missionOrId.chapter).toUpperCase()
+    const id = String(missionOrId.id || '')
+    const mode = String(missionOrId.api_mode || '')
+    return getChapterCode(id, mode)
+  }
+
+  const str = String(missionOrId || '')
+  const m = str.match(/^(ch\d+)/i) || str.match(/(ch\d+)/i)
+  if (m) return m[1].toUpperCase()
+
+  const modeStr = String(apiMode || '')
+  const mMode = modeStr.match(/^(ch\d+)/i) || modeStr.match(/(ch\d+)/i)
+  if (mMode) return mMode[1].toUpperCase()
+
+  return ''
 }
 
 function _buildStatsLine(stats) {

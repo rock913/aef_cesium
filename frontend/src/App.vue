@@ -137,7 +137,7 @@
                   :disabled="!viewerReady"
                 >
                   <div class="mission-card-top">
-                    <span class="tag tag-chapter">{{ getChapterCode(m.id) || m.name }}</span>
+                    <span class="tag tag-chapter">{{ getChapterCode(m) || m.name }}</span>
                     <span class="tag secondary">{{ locations?.[m.location]?.name || m.location }}</span>
                     <span v-if="m.formula" class="tag tertiary formula" :title="m.formula">{{ m.formula }}</span>
                   </div>

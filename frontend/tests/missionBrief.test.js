@@ -16,6 +16,10 @@ describe('missionBrief', () => {
 
   it('getChapterCode parses chN', () => {
     expect(getChapterCode('ch6_poyang')).toBe('CH6')
+    expect(getChapterCode('ch8_insar_subsidence')).toBe('CH8')
+    expect(getChapterCode('填海区沉降', 'ch8_insar_subsidence')).toBe('CH8')
+    expect(getChapterCode({ id: '填海区沉降', chapter: 'CH8' })).toBe('CH8')
+    expect(getChapterCode({ id: '核心区沉降', api_mode: 'ch8_insar_subsidence' })).toBe('CH8')
   })
 
   it('buildCommanderBrief returns mechanism/legends/insights', () => {

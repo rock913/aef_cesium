@@ -206,8 +206,9 @@ class Settings(BaseModel):
         },
         {
             "id": "填海区沉降",
-            "name": "南沙填海造陆区固结监测",
-            "title": "广域基建体检：软土压密固结形变。",
+            "chapter": "CH8",
+            "name": "南沙填海",
+            "title": "广州南沙 · 填海造陆区固结沉降监测",
             "location": "guangzhou_nansha",
             "api_mode": "ch8_insar_subsidence",
             "formula": "NASA ISCE2 + MintPy (Sentinel-1)",
@@ -216,8 +217,9 @@ class Settings(BaseModel):
         },
         {
             "id": "核心区沉降",
-            "name": "天河地下空间形变监测",
-            "title": "城市生命线：靶向追踪基坑与地铁沉降。",
+            "chapter": "CH8",
+            "name": "天河形变",
+            "title": "广州天河 · CBD地下空间形变监测",
             "location": "guangzhou_tianhe",
             "api_mode": "ch8_insar_subsidence",
             "formula": "NASA ISCE2 + MintPy (Sentinel-1)",

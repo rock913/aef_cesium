@@ -88,10 +88,18 @@ class TestMissionsEndpoint:
             assert isinstance(cam["duration_s"], (int, float))
 
             # Optional camera orientation (forward-compatible)
-            if "heading_deg" in cam:
-                assert isinstance(cam["heading_deg"], (int, float))
-            if "pitch_deg" in cam:
-                assert isinstance(cam["pitch_deg"], (int, float))
+            if "heading" in cam:
+                assert isinstance(cam["heading"], (int, float))
+            if "pitch" in cam:
+                assert isinstance(cam["pitch"], (int, float))
+            if "roll" in cam:
+                assert isinstance(cam["roll"], (int, float))
+
+        # 校验 CH8 任务卡明确携带 chapter: CH8 标识
+        ch8_missions = [m for m in data if m["api_mode"] == "ch8_insar_subsidence"]
+        assert len(ch8_missions) == 2
+        for m in ch8_missions:
+            assert m.get("chapter") == "CH8"
 
     def test_missions_have_stable_order(self, client: TestClient):
         resp = client.get("/api/missions")

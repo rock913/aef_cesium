@@ -206,6 +206,7 @@ class MissionCamera(BaseModel):
 
 class Mission(BaseModel):
     id: str
+    chapter: Optional[str] = None
     name: str
     title: str
     location: str

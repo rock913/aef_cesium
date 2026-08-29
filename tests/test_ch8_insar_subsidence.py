@@ -36,10 +36,12 @@ def test_ch8_missions_registered():
     nansha_mission = next(m for m in settings.missions if m["id"] == "填海区沉降")
     assert nansha_mission["api_mode"] == "ch8_insar_subsidence"
     assert nansha_mission["location"] == "guangzhou_nansha"
+    assert nansha_mission.get("chapter") == "CH8"
 
     tianhe_mission = next(m for m in settings.missions if m["id"] == "核心区沉降")
     assert tianhe_mission["api_mode"] == "ch8_insar_subsidence"
     assert tianhe_mission["location"] == "guangzhou_tianhe"
+    assert tianhe_mission.get("chapter") == "CH8"
 
 def test_ch8_viewport_buffer():
     """Verify ch8 has a viewport buffer override."""

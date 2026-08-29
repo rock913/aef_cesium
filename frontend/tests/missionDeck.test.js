@@ -23,8 +23,8 @@ describe('missionDeck utilities', () => {
     { id: 'ch6_poyang', name: '脉动', title: '鄱阳湖水网脉动', api_mode: 'ch6_water_pulse' },
     { id: 'ch7_beijing', name: '定损', title: '极端暴雨灾害定损', api_mode: 'ch7_disaster_warning' },
     { id: 'ch7_guangdong', name: '预警', title: '汛期山洪与滑坡预警', api_mode: 'ch7_disaster_warning' },
-    { id: '填海区沉降', name: '南沙沉降', title: '南沙填海造陆区固结监测', api_mode: 'ch8_insar_subsidence' },
-    { id: '核心区沉降', name: '天河形变', title: '天河地下空间形变监测', api_mode: 'ch8_insar_subsidence' },
+    { id: '填海区沉降', chapter: 'CH8', name: '南沙沉降', title: '南沙填海造陆区固结监测', api_mode: 'ch8_insar_subsidence' },
+    { id: '核心区沉降', chapter: 'CH8', name: '天河形变', title: '天河地下空间形变监测', api_mode: 'ch8_insar_subsidence' },
   ]
 
   it('defines the 4 primary categories', () => {
