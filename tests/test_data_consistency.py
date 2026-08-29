@@ -39,7 +39,7 @@ class TestDataConsistency:
     
     def test_mode_ids_are_consistent(self):
         """测试：模式ID应该在整个系统中保持一致"""
-        # V6.6 six-chapter mode ids
+        # Mode ids
         valid_mode_ids = {
             "ch1_yuhang_faceid",
             "ch2_maowusu_shield",
@@ -47,6 +47,8 @@ class TestDataConsistency:
             "ch4_amazon_zeroshot",
             "ch5_coastline_audit",
             "ch6_water_pulse",
+            "ch7_disaster_warning",
+            "ch8_insar_subsidence",
         }
         actual_mode_ids = set(settings.modes.keys())
         

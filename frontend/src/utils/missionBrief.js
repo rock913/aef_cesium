@@ -234,6 +234,28 @@ export function buildCommanderBrief(modeId, mission, stats) {
       '[山洪] 平缓河谷 (≤12°) + delta_A02 > 0.12 → 介电常数异常涌动 = 水体漫溢/河道溃决。',
       '[金标准] Copernicus DEM GLO30 坡度约束 + AEF 16维欧氏距离时空差分，无需人工标注。',
     ]
+  } else if (modeId === 'ch8_insar_subsidence') {
+    operator = 'NASA ISCE2 + MintPy (Sentinel-1 SBAS)'
+    brief = '结合雷达干涉测量与 AEF 语义底座：基于 NASA ISCE2 + MintPy 国际金标准管线反演毫米级沉降场，剥离 ERA5 大气延迟与 DEM 误差，将微观建筑下沉靶向锁定在三维孪生底座上。'
+    mechanism = 'SBAS-InSAR 时序形变反演：Sentinel-1 短基线干涉组网，SNAPHU 最小费用流解缠，PyAPS+ERA5 对流层水汽延迟物理建模剥离，WLS 加权最小二乘反演解算 PS 点年均沉降速率，coherence > 0.75 质量控制。'
+    legends = [
+      { color: '#FF0000', label: '严重沉降带 (速率 < -20 mm/yr)：填海造陆固结/基坑漏斗' },
+      { color: '#FF8C00', label: '中度沉降区 (速率 -20 ~ -10 mm/yr)：地铁沿线/基建扰动' },
+      { color: '#FFFF00', label: '轻微沉降区 (速率 -10 ~ -5 mm/yr)' },
+      { color: '#00FF00', label: '地表稳定区 (速率 -5 ~ +5 mm/yr)' },
+      { color: '#0000FF', label: '地表抬升区 (速率 > +5 mm/yr)' },
+    ]
+    insights = [
+      ...commonInsights,
+      '南沙填海区大面积橙红色光晕揭示软土压密固结，重点防范沿海堤防与防汛风险。',
+      '天河 CBD 红色沉降漏斗与地铁/在建基坑空间重叠，需警惕建筑物不均匀沉降应力。',
+    ]
+    technicalInsights = [
+      '[高精度反演] NASA ISCE2 + MintPy 双核驱动，SBAS-InSAR 反演精度达毫米级 (1–3 mm/yr)。',
+      '[质量控制] 相干性阈值 > 0.75 过滤水体与茂密植被去相干噪点，保留高质量永久散射体 (PS)。',
+      '[误差剥离] PyAPS 融合 ECMWF ERA5 物理模拟对流层延迟，线性回归反演消除 DEM 残余误差。',
+      '[多模态融合] InSAR 物理沉降量 × AEF 人造物语义特征空间交集，输出城市生命线风险预警报告。',
+    ]
   } else {
     // Fallback: stay generic but still helpful
     operator = 'AEF(64D) change scan'

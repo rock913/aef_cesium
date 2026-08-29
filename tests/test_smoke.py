@@ -58,9 +58,9 @@ def test_config_has_required_settings():
     assert "maowusu" in settings.locations
     assert "zhoukou" in settings.locations
     
-    # modes 应该是字典且包含4种模式
+    # modes 应该是字典且包含模式
     assert isinstance(settings.modes, dict)
-    assert len(settings.modes) == 6
+    assert len(settings.modes) >= 6
     assert all(
         mode in settings.modes
         for mode in [
@@ -70,6 +70,8 @@ def test_config_has_required_settings():
             "ch4_amazon_zeroshot",
             "ch5_coastline_audit",
             "ch6_water_pulse",
+            "ch7_disaster_warning",
+            "ch8_insar_subsidence",
         ]
     )
 

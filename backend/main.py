@@ -222,7 +222,7 @@ _gee_last_error: Optional[str] = None
 _gee_last_attempt_ts: float = 0.0
 _gee_last_success_ts: float = 0.0
 _gee_min_retry_interval_s: float = float(os.getenv("GEE_INIT_RETRY_INTERVAL_S", "15"))
-_gee_init_timeout_s: float = float(os.getenv("GEE_INIT_TIMEOUT_S", "6"))
+_gee_init_timeout_s: float = float(os.getenv("GEE_INIT_TIMEOUT_S", "15"))
 _gee_init_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _gee_init_future: Optional[concurrent.futures.Future] = None
 
@@ -2195,6 +2195,7 @@ async def get_layer(
                     "ch4_amazon_zeroshot": 0.88,
                     "ch6_water_pulse": 0.88,
                     "ch7_disaster_warning": 0.88,
+                    "ch8_insar_subsidence": 0.88,
                     # Yancheng optimization: reduce perceived "white film" for coastline audit.
                     "ch5_coastline_audit": 0.65,
                 }.get(mode, 0.88),

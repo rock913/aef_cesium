@@ -64,35 +64,96 @@
           </div>
 
           <div class="mission-deck">
-            <div class="deck-title">行星级任务包（Missions）</div>
-            <div v-if="!missions?.length" class="mission-empty">正在加载 Missions…</div>
+            <div class="deck-header">
+              <div class="deck-title-group">
+                <span class="deck-badge-glow">✦</span>
+                <div class="deck-title">行星级任务包（Missions）</div>
+                <span class="deck-count-pill">{{ filteredMissions.length }}/{{ missions.length }}</span>
+              </div>
 
-            <div class="mission-row">
-              <button
-                v-for="m in missions"
-                :key="m.id"
-                class="mission-card"
-                @click="lockMission(m)"
-                :disabled="!viewerReady"
+              <!-- 主题分类胶囊切换 -->
+              <div class="category-tabs" role="tablist" aria-label="任务主题分类">
+                <button
+                  v-for="cat in missionCategories"
+                  :key="cat.key"
+                  type="button"
+                  class="cat-tab"
+                  :class="{ active: selectedCategory === cat.key }"
+                  @click="selectedCategory = cat.key"
+                  :title="`筛选：${cat.label}`"
+                >
+                  <span class="cat-icon">{{ cat.icon }}</span>
+                  <span class="cat-label">{{ cat.label }}</span>
+                  <span class="cat-count">{{ getCategoryCount(cat.key) }}</span>
+                </button>
+              </div>
+
+              <!-- 左右滑动翻页微操键 -->
+              <div class="deck-nav-controls">
+                <button
+                  type="button"
+                  class="nav-arrow-btn"
+                  :disabled="!canScrollLeft"
+                  @click="scrollDeck('left')"
+                  title="向左滑动"
+                  aria-label="向左滑动"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  class="nav-arrow-btn"
+                  :disabled="!canScrollRight"
+                  @click="scrollDeck('right')"
+                  title="向右滑动"
+                  aria-label="向右滑动"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+
+            <!-- 双行跑道容器及左右边缘渐变遮罩 -->
+            <div
+              class="rail-container"
+              :class="{ 'mask-left': canScrollLeft, 'mask-right': canScrollRight }"
+            >
+              <div v-if="!missions?.length" class="mission-empty">正在加载 Missions…</div>
+
+              <div
+                v-else
+                ref="missionRowEl"
+                class="mission-row"
+                @wheel="onRowWheel"
+                @scroll.passive="updateScrollButtons"
               >
-                <div class="mission-card-top">
-                  <span class="tag">{{ getChapterCode(m.id) || m.name }}</span>
-                  <span class="tag secondary">{{ locations?.[m.location]?.name || m.location }}</span>
-                  <span v-if="m.formula" class="tag tertiary formula">{{ m.formula }}</span>
-                </div>
-                <div class="mission-card-title">{{ m.title }}</div>
-                <div class="mission-card-foot">
-                  <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
-                  <span class="foot-text">
-                    <template v-if="prefetchState[m.id]?.done">
-                      {{ prefetchState[m.id]?.ok ? '预热完成' : '预热失败（仍可点击执行）' }}
-                    </template>
-                    <template v-else>
-                      {{ viewerReady ? '待机中：后台静默预热' : '地球引擎初始化中…' }}
-                    </template>
-                  </span>
-                </div>
-              </button>
+                <button
+                  v-for="m in filteredMissions"
+                  :key="m.id"
+                  class="mission-card"
+                  :class="getCardCategoryClass(m)"
+                  @click="lockMission(m)"
+                  :disabled="!viewerReady"
+                >
+                  <div class="mission-card-top">
+                    <span class="tag tag-chapter">{{ getChapterCode(m.id) || m.name }}</span>
+                    <span class="tag secondary">{{ locations?.[m.location]?.name || m.location }}</span>
+                    <span v-if="m.formula" class="tag tertiary formula" :title="m.formula">{{ m.formula }}</span>
+                  </div>
+                  <div class="mission-card-title" :title="m.title">{{ m.title }}</div>
+                  <div class="mission-card-foot">
+                    <span class="dot" :class="prefetchState[m.id]?.ok ? 'ok' : (prefetchState[m.id]?.done ? 'bad' : 'idle')"></span>
+                    <span class="foot-text">
+                      <template v-if="prefetchState[m.id]?.done">
+                        {{ prefetchState[m.id]?.ok ? '预热完成' : '预热失败（仍可点击执行）' }}
+                      </template>
+                      <template v-else>
+                        {{ viewerReady ? '待机中：后台静默预热' : '地球引擎初始化中…' }}
+                      </template>
+                    </span>
+                  </div>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -218,7 +279,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
@@ -229,6 +290,12 @@ import {
   extractActionInsightsFromReport,
   getChapterCode,
 } from './utils/missionBrief.js'
+import {
+  MISSION_CATEGORIES,
+  getMissionCategory,
+  filterMissionsByCategory,
+  computeCategoryCounts,
+} from './utils/missionDeck.js'
 
 export default {
   name: 'App',
@@ -338,7 +405,67 @@ export default {
     const missions = ref([])
     const viewerReady = ref(false)
 
-    // Narrative state machine
+    // Mission deck navigation & categorization (Option A: 2-Row Rail + Category Filter + Wheel Scroll)
+    const selectedCategory = ref('all')
+    const missionRowEl = ref(null)
+    const canScrollLeft = ref(false)
+    const canScrollRight = ref(false)
+
+    function getCardCategoryClass(m) {
+      return `cat-${getMissionCategory(m)}`
+    }
+
+    const filteredMissions = computed(() => {
+      return filterMissionsByCategory(missions.value, selectedCategory.value)
+    })
+
+    const categoryCounts = computed(() => {
+      return computeCategoryCounts(missions.value)
+    })
+
+    function getCategoryCount(catKey) {
+      return categoryCounts.value[catKey] ?? 0
+    }
+
+    function updateScrollButtons() {
+      const el = missionRowEl.value
+      if (!el) {
+        canScrollLeft.value = false
+        canScrollRight.value = false
+        return
+      }
+      canScrollLeft.value = el.scrollLeft > 4
+      canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 4
+    }
+
+    function scrollDeck(direction) {
+      const el = missionRowEl.value
+      if (!el) return
+      const offset = direction === 'left' ? -340 : 340
+      el.scrollBy({ left: offset, behavior: 'smooth' })
+      setTimeout(updateScrollButtons, 350)
+    }
+
+    function onRowWheel(e) {
+      const el = missionRowEl.value
+      if (!el) return
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        if ((e.deltaY > 0 && canScrollRight.value) || (e.deltaY < 0 && canScrollLeft.value)) {
+          e.preventDefault()
+          el.scrollLeft += e.deltaY * 0.9
+          updateScrollButtons()
+        }
+      } else if (e.deltaX) {
+        updateScrollButtons()
+      }
+    }
+
+    watch(selectedCategory, () => {
+      if (missionRowEl.value) {
+        missionRowEl.value.scrollLeft = 0
+      }
+      nextTick(updateScrollButtons)
+    })
     // standby: global rotation | flying: target lock dive | analyzing: show HUD + panel
     const appState = ref('standby')
     const selectedMissionId = ref(null)
@@ -442,6 +569,7 @@ export default {
         locations.value = locs
         modes.value = ms
         missions.value = missionsData
+        nextTick(updateScrollButtons)
       } catch (error) {
         console.error('初始化失败:', error)
         alert('后端连接失败：请确保 API 服务已启动（默认端口 8405），且前端 /api 代理可用。')
@@ -449,6 +577,7 @@ export default {
 
       try {
         window.addEventListener('resize', _onResize, { passive: true })
+        window.addEventListener('resize', updateScrollButtons, { passive: true })
       } catch (_) {
         // ignore
       }
@@ -474,6 +603,7 @@ export default {
       _removeSplitDragListeners()
       try {
         window.removeEventListener('resize', _onResize)
+        window.removeEventListener('resize', updateScrollButtons)
       } catch (_) {
         // ignore
       }
@@ -1180,6 +1310,17 @@ export default {
       locations,
       modes,
       missions,
+      missionCategories: MISSION_CATEGORIES,
+      selectedCategory,
+      filteredMissions,
+      getCategoryCount,
+      getCardCategoryClass,
+      missionRowEl,
+      canScrollLeft,
+      canScrollRight,
+      scrollDeck,
+      onRowWheel,
+      updateScrollButtons,
       getChapterCode,
       initialLocation,
       loading,
@@ -1394,70 +1535,301 @@ export default {
 .mission-deck {
   pointer-events: auto;
   margin: 0 auto;
-  width: min(1060px, 94vw);
-  background: rgba(10, 15, 25, 0.78);
-  border: 1px solid rgba(0, 245, 255, 0.22);
-  border-radius: 12px;
-  padding: 16px 16px 12px;
-  backdrop-filter: blur(10px);
+  width: min(1120px, 95vw);
+  background: rgba(8, 14, 24, 0.84);
+  border: 1px solid rgba(0, 245, 255, 0.24);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(0, 245, 255, 0.16);
+  border-radius: 14px;
+  padding: 12px 14px 8px;
+  backdrop-filter: blur(14px);
+}
+
+.deck-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+  flex-wrap: wrap;
+}
+
+.deck-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deck-badge-glow {
+  color: #00f5ff;
+  font-size: 13px;
+  animation: pulse-glow 2.5s infinite ease-in-out;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; text-shadow: 0 0 10px rgba(0, 245, 255, 0.8); }
 }
 
 .deck-title {
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(255, 255, 255, 0.94);
   font-weight: 800;
   letter-spacing: 0.4px;
-  margin-bottom: 10px;
-  font-size: 16px;
+  font-size: 15px;
+  line-height: 1;
 }
 
-.mission-card-title {
+.deck-count-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 245, 255, 0.12);
+  border: 1px solid rgba(0, 245, 255, 0.25);
+  color: #00f5ff;
+  letter-spacing: 0.4px;
+}
+
+/* Category Filter Tabs */
+.category-tabs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cat-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.68);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.cat-tab:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cat-tab.active {
+  color: #ffffff;
+  background: rgba(0, 245, 255, 0.16);
+  border-color: rgba(0, 245, 255, 0.38);
+  box-shadow: 0 0 12px rgba(0, 245, 255, 0.18);
+}
+
+.cat-icon {
+  font-size: 12px;
+}
+
+.cat-count {
+  font-size: 10px;
+  opacity: 0.85;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cat-tab.active .cat-count {
+  background: rgba(0, 245, 255, 0.25);
+  color: #00f5ff;
+}
+
+/* Deck Navigation Arrow Controls */
+.deck-nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-arrow-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 16px;
   font-weight: 900;
-  letter-spacing: 0.2px;
-  margin-bottom: 6px;
-  font-size: 16px;
-  line-height: 1.25;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+  line-height: 1;
 }
 
+.nav-arrow-btn:hover:enabled {
+  background: rgba(0, 245, 255, 0.22);
+  border-color: rgba(0, 245, 255, 0.55);
+  color: #00f5ff;
+  box-shadow: 0 0 10px rgba(0, 245, 255, 0.25);
+}
+
+.nav-arrow-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+/* Rail Container with Left/Right Gradient Shading */
+.rail-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.rail-container::before,
+.rail-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 6px;
+  width: 36px;
+  pointer-events: none;
+  z-index: 3;
+  transition: opacity 0.25s ease;
+  opacity: 0;
+}
+
+.rail-container::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(8, 14, 24, 0.95), transparent);
+}
+
+.rail-container::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(8, 14, 24, 0.95), transparent);
+}
+
+.rail-container.mask-left::before {
+  opacity: 1;
+}
+
+.rail-container.mask-right::after {
+  opacity: 1;
+}
+
+/* 2-Row Horizontal Scrolling Grid */
 .mission-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-rows: repeat(2, minmax(86px, auto));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(310px, 340px);
+  gap: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  padding: 2px 2px 6px 2px;
+}
+
+/* Cyber Neon Custom Thin Scrollbar */
+.mission-row::-webkit-scrollbar {
+  height: 4px;
+}
+
+.mission-row::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.mission-row::-webkit-scrollbar-thumb {
+  background: rgba(0, 245, 255, 0.28);
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.mission-row::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 245, 255, 0.65);
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.5);
 }
 
 .mission-empty {
-  margin-top: 10px;
+  margin: 14px 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
+  text-align: center;
 }
 
+/* Mission Card Aesthetic */
 .mission-card {
-  padding: 10px 10px 8px;
-  background: rgba(0, 245, 255, 0.08);
-  border: 1px solid rgba(0, 245, 255, 0.25);
-  border-radius: 10px;
+  padding: 8px 10px 7px;
+  background: rgba(0, 245, 255, 0.05);
+  border: 1px solid rgba(0, 245, 255, 0.2);
+  border-radius: 9px;
   color: #fff;
   cursor: pointer;
-  transition: 0.25s;
+  transition: all 0.22s ease;
   text-align: left;
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  gap: 6px;
-  min-height: 96px;
+  justify-content: space-between;
+  min-height: 86px;
+  scroll-snap-align: start;
 }
 
 .mission-card:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .mission-card:hover:enabled {
-  background: rgba(0, 245, 255, 0.18);
+  background: rgba(0, 245, 255, 0.14);
   border-color: rgba(0, 245, 255, 0.45);
-  box-shadow: 0 0 24px rgba(0, 245, 255, 0.18);
+  box-shadow: 0 0 16px rgba(0, 245, 255, 0.16);
   transform: translateY(-1px);
+}
+
+/* Category Accent Theme Accents */
+.mission-card.cat-urban {
+  border-left: 3px solid #00f5ff;
+}
+
+.mission-card.cat-ecology {
+  border-left: 3px solid #00ff9d;
+  background: rgba(0, 255, 157, 0.04);
+}
+.mission-card.cat-ecology:hover:enabled {
+  background: rgba(0, 255, 157, 0.12);
+  border-color: rgba(0, 255, 157, 0.45);
+  box-shadow: 0 0 16px rgba(0, 255, 157, 0.16);
+}
+
+.mission-card.cat-hazard {
+  border-left: 3px solid #ff6b4a;
+  background: rgba(255, 107, 74, 0.04);
+}
+.mission-card.cat-hazard:hover:enabled {
+  background: rgba(255, 107, 74, 0.12);
+  border-color: rgba(255, 107, 74, 0.45);
+  box-shadow: 0 0 16px rgba(255, 107, 74, 0.16);
+}
+
+.mission-card-title {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  margin: 3px 0 1px;
+  font-size: 14px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .mission-card-meta {
@@ -1929,29 +2301,45 @@ export default {
 
 @media (max-width: 1180px) {
   .mission-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-columns: minmax(280px, 320px);
   }
 }
 
 @media (max-width: 720px) {
+  .deck-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .category-tabs {
+    overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .deck-nav-controls {
+    display: none;
+  }
+
   .mission-row {
-    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(80px, auto));
+    grid-auto-columns: minmax(250px, 82vw);
   }
 
   .lobby {
-    padding: 42px 14px 18px;
+    padding: 36px 12px 14px;
   }
 
   .hero-title {
-    font-size: 56px;
-    letter-spacing: 6px;
+    font-size: 52px;
+    letter-spacing: 5px;
   }
 
   .mission-deck {
-    width: min(1060px, 96vw);
-    max-height: 62vh;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
+    width: 96vw;
+    padding: 10px 10px 6px;
   }
 
   /* Mobile: hide debug center coordinates */

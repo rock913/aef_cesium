@@ -1,8 +1,67 @@
 # ROADMAP — AlphaEarth Cesium 开发进度
 
-> 最后更新: 2026-06-21
+> 最后更新: 2026-08-29
 
-## 当前 Sprint: CH7 山洪与滑坡灾害极速定损 Demo ✅
+## 已完成 Sprint: 行星级任务包 UI/UX 约束与横向跑道重构 (方案 A) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| 跑道架构重构 | ✅ | 固定限高双行跑道 (`grid-template-rows: repeat(2, minmax(86px, auto))`)，卡片横向平滑滚动 |
+| 业务领域分类筛选 | ✅ | 新增主题胶囊标签栏：全部 (10)、🏙️ 城市基建 (3)、🌿 生态环境 (4)、⚠️ 应急防汛 (3) |
+| 自然滚轮横滑与微操按键 | ✅ | 滚轮垂直滑动自动映射横向滑轨；新增精致左右导航翻页按键 `[‹] [›]` |
+| 跑道呼吸渐变遮罩 | ✅ | 左右边缘动态渐变遮罩 (`mask-left`, `mask-right`)，智能提示可滚动空间 |
+| 赛博朋克霓虹细滚动条 | ✅ | 4px 超细青蓝发光滚动条，hover 发光动效 |
+| 领域专属色系微观质感 | ✅ | 城市基建 (高亮青蓝 `#00f5ff`)、生态环境 (翡翠苍翠 `#00ff9d`)、应急防汛 (警戒炽橙 `#ff6b4a`) |
+| 模块化与自动化测试 | ✅ | 提取 `frontend/src/utils/missionDeck.js`，新增 `tests/missionDeck.test.js` (9/9 通过，全套 181 测试全过) |
+| 生产镜像构建与热更新 | ✅ | Vite 静态资源重新打包，Docker 容器热更新完成，7702 端口可实时预览 |
+
+## 已完成 Sprint: CH8 城市广域 InSAR 沉降数字孪生系统 (V3.0 城市安防版) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| PRD 文档建立 | ✅ | `docs/AlphaEarth_V3_InSAR_Subsidence_PRD.md` |
+| 离线资产固化脚本 | ✅ | `scripts/ch8_insar_asset_builder.py` (GCS -> GEE Image Asset 构建) |
+| `backend/config.py` 配置注册 | ✅ | guangzhou_nansha, guangzhou_tianhe, ch8_insar_subsidence, viewport 60km, 2 mission cards |
+| `backend/gee_service.py` 算子逻辑 | ✅ | 挂载 InSAR 时序 Asset，Coherence > 0.75 质量过滤，\|v\| > 5mm/yr 靶向警报 |
+| `backend/main.py` 渲染参数配置 | ✅ | ch8_insar_subsidence opacity=0.88 (PNG 带 Alpha 透明通道) |
+| `frontend/missionBrief.js` 指挥官面板 | ✅ | 五色沉降速率图例 (红→橙→黄→绿→蓝) + 毫米级沉降洞察 + AEF 语义融合分析 |
+| Frontend 测试 `missionBrief.test.js` | ✅ | 9 tests passed (含 CH8 算子与图例断言) |
+| Backend 测试 `test_ch8_insar_subsidence.py` | ✅ | 10 tests passed (mode/location/mission 注册 + viewport + stub + /api/layers 契约) |
+| 部署验证 | ✅ | /api/modes, /api/missions, /api/locations, /api/layers 响应全部正常 |
+
+### 验证结果
+
+```
+/api/modes             → ch8_insar_subsidence ✅
+/api/missions          → 填海区沉降 + 核心区沉降 ✅
+/api/locations         → guangzhou_nansha + guangzhou_tianhe ✅
+/api/layers (nansha)   → HTTP 200 (含 tile_url 与 render_hints) ✅
+pytest (10 tests)      → 10 passed in 0.38s ✅
+vitest (9 tests)       → 9 passed in 0.22s ✅
+```
+
+### CH8 算法摘要
+
+| 参数 | 值 |
+|------|-----|
+| 算法架构 | Asset-Driven (离线 HPC 重算 + 云端 GEE 缓存挂载) |
+| 干涉与时序引擎 | NASA JPL ISCE2 (SBAS 短基线组网) + MintPy (WLS/L1 时序平差) |
+| 大气与误差校正 | PyAPS + ECMWF ERA5 对流层物理建模延迟剥离 + DEM 残余误差线性反演 |
+| 质量控制 (QC) | Temporal Coherence > 0.75 (剥离水体/植被去相干噪声，锁定高质量 PS 点) |
+| 靶向异常判定 | 显著形变 \|velocity\| > 5 mm/yr (严重沉降速率 < -20 mm/yr) |
+| 多模态融合 (AEF) | InSAR 物理沉降量 × GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL 人造物特征交集 |
+| 可视化方案 | 5 色渐变热力图 (PNG 透明通道，确保 3D 白模建筑透视可见) |
+
+### 演示入口
+
+浏览器打开 `http://127.0.0.1:8404/demo` → Demo 页面任务栏可见两个新增沉降卡片：
+
+| 卡片 | 地点 | 相机参数 | 核心看点 |
+|------|------|----------|----------|
+| 南沙填海造陆区固结监测 | 广州·南沙区 | 22.70°N 113.55°E, 高度 8000m, 俯仰 4.5s | 广域基建体检：大面积软土压密固结，沉降速率 < -20mm/yr |
+| 天河地下空间形变监测 | 广州·天河核心区 | 23.08°N 113.32°E, 高度 5000m, 俯仰 4.0s | 城市生命线：穿透城市峡谷，靶向锁定深基坑与地铁沿线不均匀沉降 |
+
+## 已完成 Sprint: CH7 山洪与滑坡灾害极速定损 Demo ✅
 
 | 任务 | 状态 | 描述 |
 |------|:--:|------|

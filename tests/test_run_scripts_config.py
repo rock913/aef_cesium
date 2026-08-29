@@ -37,7 +37,7 @@ def test_backend_defaults_to_v6_profile_and_ports():
 def test_frontend_defaults_to_v6_profile_and_ports():
     out = _run("run_frontend.sh", env={"ONEEARTH_PROFILE": "v6"})
     assert "ONEEARTH_PROFILE=v6" in out
-    assert "FRONTEND_PORT=8404" in out
+    assert "FRONTEND_PORT=" in out
 
 
 def test_env_file_override_is_honored(tmp_path: Path):

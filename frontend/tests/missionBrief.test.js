@@ -36,7 +36,7 @@ describe('missionBrief', () => {
     expect(brief.technical).toContain('视觉图例')
   })
 
-  it('all six modes provide at least one legend and 1-3 insights', () => {
+  it('all chapter modes provide at least one legend and 1-3 insights', () => {
     const modes = [
       'ch1_yuhang_faceid',
       'ch2_maowusu_shield',
@@ -44,6 +44,8 @@ describe('missionBrief', () => {
       'ch4_amazon_zeroshot',
       'ch5_coastline_audit',
       'ch6_water_pulse',
+      'ch7_disaster_warning',
+      'ch8_insar_subsidence',
     ]
 
     const colorRe = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
@@ -75,6 +77,12 @@ describe('missionBrief', () => {
     expect(ch6.mechanism).toContain('差分')
     expect(ch6.legends.map((l) => l.color)).toContain('#1E4AFF')
     expect(ch6.legends.map((l) => l.color)).toContain('#FF5A36')
+
+    const ch8 = buildCommanderBrief('ch8_insar_subsidence', { title: 'T', location: 'guangzhou_nansha' }, null)
+    expect(ch8.mechanism).toContain('SBAS-InSAR')
+    expect(ch8.technical).toContain('ISCE2 + MintPy')
+    expect(ch8.legends.map((l) => l.color)).toContain('#FF0000')
+    expect(ch8.legends.map((l) => l.color)).toContain('#0000FF')
   })
 
   it('extractActionInsightsFromReport prefers suggestion line/section', () => {

@@ -92,12 +92,14 @@ class TestModesEndpoint:
         
         # API 返回字典格式: {"dna": "地表 DNA", "change": "..."}
         assert isinstance(data, dict)
-        assert len(data) == 6  # V6.6 6 章模式
-        # 验证 V6.6 模式存在
+        assert len(data) >= 6  # V6.6 6 章及后续扩展模式
+        # 验证模式存在
         assert "ch1_yuhang_faceid" in data
         assert "ch4_amazon_zeroshot" in data
         assert "ch5_coastline_audit" in data
         assert "ch6_water_pulse" in data
+        assert "ch7_disaster_warning" in data
+        assert "ch8_insar_subsidence" in data
 
 
 class TestLayerEndpoint:

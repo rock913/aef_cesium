@@ -145,6 +145,8 @@ class TestModesAPIContract:
             "ch4_amazon_zeroshot",
             "ch5_coastline_audit",
             "ch6_water_pulse",
+            "ch7_disaster_warning",
+            "ch8_insar_subsidence",
         }
         
         for mode_id in data.keys():

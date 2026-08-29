@@ -67,6 +67,7 @@ class Settings(BaseModel):
         "ch5_coastline_audit": 120000,
         "ch6_water_pulse": 90000,
         "ch7_disaster_warning": 90000,
+        "ch8_insar_subsidence": 60000,
     }
 
     def get_viewport_buffer_m_for_mode(self, mode_id: str | None) -> int:
@@ -102,6 +103,10 @@ class Settings(BaseModel):
         "beijing_2023": {"coords": [39.95, 115.90, 10], "name": "北京 · 门头沟/房山", "code": "beijing_2023"},
         # 主案例 8：粤北汛期灾害 (2024) — 传统脆弱区
         "guangdong_2024": {"coords": [24.30, 116.10, 10], "name": "广东 · 梅州/粤北", "code": "guangdong_2024"},
+        # 主案例 9：南沙填海区
+        "guangzhou_nansha": {"coords": [22.75, 113.53, 13], "name": "广州 · 南沙区", "code": "guangzhou_nansha"},
+        # 主案例 10：天河核心区
+        "guangzhou_tianhe": {"coords": [23.12, 113.32, 14], "name": "广州 · 天河核心区", "code": "guangzhou_tianhe"},
     }
      
     # V6.6 高级算法模式注册
@@ -113,6 +118,7 @@ class Settings(BaseModel):
         "ch5_coastline_audit": "ch5_coastline_audit 海岸线红线审计 (AEF × JRC (Generalized RF))",
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
         "ch7_disaster_warning": "ch7_disaster_warning 地质灾害极速定损 (AEF Diff × DEM Topology)",
+        "ch8_insar_subsidence": "ch8_insar_subsidence 城市沉降数字孪生 (SBAS-InSAR 毫米级)",
     }
 
     # V6 mission registry (ordered)
@@ -197,6 +203,26 @@ class Settings(BaseModel):
             "formula": "AEF Diff × DEM Topology",
             "narrative": "穿透江南连绵阴雨，极速锁定地质灾害破裂边界。中东南部（粤闽浙湘）是传统的灾害高发区。AEF 底层融合了不受云层影响的微波特征，通过测算灾前灾后 16 维空间的欧氏距离突变，精准剥离了常规水位上涨与灾害性山体滑坡的物理边界。",
             "camera": {"lat": 24.30, "lon": 116.10, "height": 30000, "duration_s": 4.0},
+        },
+        {
+            "id": "填海区沉降",
+            "name": "南沙填海造陆区固结监测",
+            "title": "广域基建体检：软土压密固结形变。",
+            "location": "guangzhou_nansha",
+            "api_mode": "ch8_insar_subsidence",
+            "formula": "NASA ISCE2 + MintPy (Sentinel-1)",
+            "narrative": "Alpha Earth 载入基于 NASA ISCE2 框架解算的 Sentinel-1A 时序形变网络。结合 ERA5 大气校正模型，系统在南沙填海造陆区成功提取出高密度永久散射体。大面积的橙红色光晕揭示了软土压密固结引发的地表下沉（速率 < -20mm/yr）。该数字孪生底座为沿海防汛抗涝提供了不可或缺的基准数据。",
+            "camera": {"lat": 22.70, "lon": 113.55, "height": 8000, "duration_s": 4.5}
+        },
+        {
+            "id": "核心区沉降",
+            "name": "天河地下空间形变监测",
+            "title": "城市生命线：靶向追踪基坑与地铁沉降。",
+            "location": "guangzhou_tianhe",
+            "api_mode": "ch8_insar_subsidence",
+            "formula": "NASA ISCE2 + MintPy (Sentinel-1)",
+            "narrative": "视角切换至高楼林立的天河CBD。在高度复杂的城市峡谷中，InSAR 算法滤除了相干性 < 0.75 的噪点，精准锁定了地铁沿线及深基坑周边的沉降漏斗。红色的靶向异常点表明部分建筑物正承受不均匀沉降应力。结合三维白模，彻底将二维工程报表升维成了具有因果追踪能力的‘城市安全大脑’。",
+            "camera": {"lat": 23.08, "lon": 113.32, "height": 5000, "duration_s": 4.0}
         },
     ]
     

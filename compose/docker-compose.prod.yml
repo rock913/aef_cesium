@@ -6,7 +6,8 @@ services:
       context: ../backend
       dockerfile: Dockerfile.prod
     ports:
-      - "8407:8407"
+      # 外部端口跟随 .env 的 API_PORT（默认 8407）；容器内部保持 prod 惯例 8407（nginx 代理与 healthcheck 依赖）
+      - "${ONEEARTH_BIND_IP:-0.0.0.0}:${API_PORT:-8407}:8407"
     env_file:
       - ${ONEEARTH_ENV_FILE:-../.env}
     environment:
@@ -43,7 +44,8 @@ services:
         VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M: ${VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M:-}
         VITE_PHOTOREALISTIC_AI_OCCLUSION: ${VITE_PHOTOREALISTIC_AI_OCCLUSION:-}
     ports:
-      - "8406:80"
+      # 外部端口跟随 .env 的 FRONTEND_PORT（默认 8406）；容器内 nginx 固定 80
+      - "${ONEEARTH_BIND_IP:-0.0.0.0}:${FRONTEND_PORT:-8406}:80"
     depends_on:
       backend_prod:
         condition: service_healthy
