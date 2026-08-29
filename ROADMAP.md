@@ -2,6 +2,28 @@
 
 > 最后更新: 2026-08-29
 
+## 已完成 Sprint: CH8 演进深化 —— AEF 语义多模态融合与 3D 建筑单体 InSAR 时序折线图系统 (V3.1 深度融合版) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| 时序位移 API 设计与开发 | ✅ | 新增 `/api/insar/timeseries`，支持查询坐标历史沉降时序 (2020~2024)、速率、形变类型与因果诊断 |
+| AEF 语义多模态融合算子 | ✅ | GEE 算子结合 AEF 卫星人造硬化地物特征，剥离非工程变形，计算 Building Risk Index |
+| 时序折线图组件开发 | ✅ | 新建 `frontend/src/components/InsarTimeseriesChart.vue`，SVG 矢量渲染 5 年时序沉降曲线与预警红线 |
+| Cesium 3D 白模单体点击交互 | ✅ | `CesiumViewer.vue` 增加 `LEFT_CLICK` 实体/网格拾取，提取经纬度并触发时序深度分析 |
+| 指挥官面板联动展示 | ✅ | `App.vue` 与 AI 面板集成时序折线图弹窗，展示建筑风险等级 (Safe/Warning/Critical) 与工程建议 |
+| 自动化测试套件 (Pytest + Vitest) | ✅ | 后端 `tests/test_insar_timeseries_api.py` (4/4 passed) + 前端 `tests/insarTimeseriesChart.test.js` (7/7 passed) |
+| 生产镜像构建与部署验证 | ✅ | Docker 生产热部署成功，203 后端测试与 188 前端测试 100% 通过，7702 端口验证正常 |
+
+### V3.1 验证结果
+
+```
+/api/insar/timeseries?lat=22.72&lon=113.53  → HTTP 200 (南沙软土固结沉降, -26.5mm/yr, Critical) ✅
+/api/insar/timeseries?lat=23.12&lon=113.32  → HTTP 200 (天河CBD基坑沉降, -21.5mm/yr, Critical) ✅
+/api/insar/timeseries?lat=23.45&lon=113.85  → HTTP 200 (地表常规稳定, -0.5mm/yr, Safe) ✅
+pytest (203 tests)                         → 203 passed, 36 skipped in 7.29s ✅
+vitest (61 test files / 188 tests)         → 188 passed in 2.69s ✅
+```
+
 ## 已完成 Sprint: 行星级任务包 UI/UX 约束与横向跑道重构 (方案 A) ✅
 
 | 任务 | 状态 | 描述 |

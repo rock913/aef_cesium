@@ -30,6 +30,7 @@
         :initial-location="initialLocation"
         @viewer-ready="onViewerReady"
         @map-center-changed="onMapCenterChanged"
+        @map-click="onMapClick"
       />
 
       <!-- Debug HUD: map screen-center coordinates (bottom-left) -->
@@ -246,6 +247,12 @@
               <pre class="cmd-insights">{{ insightsText || '—' }}</pre>
             </div>
 
+            <!-- InSAR 5-Year Time-Series Displacement Profile & AEF Semantic Diagnosis -->
+            <InsarTimeseriesChart
+              v-if="insarTimeseriesData"
+              :data="insarTimeseriesData"
+            />
+
             <details class="cmd-details">
               <summary>展开完整输出（技术版）</summary>
               <div class="ai-section-title" style="margin-top: 12px;">技术版输出（结构化）</div>
@@ -281,6 +288,7 @@
 <script>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
+import InsarTimeseriesChart from './components/InsarTimeseriesChart.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
 import { buildAct2ChoreoHref, getChoreoFromSearch } from './utils/choreo.js'
@@ -300,7 +308,8 @@ import {
 export default {
   name: 'App',
   components: {
-    CesiumViewer
+    CesiumViewer,
+    InsarTimeseriesChart
   },
   
   setup() {
@@ -489,6 +498,33 @@ export default {
     const prefetchState = ref({}) // { [missionId]: { done: bool, ok: bool, ms: number } }
     const prefetchedLayers = ref({}) // { [missionId]: layerData }
     const prefetchStarted = ref(false)
+
+    // InSAR Time-Series displacement profile & AEF diagnosis
+    const insarTimeseriesData = ref(null)
+    const insarTimeseriesLoading = ref(false)
+
+    async function fetchInsarTimeseries(lat, lon) {
+      if (!lat || !lon) return
+      insarTimeseriesLoading.value = true
+      try {
+        const mode = selectedMode.value || 'ch8_insar_subsidence'
+        const res = await apiService.getInsarTimeseries(lat, lon, mode)
+        if (res && res.status === 'success') {
+          insarTimeseriesData.value = res
+          aiPanelExpanded.value = true
+        }
+      } catch (err) {
+        console.warn('Failed to fetch InSAR timeseries profile:', err)
+      } finally {
+        insarTimeseriesLoading.value = false
+      }
+    }
+
+    function onMapClick({ lat, lon }) {
+      if (selectedMode.value?.includes('insar') || appState.value === 'analyzing') {
+        fetchInsarTimeseries(lat, lon)
+      }
+    }
 
     // Typewriter / analysis console
     const analysisText = ref('')
@@ -740,6 +776,11 @@ export default {
           statusMsg.value = '情报展开：智能体接管中...'
           // Auto-load the default layer for the mission (agentic)
           runAgenticWorkflow(mission)
+          if (mission.api_mode?.includes('insar')) {
+            fetchInsarTimeseries(lat, lon)
+          } else {
+            insarTimeseriesData.value = null
+          }
         }
       )
     }
@@ -750,6 +791,8 @@ export default {
       selectedMissionId.value = null
       selectedLocation.value = null
       selectedMode.value = ''
+      insarTimeseriesData.value = null
+      insarTimeseriesLoading.value = false
       loading.value = false
       statusType.value = 'idle'
       statusMsg.value = '系统待机中...'
@@ -1356,7 +1399,11 @@ export default {
       toggleSplitCompare,
       beginHoldCompare,
       endHoldCompare,
-      onSplitHandleDown
+      onSplitHandleDown,
+      insarTimeseriesData,
+      insarTimeseriesLoading,
+      fetchInsarTimeseries,
+      onMapClick
     }
   }
 }

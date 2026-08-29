@@ -45,7 +45,8 @@ from gee_service import (
     get_layer_logic,
     compute_zonal_stats,
     trigger_export_task,
-    init_earth_engine
+    init_earth_engine,
+    compute_insar_timeseries_profile,
 )
 
 
@@ -2270,6 +2271,20 @@ async def export_cache(request: ExportRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail={"error": str(e)})
+
+
+@app.get("/api/insar/timeseries")
+async def get_insar_timeseries_endpoint(
+    lat: float = Query(..., description="目标纬度 (WGS84)"),
+    lon: float = Query(..., description="目标经度 (WGS84)"),
+    mode: str = Query("ch8_insar_subsidence", description="分析模式")
+):
+    """获取指定经纬度的 InSAR 历史沉降时序位移剖面与 AEF 语义诊断"""
+    try:
+        data = await run_in_threadpool(compute_insar_timeseries_profile, lat, lon)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"error": f"InSAR timeseries extraction failed: {str(e)}"})
 
 
 @app.get("/api/sentinel2")

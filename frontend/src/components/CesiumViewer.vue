@@ -25,7 +25,7 @@ export default {
       default: () => ({ lat: 39.0500, lon: 115.9800, height: 15000 })
     }
   },
-  emits: ['viewer-ready', 'camera-moved', 'map-center-changed', 'imagery-error', 'tile-load-progress'],
+  emits: ['viewer-ready', 'camera-moved', 'map-center-changed', 'imagery-error', 'tile-load-progress', 'map-click'],
   
   setup(props, { emit }) {
     const cesiumContainer = ref(null)
@@ -56,6 +56,7 @@ export default {
     let centerRafPending = false
     let lastCenterLat = null
     let lastCenterLon = null
+    let clickHandler = null
     
     onMounted(() => {
       Promise.resolve()
@@ -70,6 +71,14 @@ export default {
     onBeforeUnmount(() => {
       disposed = true
       if (viewer) {
+        if (clickHandler) {
+          try {
+            clickHandler.destroy()
+          } catch (_) {
+            // ignore
+          }
+          clickHandler = null
+        }
         if (tileLoadUnsub) tileLoadUnsub()
         if (currentAIProviderUnsub) currentAIProviderUnsub()
         if (currentBasemapProviderUnsub) currentBasemapProviderUnsub()
@@ -752,6 +761,38 @@ export default {
         // Initial center emit.
         try {
           _emitMapCenter()
+        } catch (_) {
+          // ignore
+        }
+
+        // Click handler for 3D picking & point inspection
+        try {
+          if (viewer?.scene?.canvas) {
+            clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+            clickHandler.setInputAction((movement) => {
+              if (!viewer || disposed) return
+              try {
+                let cartesian = null
+                if (viewer.scene.pickPositionSupported) {
+                  cartesian = viewer.scene.pickPosition(movement.position)
+                }
+                if (!cartesian) {
+                  const ray = viewer.camera.getPickRay(movement.position)
+                  if (ray) {
+                    cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+                  }
+                }
+                if (cartesian) {
+                  const carto = Cesium.Cartographic.fromCartesian(cartesian)
+                  const lon = Cesium.Math.toDegrees(carto.longitude)
+                  const lat = Cesium.Math.toDegrees(carto.latitude)
+                  emit('map-click', { lat, lon, height: carto.height })
+                }
+              } catch (_) {
+                // ignore
+              }
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+          }
         } catch (_) {
           // ignore
         }

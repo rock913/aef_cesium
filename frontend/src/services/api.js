@@ -166,5 +166,15 @@ export const apiService = {
     if (opts.scale) payload.scale = String(opts.scale)
     const { data } = await api.post('/api/v7/copilot/execute', payload)
     return data
+  },
+
+  /**
+   * 获取指定经纬度的 InSAR 历史沉降时序位移与 AEF 语义诊断
+   */
+  async getInsarTimeseries(lat, lon, mode = 'ch8_insar_subsidence') {
+    const { data } = await api.get('/api/insar/timeseries', {
+      params: { lat, lon, mode }
+    })
+    return data
   }
 }
