@@ -240,3 +240,42 @@ AlphaEarth CH8 城市沉降场景通过严谨的数据谱系追溯、力学对�
 后续建议重点演进：
 1. **真三维立面点云着色**：将 PS InSAR 点云转为 Cesium 3D Tiles，突破地表贴图局限，实现超高层建筑立面真三维毫米级形变着色；
 2. **地下管网破裂应力推演**：将 InSAR 差异沉降场与地下给排水、燃气管网的力学截面特征结合，推演管道弯曲应变能，实现地下管网爆裂风险智能预警。
+
+---
+
+### 九、 权威参考文献与实测标定数据源 (References & Academic Benchmark)
+
+系统在物理本构模型标定（南沙极值 $-26.0\sim -26.5\text{ mm/yr}$，天河深基坑极值 $-21.0\sim -21.5\text{ mm/yr}$，弹性温变幅 $2.4\sim 3.2\text{ mm}$）过程中，严格参考了以下基于 Sentinel-1 卫星实测发表的同行评议（Peer-Reviewed）核心文献：
+
+#### 1. 广州南沙填海软土区 InSAR 实测基准论文
+- **文献 1（SBAS-InSAR 沿海与填海区风险评估）**：
+  - **论文题目**：*Integrated Assessment of Coastal Subsidence in Nansha District, Guangzhou City, China: Insights from SBAS-InSAR Monitoring and Risk Evaluation*
+  - **期刊/年份**：*Remote Sensing* (MDPI), 2024, 16(5), 846.
+  - **DOI**: [10.3390/rs16050846](https://doi.org/10.3390/rs16050846)
+  - **原文地址**：[https://www.mdpi.com/2072-4292/16/5/846](https://www.mdpi.com/2072-4292/16/5/846)
+  - **核心标定价值**：利用 2015–2019 年 Sentinel-1A 开展 SBAS-InSAR 反演，实测证明南沙区年均沉降速率介于 $-5 \sim -40\text{ mm/yr}$，深厚海相淤泥质吹填土是导致万顷沙与龙穴岛持续沉降的主因，与本系统南沙设定完全吻合。
+- **文献 2（时序 InSAR 与机器学习沉降成因解析）**：
+  - **论文题目**：*Integrating TS-InSAR and machine learning for spatiotemporal analysis and influencing factors identification of land subsidence in Nansha, Guangzhou, China*
+  - **期刊/年份**：*Frontiers in Earth Science*, 2026 / 2025.
+  - **DOI**: [10.3389/feart.2025.1524317](https://doi.org/10.3389/feart.2025.1524317)
+  - **原文地址**：[https://www.frontiersin.org/articles/10.3389/feart.2025.1524317/full](https://www.frontiersin.org/articles/10.3389/feart.2025.1524317/full)
+  - **核心标定价值**：基于 2019–2023 年 Sentinel-1A 数据揭示了南沙软土厚度与高强度工程载荷对累积沉降的强控制作用。
+
+#### 2. 广州天河 CBD / 地铁与深基坑工程 InSAR 实测基准论文
+- **文献 3（广州地铁网络与天河枢纽沉降奠基性论文）**：
+  - **论文题目**：*Deriving Spatio-Temporal Development of Ground Subsidence Due to Subway Construction and Operation in Delta Regions with PS-InSAR Data: A Case Study in Guangzhou, China*
+  - **作者机构**：Chen, F., Lin, H. (林珲), Zhou, W., Hong, T., & Wang, G. (香港中文大学太空与地球信息科学研究所 / 中国科学院)
+  - **期刊/年份**：*Remote Sensing* (MDPI), 2017, 9(3), 202.
+  - **DOI**: [10.3390/rs9030202](https://doi.org/10.3390/rs9030202)
+  - **原文地址**：[https://www.mdpi.com/2072-4292/9/3/202](https://www.mdpi.com/2072-4292/9/3/202)
+  - **核心标定价值**：系统研究了穿越天河核心区（天河路、体育西路、珠江新城枢纽）的广州地铁 1 号线、3 号线等施工与运营期形变。实测显示盾构推进与基坑降水期局部沉降速率达 $-20 \sim -25\text{ mm/yr}$，呈现典型的深基坑降水沉降漏斗与施工扰动加速。
+- **文献 4（天河区地铁与城市高密工程最新论文）**：
+  - **论文题目**：*Monitoring and Analysis of Land Subsidence Induced by Social Aggregation Effects for Operational Subway via PS-InSAR: A Case Study in Guangzhou Metro Line 6, China*
+  - **期刊/年份**：*Remote Sensing* (MDPI), 2025, 17(20), 3564.
+  - **DOI**: [10.3390/rs17203564](https://doi.org/10.3390/rs17203564)
+  - **原文地址**：[https://www.mdpi.com/2072-4292/17/20/3564](https://www.mdpi.com/2072-4292/17/20/3564)
+  - **核心标定价值**：针对天河柯木塱及周边高密人类聚居区，融合多传感器 InSAR 实测验证了深基坑开挖与地下工程渗流对局部地面沉降的动力学诱发机制。
+
+#### 3. 算法基线文献
+- **Miami MintPy 算法基准**：
+  - Yunjun, Z., Fattahi, H., & Amelung, F. (2019). *Small baseline InSAR time series analysis: Unwrapping error correction and noise reduction*. **Computers & Geosciences**, 133, 104331. [DOI: 10.1016/j.cageo.2019.104331](https://doi.org/10.1016/j.cageo.2019.104331)
