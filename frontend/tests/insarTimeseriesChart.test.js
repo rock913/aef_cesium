@@ -93,27 +93,42 @@ describe('InSAR Time-Series Mathematical & Risk Evaluation Logic', () => {
     const mockData = {
       displacements_mm: [-10, -20],
       trend_displacements_mm: [-8, -18],
-      seasonal_elastic_mm: [-2, -2]
+      seasonal_elastic_mm: [-2, -2],
+      epoch_velocities_mm_yr: [-16.0, -20.0]
     }
     expect(extractCurveSeries(mockData, 'total')).toEqual([-10, -20])
     expect(extractCurveSeries(mockData, 'trend')).toEqual([-8, -18])
     expect(extractCurveSeries(mockData, 'seasonal')).toEqual([-2, -2])
+    expect(extractCurveSeries(mockData, 'rate')).toEqual([-16.0, -20.0])
+  })
+
+  it('computes cumulative threshold line and dynamic rate slope envelope correctly', () => {
+    const res = projectTimeseriesPoints(sampleDisps, sampleEpochs, {
+      cumulativeThresholdVal: -30.0,
+      rateEnvelopeSlope: -20.0
+    })
+    expect(res.cumulativeLineY).not.toBeNull()
+    expect(res.rateSlopeLine).not.toBeNull()
+    expect(res.rateSlopeLine.x1).toBe(35)
+    expect(res.rateSlopeLine.y2).toBeGreaterThan(res.rateSlopeLine.y1) // downward slope
   })
 })
 
 describe('InsarTimeseriesChart.vue Template & Style Guards', () => {
-  it('contains SVG elements, risk lines, and multi-component tabs', () => {
+  it('contains SVG elements, dual risk thresholds, rate slope envelope, and multi-component tabs', () => {
     const s = readChartVue()
     expect(s).toContain('class="insar-ts-card"')
     expect(s).toContain('class="ts-svg"')
-    expect(s).toContain('class="risk-threshold-line"')
-    expect(s).toContain('-20mm 高危警戒')
+    expect(s).toContain('class="rate-slope-line"')
+    expect(s).toContain('class="cumu-threshold-line"')
+    expect(s).toContain('class="rate-threshold-line"')
     expect(s).toContain('class="curve-stroke"')
     expect(s).toContain('class="ts-curve-tabs"')
-    expect(s).toContain('实测总形变')
+    expect(s).toContain('累积总形变')
     expect(s).toContain('塑性趋势项')
     expect(s).toContain('温变弹性项')
-    expect(s).toContain('东西向侧移速率')
+    expect(s).toContain('年化沉降速率')
+    expect(s).toContain('工程双物理标尺提示')
     expect(s).toContain('lateral-box')
   })
 })

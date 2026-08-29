@@ -72,11 +72,31 @@ export function projectTimeseriesPoints(displacements, epochs = [], options = {}
     }
   })
 
-  // Risk line at -20mm
-  let riskLineY = null
-  if (-20.0 >= minVal && -20.0 <= maxVal) {
-    const normRisk = (-20.0 - minVal) / range
-    riskLineY = Math.round((yBottom - normRisk * (yBottom - yTop)) * 10) / 10
+  // Structural Cumulative Threshold Line (e.g. -30mm for subway / -80mm for seawall)
+  let cumulativeLineY = null
+  const cumuThresh = options.cumulativeThresholdVal ?? -30.0
+  if (cumuThresh >= minVal && cumuThresh <= maxVal) {
+    const normCumu = (cumuThresh - minVal) / range
+    cumulativeLineY = Math.round((yBottom - normCumu * (yBottom - yTop)) * 10) / 10
+  }
+
+  // Rate Horizontal Line (used in annualized rate mode: -20 mm/yr)
+  let rateLineY = null
+  const rateThresh = -20.0
+  if (rateThresh >= minVal && rateThresh <= maxVal) {
+    const normRate = (rateThresh - minVal) / range
+    rateLineY = Math.round((yBottom - normRate * (yBottom - yTop)) * 10) / 10
+  }
+
+  // Dynamic Rate Envelope Slope Line (-20mm/yr * t)
+  let rateSlopeLine = null
+  const rateSlope = options.rateEnvelopeSlope ?? -20.0
+  const totalYears = (epochs.length > 1) ? (epochs.length - 1) * 0.5 : 4.5
+  const endSlopeVal = rateSlope * totalYears
+  if (0.0 >= minVal && 0.0 <= maxVal && endSlopeVal >= minVal && endSlopeVal <= maxVal) {
+    const y0 = Math.round((yBottom - ((0.0 - minVal) / range) * (yBottom - yTop)) * 10) / 10
+    const yEnd = Math.round((yBottom - ((endSlopeVal - minVal) / range) * (yBottom - yTop)) * 10) / 10
+    rateSlopeLine = { x1: xStart, y1: y0, x2: xEnd, y2: yEnd }
   }
 
   // Zero baseline at 0mm
@@ -86,7 +106,7 @@ export function projectTimeseriesPoints(displacements, epochs = [], options = {}
     zeroLineY = Math.round((yBottom - normZero * (yBottom - yTop)) * 10) / 10
   }
 
-  return { points, riskLineY, zeroLineY, minVal, maxVal }
+  return { points, riskLineY: cumulativeLineY, cumulativeLineY, rateLineY, rateSlopeLine, zeroLineY, minVal, maxVal }
 }
 
 /**
@@ -145,6 +165,9 @@ export function extractCurveSeries(data, mode = 'total') {
   }
   if (mode === 'seasonal' && Array.isArray(data.seasonal_elastic_mm)) {
     return data.seasonal_elastic_mm
+  }
+  if (mode === 'rate' && Array.isArray(data.epoch_velocities_mm_yr)) {
+    return data.epoch_velocities_mm_yr
   }
   return data.displacements_mm || []
 }

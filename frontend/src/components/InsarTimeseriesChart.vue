@@ -16,43 +16,43 @@
       </div>
     </div>
 
-    <!-- 2D Vector & Kinematic Metrics Ribbon -->
+    <!-- 2D Vector & Kinematic Metrics Ribbon (Dual Metric Scales) -->
     <div class="ts-metrics-grid">
       <div class="metric-item">
-        <span class="m-label">垂向沉降速率</span>
+        <span class="m-label">年均沉降速率 (标尺 -20mm/yr)</span>
         <span class="m-value velocity" :class="velocityColorClass">
           {{ formatNumber(data?.vertical_velocity_mm_yr ?? data?.velocity_mm_yr) }} mm/yr
         </span>
       </div>
       <div class="metric-item">
-        <span class="m-label">东西向侧移速率</span>
-        <span class="m-value lateral" :class="lateralColorClass">
-          {{ formatNumber(data?.lateral_velocity_mm_yr) }} mm/yr
+        <span class="m-label">5年累积沉降 (限值 {{ data?.cumulative_threshold_mm ?? -30 }}mm)</span>
+        <span class="m-value cumu" :class="cumuColorClass">
+          {{ formatNumber(data?.cumulative_displacement_mm) }} mm
         </span>
       </div>
       <div class="metric-item">
-        <span class="m-label">季节性温变弹性幅</span>
-        <span class="m-value elastic">
-          ±{{ (data?.elastic_amplitude_mm ?? 1.2).toFixed(1) }} mm
+        <span class="m-label">东西向侧移 / 弹性幅</span>
+        <span class="m-value lateral" :class="lateralColorClass">
+          {{ formatNumber(data?.lateral_velocity_mm_yr) }} mm/yr (±{{ (data?.elastic_amplitude_mm ?? 1.2).toFixed(1) }}mm)
         </span>
       </div>
     </div>
 
-    <!-- Component Curve Selector Tabs -->
+    <!-- Component Curve Selector Tabs (Rate vs Cumulative vs Components) -->
     <div class="ts-curve-tabs">
       <button
         class="tab-btn"
         :class="{ active: activeMode === 'total' }"
         @click="activeMode = 'total'"
-        title="包含塑性固结与季节性波动的全量实测位移"
+        title="5年实测累积位移历程 (含塑性固结与温变波动)"
       >
-        实测总形变
+        累积总形变
       </button>
       <button
         class="tab-btn"
         :class="{ active: activeMode === 'trend' }"
         @click="activeMode = 'trend'"
-        title="剥离温变噪声后的真实工程力学沉降趋势项"
+        title="剥离可逆温变后的真实力学塑性沉降趋势"
       >
         塑性趋势项
       </button>
@@ -60,9 +60,17 @@
         class="tab-btn"
         :class="{ active: activeMode === 'seasonal' }"
         @click="activeMode = 'seasonal'"
-        title="气温热胀冷缩与丰枯水期可逆弹性波动"
+        title="气温热胀冷缩与丰枯水期孔压弹性呼吸波动"
       >
         温变弹性项
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeMode === 'rate' }"
+        @click="activeMode = 'rate'"
+        title="各期区间年化沉降速率对比 (-20mm/yr 警戒线)"
+      >
+        年化沉降速率
       </button>
     </div>
 
@@ -91,23 +99,59 @@
         <line x1="30" y1="65" x2="370" y2="65" class="chart-grid" />
         <line x1="30" y1="110" x2="370" y2="110" class="chart-grid" />
 
-        <!-- High-Risk -20mm Threshold Line (shown on total or trend modes) -->
-        <line
-          v-if="activeMode !== 'seasonal' && riskLineY !== null"
-          x1="30"
-          :y1="riskLineY"
-          x2="370"
-          :y2="riskLineY"
-          class="risk-threshold-line"
-        />
-        <text
-          v-if="activeMode !== 'seasonal' && riskLineY !== null"
-          x="368"
-          :y="riskLineY - 3"
-          class="risk-threshold-label"
-        >
-          -20mm 高危警戒
-        </text>
+        <!-- 1. Cumulative Mode: Dynamic Rate Envelope Slope Line (-20mm/yr * t) -->
+        <g v-if="activeMode !== 'seasonal' && activeMode !== 'rate' && rateSlopeLine">
+          <line
+            :x1="rateSlopeLine.x1"
+            :y1="rateSlopeLine.y1"
+            :x2="rateSlopeLine.x2"
+            :y2="rateSlopeLine.y2"
+            class="rate-slope-line"
+          />
+          <text
+            :x="rateSlopeLine.x2 - 4"
+            :y="rateSlopeLine.y2 - 4"
+            class="rate-slope-label"
+          >
+            -20mm/yr 速率斜率包络
+          </text>
+        </g>
+
+        <!-- 2. Cumulative Mode: Structural Allowable Total Settlement Limit Line -->
+        <g v-if="activeMode !== 'seasonal' && activeMode !== 'rate' && cumulativeLineY !== null">
+          <line
+            x1="30"
+            :y1="cumulativeLineY"
+            x2="370"
+            :y2="cumulativeLineY"
+            class="cumu-threshold-line"
+          />
+          <text
+            x="368"
+            :y="cumulativeLineY - 3"
+            class="cumu-threshold-label"
+          >
+            {{ data?.cumulative_threshold_label || '允许累积沉降上限' }}
+          </text>
+        </g>
+
+        <!-- 3. Rate Mode: Horizontal -20mm/yr Annualized Rate Limit Line -->
+        <g v-if="activeMode === 'rate' && rateLineY !== null">
+          <line
+            x1="30"
+            :y1="rateLineY"
+            x2="370"
+            :y2="rateLineY"
+            class="rate-threshold-line"
+          />
+          <text
+            x="368"
+            :y="rateLineY - 3"
+            class="rate-threshold-label"
+          >
+            -20 mm/yr 行业年均速率高危控制线
+          </text>
+        </g>
 
         <!-- Zero Baseline -->
         <line
@@ -130,7 +174,7 @@
         <!-- Area Fill -->
         <polygon :points="areaPolygonPoints" fill="url(#areaGrad)" />
 
-        <!-- Displacement Curve Path -->
+        <!-- Displacement / Velocity Curve Path -->
         <path :d="curvePathD" class="curve-stroke" />
 
         <!-- Data Point Circles -->
@@ -154,7 +198,7 @@
         :style="{ left: `${hoveredPoint.leftPercent}%`, top: `${hoveredPoint.topPx}px` }"
       >
         <div class="tt-date">{{ hoveredPoint.epoch }}</div>
-        <div class="tt-val">{{ hoveredPoint.disp }} mm</div>
+        <div class="tt-val">{{ hoveredPoint.disp }} {{ activeMode === 'rate' ? 'mm/yr' : 'mm' }}</div>
       </div>
 
       <!-- X-Axis Epoch Labels -->
@@ -163,6 +207,14 @@
           {{ ep }}
         </span>
       </div>
+    </div>
+
+    <!-- Dual Physical Metric Clarification -->
+    <div class="dual-standard-tip">
+      <span class="tip-icon">⚖️</span>
+      <span class="tip-text">
+        <strong>工程双物理标尺提示：</strong>沉降速率（mm/yr）与 5 年累积沉降（mm）解耦分别对应独立控制线，彻底避免多年累积量与单年速率控制线误混。
+      </span>
     </div>
 
     <!-- AEF Semantic & Multi-modal Diagnostics -->
@@ -212,7 +264,7 @@ export default {
   },
   setup(props) {
     const hoveredIndex = ref(null)
-    const activeMode = ref('total') // 'total' | 'trend' | 'seasonal'
+    const activeMode = ref('total') // 'total' | 'trend' | 'seasonal' | 'rate'
 
     const riskEval = computed(() => {
       const v = props.data?.velocity_mm_yr || 0
@@ -230,6 +282,14 @@ export default {
       return 'text-green'
     })
 
+    const cumuColorClass = computed(() => {
+      const c = props.data?.cumulative_displacement_mm || 0
+      const limit = props.data?.cumulative_threshold_mm || -30.0
+      if (c < limit) return 'text-red'
+      if (c < limit * 0.5) return 'text-orange'
+      return 'text-green'
+    })
+
     const lateralColorClass = computed(() => {
       const lv = Math.abs(props.data?.lateral_velocity_mm_yr || 0)
       if (lv > 5) return 'text-orange'
@@ -244,11 +304,17 @@ export default {
     const chartProjection = computed(() => {
       const disps = activeSeries.value
       const epochs = props.data?.epochs || []
-      return projectTimeseriesPoints(disps, epochs)
+      const cumuThresh = props.data?.cumulative_threshold_mm ?? -30.0
+      return projectTimeseriesPoints(disps, epochs, {
+        cumulativeThresholdVal: cumuThresh,
+        rateEnvelopeSlope: -20.0
+      })
     })
 
     const chartPoints = computed(() => chartProjection.value.points)
-    const riskLineY = computed(() => chartProjection.value.riskLineY)
+    const cumulativeLineY = computed(() => chartProjection.value.cumulativeLineY)
+    const rateLineY = computed(() => chartProjection.value.rateLineY)
+    const rateSlopeLine = computed(() => chartProjection.value.rateSlopeLine)
     const zeroLineY = computed(() => chartProjection.value.zeroLineY)
 
     const curvePathD = computed(() => {
@@ -290,11 +356,14 @@ export default {
       riskLevel,
       riskThemeClass,
       velocityColorClass,
+      cumuColorClass,
       lateralColorClass,
       chartPoints,
       curvePathD,
       areaPolygonPoints,
-      riskLineY,
+      cumulativeLineY,
+      rateLineY,
+      rateSlopeLine,
       zeroLineY,
       shortEpochs,
       hoveredIndex,
@@ -438,11 +507,6 @@ export default {
 .text-green { color: #00ff9d; }
 .text-cyan { color: #00f5ff; }
 
-.m-value.elastic {
-  font-size: 12px;
-  color: #00f5ff;
-}
-
 /* Curve Mode Selector Tabs */
 .ts-curve-tabs {
   display: flex;
@@ -451,7 +515,7 @@ export default {
 }
 
 .tab-btn {
-  padding: 3px 8px;
+  padding: 3px 7px;
   font-size: 10px;
   font-weight: 700;
   border-radius: 4px;
@@ -497,15 +561,44 @@ export default {
   stroke-width: 1;
 }
 
-.risk-threshold-line {
-  stroke: rgba(255, 59, 48, 0.65);
-  stroke-dasharray: 4 3;
+/* Rate slope envelope */
+.rate-slope-line {
+  stroke: rgba(255, 208, 0, 0.65);
+  stroke-dasharray: 3 2;
   stroke-width: 1.2;
 }
 
-.risk-threshold-label {
+.rate-slope-label {
+  fill: #ffd000;
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: end;
+}
+
+/* Structural cumulative line */
+.cumu-threshold-line {
+  stroke: rgba(255, 59, 48, 0.7);
+  stroke-dasharray: 4 3;
+  stroke-width: 1.3;
+}
+
+.cumu-threshold-label {
   fill: #ff5247;
-  font-size: 9px;
+  font-size: 8.5px;
+  font-weight: 800;
+  text-anchor: end;
+}
+
+/* Rate horizontal line */
+.rate-threshold-line {
+  stroke: rgba(255, 59, 48, 0.85);
+  stroke-dasharray: 4 3;
+  stroke-width: 1.4;
+}
+
+.rate-threshold-label {
+  fill: #ff5247;
+  font-size: 8.5px;
   font-weight: 800;
   text-anchor: end;
 }
@@ -585,12 +678,32 @@ export default {
   font-family: ui-monospace, monospace;
 }
 
+/* Dual Metric Clarification Tip */
+.dual-standard-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(0, 245, 255, 0.05);
+  border: 1px solid rgba(0, 245, 255, 0.15);
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.tip-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
 /* Footer & Recommendations */
 .ts-footer {
-  margin-top: 8px;
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .aef-tag-line {
@@ -618,12 +731,12 @@ export default {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-radius: 6px;
   background: rgba(0, 245, 255, 0.07);
   border: 1px dashed rgba(0, 245, 255, 0.28);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 10.5px;
+  line-height: 1.35;
 }
 
 .lat-icon {
@@ -645,12 +758,12 @@ export default {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-radius: 6px;
   background: rgba(255, 180, 0, 0.08);
   border: 1px dashed rgba(255, 180, 0, 0.3);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 10.5px;
+  line-height: 1.35;
   color: rgba(255, 255, 255, 0.88);
 }
 

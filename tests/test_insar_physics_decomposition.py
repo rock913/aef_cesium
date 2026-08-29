@@ -59,6 +59,13 @@ class TestInsarPhysicsDecomposition:
         data = res.json()
         assert "trend_displacements_mm" in data
         assert "seasonal_elastic_mm" in data
+        assert "lateral_velocity_mm_yr" in data
+        assert "epoch_velocities_mm_yr" in data
+        assert len(data["epoch_velocities_mm_yr"]) == 10
+        assert data["rate_threshold_mm_yr"] == -20.0
+        assert "cumulative_threshold_mm" in data
+        assert data["cumulative_threshold_mm"] < 0
+        assert "seasonal_elastic_mm" in data
         assert "vertical_velocity_mm_yr" in data
         assert "lateral_velocity_mm_yr" in data
         assert "lateral_displacement_type" in data

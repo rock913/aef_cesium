@@ -734,6 +734,8 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         lateral_displacement_type = "滨海软土侧向流滑与挤出 (Coastal Lateral Spread) - 向外海侧向滑移 +6.8 mm/yr"
         lateral_risk_diagnostic = "海堤基础与深水码头基桩面临侧向土压力剪切变形风险，建议复核桩基抗剪冗余度。"
         recommendations = "建议加密布设深层分层沉降标与孔隙水压力计；对沿海海堤防汛标高进行复核，防范雨季风暴潮顶托与侧向剪切滑移。"
+        cumulative_threshold_mm = -80.0
+        cumulative_threshold_label = "海堤防汛与软土标高允许累积亏损上限 (-80mm)"
     elif d_tianhe < 0.06:
         target_name = "广州天河CBD核心区地下立体交通枢纽"
         aef_semantic = "高密城市人造建筑群与地下深基坑 (AEF Embedding: 人造硬化地物)"
@@ -754,6 +756,8 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         lateral_displacement_type = "基坑地连墙与周边土体向内收敛 (Inward Wall Convergence) - 向基坑中心收敛 -5.4 mm/yr"
         lateral_risk_diagnostic = "基坑围护地连墙存在向坑内侧凸变形风险，易引发临近地铁管片错台与路面开裂。"
         recommendations = "建议启动基坑围护桩水平位移与周边地铁隧道收敛变形双重监测预警，对邻近高层建筑开展倾斜率复查与应力监测。"
+        cumulative_threshold_mm = -30.0
+        cumulative_threshold_label = "地铁隧道与超高层敏感受体允许累积沉降上限 (-30mm)"
     else:
         target_name = f"城市监测网格点 ({round(lat, 4)}°N, {round(lon, 4)}°E)"
         aef_semantic = "城市常规硬化地表 (AEF Embedding: 稳定工程构筑物)"
@@ -768,12 +772,27 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         lateral_displacement_type = "微弱构造平移 (Negligible Tectonic Drift) - +0.2 mm/yr"
         lateral_risk_diagnostic = "地表水平向处于正常力学稳定状态。"
         recommendations = "地表结构变形处于国家规范允许沉降阈值范围内，维持季度常规卫星遥感监测巡检。"
+        cumulative_threshold_mm = -40.0
+        cumulative_threshold_label = "国家常规工程地基允许累积沉降上限 (-40mm)"
 
-    # 风险定级：< -20mm/yr 为 Critical, < -8mm/yr 为 Warning, 其余为 Safe
-    if velocity < -20.0 or min(displacements) < -50.0:
+    # 计算各期区间年化速率 (mm/yr)
+    epoch_velocities_mm_yr = []
+    for i in range(len(trend_displacements)):
+        if i == 0:
+            epoch_velocities_mm_yr.append(round(velocity, 1))
+        else:
+            v_step = (trend_displacements[i] - trend_displacements[i - 1]) / 0.5
+            epoch_velocities_mm_yr.append(round(v_step, 1))
+
+    # 行业年沉降速率警戒线 (-20mm/yr)
+    rate_threshold_mm_yr = -20.0
+    rate_threshold_label = "行业年均沉降速率高危控制线 (-20mm/yr)"
+
+    # 风险定级：基于双重物理标准（年化速率 < -20mm/yr 或 5年累积沉降跌破允许沉降值）
+    if velocity < rate_threshold_mm_yr or min(displacements) < cumulative_threshold_mm:
         risk_level = "critical"
         risk_label = "严重沉降高危 (Critical)"
-    elif velocity < -8.0 or min(displacements) < -20.0:
+    elif velocity < -8.0 or min(displacements) < (cumulative_threshold_mm * 0.5):
         risk_level = "warning"
         risk_label = "显著形变关注 (Warning)"
     else:
@@ -800,7 +819,12 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         "displacements_mm": displacements,
         "trend_displacements_mm": trend_displacements,
         "seasonal_elastic_mm": seasonal_elastic,
+        "epoch_velocities_mm_yr": epoch_velocities_mm_yr,
         "cumulative_displacement_mm": min(displacements),
+        "rate_threshold_mm_yr": rate_threshold_mm_yr,
+        "rate_threshold_label": rate_threshold_label,
+        "cumulative_threshold_mm": cumulative_threshold_mm,
+        "cumulative_threshold_label": cumulative_threshold_label,
         "recommendations": recommendations
     }
 

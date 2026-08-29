@@ -8,7 +8,8 @@
 |------|:--:|------|
 | 塑性沉降与温变/水文弹性波分解 | ✅ | `backend/gee_service.py` 实现长期塑性固结趋势项与季节性正弦弹性振荡项分离 (`elastic_amplitude_mm = 2.4~3.2mm`) |
 | 升降轨双向融合 2D 位移解算 | ✅ | 解算垂直沉降 $v_z$ 与东西向侧移 $v_x$（南沙外海挤出 $+6.8\text{mm/yr}$，天河基坑内向收敛 $-5.4\text{mm/yr}$）及侧向剪切风险诊断 |
-| 多分量时序折线图 Tab 切换 | ✅ | `InsarTimeseriesChart.vue` 新增 `[实测总形变]` / `[塑性趋势项]` / `[温变弹性项]` 交互切换与 2D 矢量速率 Ribbon |
+| 速率与累积量双物理标尺解耦 | ✅ | 彻底消除多年累积沉降与单年速率控制线误混：引入 `-20mm/yr` 动态斜率包络线、结构允许累积限值线与专属年化速率视图 |
+| 多分量时序折线图 Tab 切换 | ✅ | `InsarTimeseriesChart.vue` 新增 `[累积总形变]` / `[塑性趋势项]` / `[温变弹性项]` / `[年化沉降速率]` 交互切换与 2D 矢量速率 Ribbon |
 | Cesium 3D 视准激光锚标与雷达 Ping | ✅ | `CesiumViewer.vue` 新增 `setInspectionBeacon` / `clearInspectionBeacon`，在三维建筑上投射脉冲激光束与悬浮 HUD 标签 |
 | 自动化回归测试与热部署验证 | ✅ | 新增 `tests/test_insar_physics_decomposition.py` (3/3)，前端全量 190 tests (100%)，后端 206 tests (100%) 通过并完成生产热部署 |
 
