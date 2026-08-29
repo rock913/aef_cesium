@@ -58,8 +58,8 @@ def main():
             user_data = resp.json()
             print(f"✅ 鉴权成功！HyP3 用户配额状态: 可用积分(Quota) = {user_data.get('quota', {}).get('remaining', 'N/A')}")
         elif resp.status_code == 403:
-            print("⚠️ 鉴权被拒绝 (403): 您的 Earthdata 账号尚未授权 ASF HyP3 应用程序！")
-            print("👉 请访问 https://hyp3.asf.alaska.edu/ 并点击 'Log In' 登录，在跳转页面点击 'Authorize' 授权即可。")
+            print("⚠️ 鉴权被拒绝 (403): 您的 Earthdata 账号尚未授权 ASF Vertex / HyP3 应用程序！")
+            print("👉 请访问 ASF Vertex 门户: https://search.asf.alaska.edu/ 点击右上角 'Sign In'，登录并在授权页面点击 'Authorize' 同意授权 'Alaska Satellite Facility - Vertex' 即可！")
             sys.exit(1)
         else:
             print(f"❌ 鉴权失败 (HTTP {resp.status_code}): {resp.text}")
