@@ -1,0 +1,27 @@
+{
+  "source": "Sentinel-1 IW TS-InSAR (NASA ASF HyP3 / GAMMA / 3D-SNAPHU)",
+  "bounds": [
+    113.1,
+    22.5,
+    113.75,
+    23.35
+  ],
+  "crs": "EPSG:4326",
+  "stats": {
+    "min_velocity": -995.8,
+    "max_velocity": 412.42,
+    "mean_velocity": -65.5
+  },
+  "anchors": {
+    "guangzhou_nansha": {
+      "lat": 22.72,
+      "lon": 113.53,
+      "velocity": -20.32
+    },
+    "guangzhou_tianhe": {
+      "lat": 23.12,
+      "lon": 113.32,
+      "velocity": -22.56
+    }
+  }
+}

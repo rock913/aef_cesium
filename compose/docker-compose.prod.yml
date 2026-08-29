@@ -19,6 +19,7 @@ services:
     volumes:
       # For backend/config.py (expects /app/.env)
       - ${ONEEARTH_ENV_FILE:-../.env}:/app/.env:ro
+      - ../data:/app/data:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8407/health', timeout=2).read(); print('ok')"]
       interval: 5s

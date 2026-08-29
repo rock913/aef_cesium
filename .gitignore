@@ -63,3 +63,8 @@ frontend/.cesium/
 frontend/public/assets/eso_milkyway_source.jpg
 frontend/public/assets/eso_milkyway_8k.jpg
 frontend/public/assets/eso_milkyway_8k.tmp.jpg
+
+# Large InSAR raw products (do not commit)
+data/insar_hyp3/*
+!data/insar_hyp3/gz_insar_grid.json
+
