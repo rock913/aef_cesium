@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libgdal-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
+    requests \
+    asf_search \
+    hyp3_sdk \
+    numpy \
+    rasterio \
+    earthengine-api
+
+COPY . /app
+
+ENTRYPOINT ["python", "scripts/run_pathway_a_insar.py"]
