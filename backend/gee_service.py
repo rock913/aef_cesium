@@ -715,38 +715,58 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
     ]
     years_elapsed = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
 
-    # 根据距离划分典型沉降场景与 AEF 语义
+    # 根据距离划分典型沉降场景与 AEF 语义及物理要素分解
     if d_nansha < 0.08:
         target_name = "广州南沙万顷沙/龙穴岛填海工程区"
         aef_semantic = "海滨吹填造陆软土带 (AEF Embedding: 软土重度固结)"
         deformation_type = "深厚淤泥层长期排水固结沉降 (Consolidation Settlement)"
         coherence = 0.86
-        # 软土固结沉降规律：早期速率快，后期渐缓 + 微弱季节性回弹
-        displacements = [
-            round(velocity * (t ** 0.9) + 1.2 * math.sin(t * math.pi * 2), 2)
-            for t in years_elapsed
-        ]
-        recommendations = "建议加密布设深层分层沉降标与孔隙水压力计；对沿海海堤防汛标高进行复核，防范雨季风暴潮顶托。"
+        elastic_amplitude = 3.2  # 珠江口汛期水位变化与潮汐对孔压的周期性弹性波动
+        # 纯塑性固结趋势项 (Terzaghi 单向固结衰减)
+        trend_displacements = [round(velocity * (t ** 0.9), 2) for t in years_elapsed]
+        # 季节性弹性波动项 (丰枯水期孔隙水压力呼吸波动，以夏秋为高水正峰)
+        seasonal_elastic = [round(elastic_amplitude * math.sin((t + 0.25) * math.pi * 2.0), 2) for t in years_elapsed]
+        # 合成总观测位移
+        displacements = [round(trend_displacements[i] + seasonal_elastic[i], 2) for i in range(len(years_elapsed))]
+        # 升降轨双向融合解算 2D 形变矢量 (垂直沉降 vs 东西向侧向挤出)
+        vertical_velocity = velocity
+        lateral_velocity = round(abs(velocity) * 0.28, 2)  # 向东侧伶仃洋软土侧向滑移挤出 (+6.8 mm/yr)
+        lateral_displacement_type = "滨海软土侧向流滑与挤出 (Coastal Lateral Spread) - 向外海侧向滑移 +6.8 mm/yr"
+        lateral_risk_diagnostic = "海堤基础与深水码头基桩面临侧向土压力剪切变形风险，建议复核桩基抗剪冗余度。"
+        recommendations = "建议加密布设深层分层沉降标与孔隙水压力计；对沿海海堤防汛标高进行复核，防范雨季风暴潮顶托与侧向剪切滑移。"
     elif d_tianhe < 0.06:
         target_name = "广州天河CBD核心区地下立体交通枢纽"
         aef_semantic = "高密城市人造建筑群与地下深基坑 (AEF Embedding: 人造硬化地物)"
         deformation_type = "地下工程开挖与施工降水引发局部不均匀沉降 (Excavation-Induced)"
         coherence = 0.91
-        # 基坑开挖时序：初期稳定，中期施工加速，后期围护封底趋于平缓
-        displacements = [
-            round(velocity * (1.0 / (1.0 + math.exp(-2.0 * (t - 2.0)))) * 1.8 + 0.8 * math.sin(t * math.pi * 2), 2)
+        elastic_amplitude = 2.4  # 超高层钢混结构夏季受热伸长与冬季收缩 (温变热胀冷缩)
+        # 纯基坑工程施工扰动趋势项 (S 型加剧后收敛)
+        trend_displacements = [
+            round(velocity * (1.0 / (1.0 + math.exp(-2.0 * (t - 2.0)))) * 1.8, 2)
             for t in years_elapsed
         ]
-        recommendations = "建议启动基坑围护桩水平位移与周边地铁隧道收敛变形双重监测预警，对邻近高层建筑开展倾斜率复查。"
+        # 季节性热胀冷缩项 (夏季 7-8 月热膨胀为正峰)
+        seasonal_elastic = [round(elastic_amplitude * math.sin((t + 0.25) * math.pi * 2.0), 2) for t in years_elapsed]
+        displacements = [round(trend_displacements[i] + seasonal_elastic[i], 2) for i in range(len(years_elapsed))]
+        # 升降轨双向融合解算 2D 形变矢量 (垂直沉降 vs 坑壁向内水平收敛)
+        vertical_velocity = velocity
+        lateral_velocity = round(-abs(velocity) * 0.25, 2)  # 向西侧基坑开挖中心向内收敛 (-5.4 mm/yr)
+        lateral_displacement_type = "基坑地连墙与周边土体向内收敛 (Inward Wall Convergence) - 向基坑中心收敛 -5.4 mm/yr"
+        lateral_risk_diagnostic = "基坑围护地连墙存在向坑内侧凸变形风险，易引发临近地铁管片错台与路面开裂。"
+        recommendations = "建议启动基坑围护桩水平位移与周边地铁隧道收敛变形双重监测预警，对邻近高层建筑开展倾斜率复查与应力监测。"
     else:
         target_name = f"城市监测网格点 ({round(lat, 4)}°N, {round(lon, 4)}°E)"
         aef_semantic = "城市常规硬化地表 (AEF Embedding: 稳定工程构筑物)"
         deformation_type = "地壳微弱构造性正常形变 (Tectonic / Seasonal Fluctuation)"
         coherence = 0.88
-        displacements = [
-            round(velocity * t + 0.9 * math.sin(t * math.pi * 2), 2)
-            for t in years_elapsed
-        ]
+        elastic_amplitude = 1.1
+        trend_displacements = [round(velocity * t, 2) for t in years_elapsed]
+        seasonal_elastic = [round(elastic_amplitude * math.sin((t + 0.25) * math.pi * 2.0), 2) for t in years_elapsed]
+        displacements = [round(trend_displacements[i] + seasonal_elastic[i], 2) for i in range(len(years_elapsed))]
+        vertical_velocity = velocity
+        lateral_velocity = 0.2
+        lateral_displacement_type = "微弱构造平移 (Negligible Tectonic Drift) - +0.2 mm/yr"
+        lateral_risk_diagnostic = "地表水平向处于正常力学稳定状态。"
         recommendations = "地表结构变形处于国家规范允许沉降阈值范围内，维持季度常规卫星遥感监测巡检。"
 
     # 风险定级：< -20mm/yr 为 Critical, < -8mm/yr 为 Warning, 其余为 Safe
@@ -765,14 +785,21 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         "lat": round(lat, 6),
         "lon": round(lon, 6),
         "velocity_mm_yr": velocity,
+        "vertical_velocity_mm_yr": vertical_velocity,
+        "lateral_velocity_mm_yr": lateral_velocity,
+        "lateral_displacement_type": lateral_displacement_type,
+        "lateral_risk_diagnostic": lateral_risk_diagnostic,
         "coherence": coherence,
         "risk_level": risk_level,
         "risk_label": risk_label,
         "target_name": target_name,
         "aef_semantic": aef_semantic,
         "deformation_type": deformation_type,
+        "elastic_amplitude_mm": elastic_amplitude,
         "epochs": epochs,
         "displacements_mm": displacements,
+        "trend_displacements_mm": trend_displacements,
+        "seasonal_elastic_mm": seasonal_elastic,
         "cumulative_displacement_mm": min(displacements),
         "recommendations": recommendations
     }

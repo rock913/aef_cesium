@@ -512,6 +512,19 @@ export default {
         if (res && res.status === 'success') {
           insarTimeseriesData.value = res
           aiPanelExpanded.value = true
+          try {
+            const vRate = res.velocity_mm_yr ? `${res.velocity_mm_yr > 0 ? '+' : ''}${res.velocity_mm_yr} mm/yr` : ''
+            const targetShort = res.target_name ? res.target_name.slice(0, 10) : 'InSAR靶向'
+            const beaconLabel = `🎯 ${targetShort} | ${vRate}`
+            cesiumViewer.value?.setInspectionBeacon?.({
+              lat: res.lat,
+              lon: res.lon,
+              label: beaconLabel,
+              riskLevel: res.risk_level
+            })
+          } catch (_) {
+            // ignore
+          }
         }
       } catch (err) {
         console.warn('Failed to fetch InSAR timeseries profile:', err)
@@ -793,6 +806,11 @@ export default {
       selectedMode.value = ''
       insarTimeseriesData.value = null
       insarTimeseriesLoading.value = false
+      try {
+        cesiumViewer.value?.clearInspectionBeacon?.()
+      } catch (_) {
+        // ignore
+      }
       loading.value = false
       statusType.value = 'idle'
       statusMsg.value = '系统待机中...'

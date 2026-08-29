@@ -16,26 +16,54 @@
       </div>
     </div>
 
-    <!-- Key Metrics Ribbon -->
+    <!-- 2D Vector & Kinematic Metrics Ribbon -->
     <div class="ts-metrics-grid">
       <div class="metric-item">
-        <span class="m-label">年均沉降速率</span>
+        <span class="m-label">垂向沉降速率</span>
         <span class="m-value velocity" :class="velocityColorClass">
-          {{ formatNumber(data?.velocity_mm_yr) }} mm/yr
+          {{ formatNumber(data?.vertical_velocity_mm_yr ?? data?.velocity_mm_yr) }} mm/yr
         </span>
       </div>
       <div class="metric-item">
-        <span class="m-label">5年最大累积形变</span>
-        <span class="m-value cumu" :class="cumuColorClass">
-          {{ formatNumber(data?.cumulative_displacement_mm) }} mm
+        <span class="m-label">东西向侧移速率</span>
+        <span class="m-value lateral" :class="lateralColorClass">
+          {{ formatNumber(data?.lateral_velocity_mm_yr) }} mm/yr
         </span>
       </div>
       <div class="metric-item">
-        <span class="m-label">形变力学机理</span>
-        <span class="m-value mech" :title="data?.deformation_type">
-          {{ truncate(data?.deformation_type, 14) }}
+        <span class="m-label">季节性温变弹性幅</span>
+        <span class="m-value elastic">
+          ±{{ (data?.elastic_amplitude_mm ?? 1.2).toFixed(1) }} mm
         </span>
       </div>
+    </div>
+
+    <!-- Component Curve Selector Tabs -->
+    <div class="ts-curve-tabs">
+      <button
+        class="tab-btn"
+        :class="{ active: activeMode === 'total' }"
+        @click="activeMode = 'total'"
+        title="包含塑性固结与季节性波动的全量实测位移"
+      >
+        实测总形变
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeMode === 'trend' }"
+        @click="activeMode = 'trend'"
+        title="剥离温变噪声后的真实工程力学沉降趋势项"
+      >
+        塑性趋势项
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeMode === 'seasonal' }"
+        @click="activeMode = 'seasonal'"
+        title="气温热胀冷缩与丰枯水期可逆弹性波动"
+      >
+        温变弹性项
+      </button>
     </div>
 
     <!-- SVG Time-Series Chart -->
@@ -48,8 +76,8 @@
       >
         <defs>
           <linearGradient id="curveGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#00f5ff" stop-opacity="0.9" />
-            <stop offset="60%" stop-color="#ffd000" stop-opacity="0.8" />
+            <stop offset="0%" stop-color="#00f5ff" stop-opacity="0.95" />
+            <stop offset="60%" stop-color="#ffd000" stop-opacity="0.85" />
             <stop offset="100%" stop-color="#ff3b30" stop-opacity="0.95" />
           </linearGradient>
           <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -63,9 +91,9 @@
         <line x1="30" y1="65" x2="370" y2="65" class="chart-grid" />
         <line x1="30" y1="110" x2="370" y2="110" class="chart-grid" />
 
-        <!-- High-Risk -20mm Threshold Line -->
+        <!-- High-Risk -20mm Threshold Line (shown on total or trend modes) -->
         <line
-          v-if="riskLineY !== null"
+          v-if="activeMode !== 'seasonal' && riskLineY !== null"
           x1="30"
           :y1="riskLineY"
           x2="370"
@@ -73,7 +101,7 @@
           class="risk-threshold-line"
         />
         <text
-          v-if="riskLineY !== null"
+          v-if="activeMode !== 'seasonal' && riskLineY !== null"
           x="368"
           :y="riskLineY - 3"
           class="risk-threshold-label"
@@ -137,12 +165,23 @@
       </div>
     </div>
 
-    <!-- AEF Semantic & Recommendations -->
+    <!-- AEF Semantic & Multi-modal Diagnostics -->
     <div class="ts-footer">
       <div class="aef-tag-line">
-        <span class="aef-badge">AEF 语义融合</span>
+        <span class="aef-badge">AEF 语义多模态</span>
         <span class="aef-text">{{ data?.aef_semantic || '人造物硬化面分析' }}</span>
       </div>
+
+      <!-- 2D Lateral Ground Spread / Pit Wall Diagnostic -->
+      <div v-if="data?.lateral_displacement_type" class="lateral-box">
+        <span class="lat-icon">📐</span>
+        <div class="lat-content">
+          <div class="lat-title">{{ data.lateral_displacement_type }}</div>
+          <div class="lat-diag">{{ data.lateral_risk_diagnostic }}</div>
+        </div>
+      </div>
+
+      <!-- Engineering Recommendations -->
       <div v-if="data?.recommendations" class="rec-box">
         <span class="rec-icon">🛡️</span>
         <span class="rec-text">{{ data.recommendations }}</span>
@@ -153,6 +192,15 @@
 
 <script>
 import { computed, ref } from 'vue'
+import {
+  evaluateRiskLevel,
+  projectTimeseriesPoints,
+  buildSmoothCurvePath,
+  buildAreaPolygonPoints,
+  formatCoordinates,
+  formatDeformationRate,
+  extractCurveSeries
+} from '../utils/insarTimeseries.js'
 
 export default {
   name: 'InsarTimeseriesChart',
@@ -164,111 +212,55 @@ export default {
   },
   setup(props) {
     const hoveredIndex = ref(null)
+    const activeMode = ref('total') // 'total' | 'trend' | 'seasonal'
 
-    const riskLevel = computed(() => props.data?.risk_level || 'safe')
+    const riskEval = computed(() => {
+      const v = props.data?.velocity_mm_yr || 0
+      const c = props.data?.cumulative_displacement_mm || 0
+      return evaluateRiskLevel(v, c)
+    })
+
+    const riskLevel = computed(() => props.data?.risk_level || riskEval.value.level)
     const riskThemeClass = computed(() => `theme-${riskLevel.value}`)
 
     const velocityColorClass = computed(() => {
-      const v = props.data?.velocity_mm_yr || 0
+      const v = props.data?.vertical_velocity_mm_yr ?? props.data?.velocity_mm_yr ?? 0
       if (v < -20) return 'text-red'
       if (v < -8) return 'text-orange'
       return 'text-green'
     })
 
-    const cumuColorClass = computed(() => {
-      const c = props.data?.cumulative_displacement_mm || 0
-      if (c < -40) return 'text-red'
-      if (c < -15) return 'text-orange'
+    const lateralColorClass = computed(() => {
+      const lv = Math.abs(props.data?.lateral_velocity_mm_yr || 0)
+      if (lv > 5) return 'text-orange'
+      if (lv > 1) return 'text-cyan'
       return 'text-green'
     })
 
-    // Coordinate chart normalization (viewBox 380x140)
-    // Left padding: 35, Right padding: 370. Width = 335.
-    // Top padding: 20, Bottom padding: 115. Height = 95.
-    const chartMetrics = computed(() => {
-      const disps = props.data?.displacements_mm || []
-      if (!disps.length) return null
-
-      const minVal = Math.min(...disps, -25.0)
-      const maxVal = Math.max(...disps, 2.0)
-      const range = (maxVal - minVal) || 1
-
-      const xStart = 35
-      const xEnd = 365
-      const yTop = 20
-      const yBottom = 115
-      const xStep = disps.length > 1 ? (xEnd - xStart) / (disps.length - 1) : 0
-
-      return { minVal, maxVal, range, xStart, xEnd, yTop, yBottom, xStep }
+    const activeSeries = computed(() => {
+      return extractCurveSeries(props.data, activeMode.value)
     })
 
-    const chartPoints = computed(() => {
-      const m = chartMetrics.value
-      const disps = props.data?.displacements_mm || []
+    const chartProjection = computed(() => {
+      const disps = activeSeries.value
       const epochs = props.data?.epochs || []
-      if (!m || !disps.length) return []
-
-      return disps.map((val, i) => {
-        const x = m.xStart + i * m.xStep
-        const norm = (val - m.minVal) / m.range // 0 (minVal) to 1 (maxVal)
-        const y = m.yBottom - norm * (m.yBottom - m.yTop)
-        return {
-          x: Math.round(x * 10) / 10,
-          y: Math.round(y * 10) / 10,
-          disp: val,
-          epoch: epochs[i] || `Phase ${i + 1}`,
-          leftPercent: Math.round((x / 380) * 100),
-          topPx: Math.max(10, Math.min(100, Math.round(y)))
-        }
-      })
+      return projectTimeseriesPoints(disps, epochs)
     })
+
+    const chartPoints = computed(() => chartProjection.value.points)
+    const riskLineY = computed(() => chartProjection.value.riskLineY)
+    const zeroLineY = computed(() => chartProjection.value.zeroLineY)
 
     const curvePathD = computed(() => {
-      const pts = chartPoints.value
-      if (!pts.length) return ''
-      return pts.reduce((acc, pt, i) => {
-        if (i === 0) return `M ${pt.x} ${pt.y}`
-        // Smooth bezier interpolation
-        const prev = pts[i - 1]
-        const cx1 = (prev.x + pt.x) / 2
-        const cy1 = prev.y
-        const cx2 = (prev.x + pt.x) / 2
-        const cy2 = pt.y
-        return `${acc} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${pt.x} ${pt.y}`
-      }, '')
+      return buildSmoothCurvePath(chartPoints.value)
     })
 
     const areaPolygonPoints = computed(() => {
-      const pts = chartPoints.value
-      const m = chartMetrics.value
-      if (!pts.length || !m) return ''
-      const first = pts[0]
-      const last = pts[pts.length - 1]
-      const ptsStr = pts.map(p => `${p.x},${p.y}`).join(' ')
-      return `${first.x},${m.yBottom} ${ptsStr} ${last.x},${m.yBottom}`
-    })
-
-    const riskLineY = computed(() => {
-      const m = chartMetrics.value
-      if (!m) return null
-      const val = -20.0
-      if (val < m.minVal || val > m.maxVal) return null
-      const norm = (val - m.minVal) / m.range
-      return Math.round((m.yBottom - norm * (m.yBottom - m.yTop)) * 10) / 10
-    })
-
-    const zeroLineY = computed(() => {
-      const m = chartMetrics.value
-      if (!m) return null
-      const val = 0.0
-      if (val < m.minVal || val > m.maxVal) return null
-      const norm = (val - m.minVal) / m.range
-      return Math.round((m.yBottom - norm * (m.yBottom - m.yTop)) * 10) / 10
+      return buildAreaPolygonPoints(chartPoints.value, 115)
     })
 
     const shortEpochs = computed(() => {
       const eps = props.data?.epochs || []
-      // Return 5 evenly spaced labels
       if (!eps.length) return []
       if (eps.length <= 5) return eps.map(e => e.slice(2, 7))
       return [
@@ -286,26 +278,19 @@ export default {
     })
 
     function formatCoords(lat, lon) {
-      if (lat === undefined || lon === undefined) return ''
-      return `${Number(lat).toFixed(3)}°N, ${Number(lon).toFixed(3)}°E`
+      return formatCoordinates(lat, lon)
     }
 
     function formatNumber(v) {
-      if (v === undefined || v === null) return '—'
-      const num = Number(v)
-      return (num > 0 ? `+${num.toFixed(1)}` : num.toFixed(1))
-    }
-
-    function truncate(str, len) {
-      if (!str) return '—'
-      return str.length > len ? str.slice(0, len) + '…' : str
+      return formatDeformationRate(v)
     }
 
     return {
+      activeMode,
       riskLevel,
       riskThemeClass,
       velocityColorClass,
-      cumuColorClass,
+      lateralColorClass,
       chartPoints,
       curvePathD,
       areaPolygonPoints,
@@ -315,8 +300,7 @@ export default {
       hoveredIndex,
       hoveredPoint,
       formatCoords,
-      formatNumber,
-      truncate
+      formatNumber
     }
   }
 }
@@ -325,9 +309,9 @@ export default {
 <style scoped>
 .insar-ts-card {
   border-radius: 12px;
-  background: rgba(8, 14, 24, 0.92);
+  background: rgba(8, 14, 24, 0.94);
   border: 1px solid rgba(0, 245, 255, 0.28);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   padding: 12px 14px;
   color: #fff;
   backdrop-filter: blur(16px);
@@ -350,7 +334,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .ts-title-group {
@@ -419,16 +403,16 @@ export default {
   color: #ffaa33;
 }
 
-/* Metrics Ribbon */
+/* 2D Vector Metrics Ribbon */
 .ts-metrics-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(0, 0, 0, 0.35);
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .metric-item {
@@ -452,13 +436,42 @@ export default {
 .text-red { color: #ff3b30; }
 .text-orange { color: #ff9500; }
 .text-green { color: #00ff9d; }
+.text-cyan { color: #00f5ff; }
 
-.m-value.mech {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.88);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.m-value.elastic {
+  font-size: 12px;
+  color: #00f5ff;
+}
+
+/* Curve Mode Selector Tabs */
+.ts-curve-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.tab-btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+.tab-btn.active {
+  background: rgba(0, 245, 255, 0.16);
+  border-color: rgba(0, 245, 255, 0.45);
+  color: #00f5ff;
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.2);
 }
 
 /* SVG Chart */
@@ -466,7 +479,7 @@ export default {
   position: relative;
   width: 100%;
   height: 140px;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.28);
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   padding-bottom: 18px;
@@ -574,7 +587,7 @@ export default {
 
 /* Footer & Recommendations */
 .ts-footer {
-  margin-top: 10px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -599,6 +612,33 @@ export default {
 
 .aef-text {
   color: rgba(255, 255, 255, 0.75);
+}
+
+.lateral-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 245, 255, 0.07);
+  border: 1px dashed rgba(0, 245, 255, 0.28);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.lat-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.lat-title {
+  font-weight: 800;
+  color: #00f5ff;
+}
+
+.lat-diag {
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 1px;
 }
 
 .rec-box {

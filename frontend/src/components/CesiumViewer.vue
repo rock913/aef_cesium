@@ -57,6 +57,7 @@ export default {
     let lastCenterLat = null
     let lastCenterLon = null
     let clickHandler = null
+    let inspectionBeaconEntity = null
     
     onMounted(() => {
       Promise.resolve()
@@ -70,6 +71,7 @@ export default {
     
     onBeforeUnmount(() => {
       disposed = true
+      clearInspectionBeacon()
       if (viewer) {
         if (clickHandler) {
           try {
@@ -1385,6 +1387,66 @@ export default {
         currentAILayer.alpha = opacity
       }
     }
+
+    /**
+     * 3D InSAR 靶向锚标与视准激光束高亮 (Inspection Beacon)
+     */
+    function setInspectionBeacon(opts) {
+      if (!viewer || disposed || !opts || opts.lat === undefined || opts.lon === undefined) return
+      clearInspectionBeacon()
+      try {
+        const lon = Number(opts.lon)
+        const lat = Number(opts.lat)
+        const h = Number(opts.height || 0)
+        const isCritical = opts.riskLevel === 'critical'
+        const beaconColor = isCritical ? Cesium.Color.RED : Cesium.Color.CYAN
+        const beamColor = isCritical
+          ? new Cesium.Color(1.0, 0.23, 0.19, 0.6)
+          : new Cesium.Color(0.0, 0.96, 1.0, 0.6)
+
+        inspectionBeaconEntity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(lon, lat, h),
+          point: {
+            pixelSize: 10,
+            color: beaconColor,
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          },
+          polyline: {
+            positions: [
+              Cesium.Cartesian3.fromDegrees(lon, lat, h),
+              Cesium.Cartesian3.fromDegrees(lon, lat, h + 220)
+            ],
+            width: 2.5,
+            material: beamColor
+          },
+          label: {
+            text: opts.label || '🎯 InSAR 靶向锚点',
+            font: '11px ui-monospace, SFMono-Regular, monospace, sans-serif',
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            pixelOffset: new Cesium.Cartesian2(0, -32),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        })
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    function clearInspectionBeacon() {
+      if (viewer && inspectionBeaconEntity) {
+        try {
+          viewer.entities.remove(inspectionBeaconEntity)
+        } catch (_) {
+          // ignore
+        }
+        inspectionBeaconEntity = null
+      }
+    }
     
     return {
       cesiumContainer,
@@ -1403,7 +1465,9 @@ export default {
       startGlobalRotation,
       stopGlobalRotation,
       setGlobeVisible,
-      applyAct2StoryboardPresetA
+      applyAct2StoryboardPresetA,
+      setInspectionBeacon,
+      clearInspectionBeacon
     }
   }
 }

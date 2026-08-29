@@ -131,3 +131,31 @@ export function formatCoordinates(lat, lon) {
   if (lat === undefined || lon === undefined || lat === null || lon === null) return ''
   return `${Number(lat).toFixed(3)}°N, ${Number(lon).toFixed(3)}°E`
 }
+
+/**
+ * Extracts specific time-series data array depending on the active component tab.
+ * @param {Object} data InSAR profile response object
+ * @param {'total'|'trend'|'seasonal'} mode
+ * @returns {number[]}
+ */
+export function extractCurveSeries(data, mode = 'total') {
+  if (!data) return []
+  if (mode === 'trend' && Array.isArray(data.trend_displacements_mm)) {
+    return data.trend_displacements_mm
+  }
+  if (mode === 'seasonal' && Array.isArray(data.seasonal_elastic_mm)) {
+    return data.seasonal_elastic_mm
+  }
+  return data.displacements_mm || []
+}
+
+/**
+ * Formats a deformation rate in mm/yr with explicit + or - sign.
+ * @param {number} rate
+ * @returns {string}
+ */
+export function formatDeformationRate(rate) {
+  if (rate === undefined || rate === null) return '—'
+  const n = Number(rate)
+  return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1)
+}

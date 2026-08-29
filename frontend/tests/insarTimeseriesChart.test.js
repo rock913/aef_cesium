@@ -7,6 +7,8 @@ import {
   buildSmoothCurvePath,
   buildAreaPolygonPoints,
   formatCoordinates,
+  formatDeformationRate,
+  extractCurveSeries
 } from '../src/utils/insarTimeseries.js'
 
 function readAppVue() {
@@ -16,6 +18,11 @@ function readAppVue() {
 
 function readChartVue() {
   const p = path.resolve(__dirname, '../src/components/InsarTimeseriesChart.vue')
+  return fs.readFileSync(p, 'utf-8')
+}
+
+function readCesiumViewerVue() {
+  const p = path.resolve(__dirname, '../src/components/CesiumViewer.vue')
   return fs.readFileSync(p, 'utf-8')
 }
 
@@ -74,22 +81,50 @@ describe('InSAR Time-Series Mathematical & Risk Evaluation Logic', () => {
     expect(area.length).toBeGreaterThan(20)
   })
 
-  it('formats geographical coordinates nicely', () => {
+  it('formats geographical coordinates and rates nicely', () => {
     expect(formatCoordinates(22.72, 113.53)).toBe('22.720°N, 113.530°E')
     expect(formatCoordinates(null, null)).toBe('')
+    expect(formatDeformationRate(-26.5)).toBe('-26.5')
+    expect(formatDeformationRate(6.8)).toBe('+6.8')
+    expect(formatDeformationRate(null)).toBe('—')
+  })
+
+  it('extracts curve series by component mode correctly', () => {
+    const mockData = {
+      displacements_mm: [-10, -20],
+      trend_displacements_mm: [-8, -18],
+      seasonal_elastic_mm: [-2, -2]
+    }
+    expect(extractCurveSeries(mockData, 'total')).toEqual([-10, -20])
+    expect(extractCurveSeries(mockData, 'trend')).toEqual([-8, -18])
+    expect(extractCurveSeries(mockData, 'seasonal')).toEqual([-2, -2])
   })
 })
 
 describe('InsarTimeseriesChart.vue Template & Style Guards', () => {
-  it('contains SVG elements, risk lines, and AEF fusion badges', () => {
+  it('contains SVG elements, risk lines, and multi-component tabs', () => {
     const s = readChartVue()
     expect(s).toContain('class="insar-ts-card"')
     expect(s).toContain('class="ts-svg"')
     expect(s).toContain('class="risk-threshold-line"')
     expect(s).toContain('-20mm 高危警戒')
     expect(s).toContain('class="curve-stroke"')
-    expect(s).toContain('AEF 语义融合')
-    expect(s).toContain('class="rec-box"')
+    expect(s).toContain('class="ts-curve-tabs"')
+    expect(s).toContain('实测总形变')
+    expect(s).toContain('塑性趋势项')
+    expect(s).toContain('温变弹性项')
+    expect(s).toContain('东西向侧移速率')
+    expect(s).toContain('lateral-box')
+  })
+})
+
+describe('CesiumViewer.vue 3D Beacon Guards', () => {
+  it('implements setInspectionBeacon and clearInspectionBeacon', () => {
+    const s = readCesiumViewerVue()
+    expect(s).toContain('function setInspectionBeacon')
+    expect(s).toContain('function clearInspectionBeacon')
+    expect(s).toContain('setInspectionBeacon,')
+    expect(s).toContain('clearInspectionBeacon')
   })
 })
 
@@ -100,10 +135,12 @@ describe('App.vue InSAR Timeseries Integration Guards', () => {
     expect(s).toContain('InsarTimeseriesChart')
   })
 
-  it('binds map-click event and timeseries fetcher', () => {
+  it('binds map-click event, timeseries fetcher, and 3D inspection beacon', () => {
     const s = readAppVue()
     expect(s).toContain('@map-click="onMapClick"')
     expect(s).toContain('fetchInsarTimeseries')
     expect(s).toContain('insarTimeseriesData')
+    expect(s).toContain('setInspectionBeacon')
+    expect(s).toContain('clearInspectionBeacon')
   })
 })

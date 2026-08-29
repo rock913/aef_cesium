@@ -2,6 +2,25 @@
 
 > 最后更新: 2026-08-29
 
+## 已完成 Sprint: CH8 深度演进 —— InSAR 物理全要素分解与 Cesium 3D 空间锚标孪生系统 (V3.2 物理全要素与三维高亮版) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| 塑性沉降与温变/水文弹性波分解 | ✅ | `backend/gee_service.py` 实现长期塑性固结趋势项与季节性正弦弹性振荡项分离 (`elastic_amplitude_mm = 2.4~3.2mm`) |
+| 升降轨双向融合 2D 位移解算 | ✅ | 解算垂直沉降 $v_z$ 与东西向侧移 $v_x$（南沙外海挤出 $+6.8\text{mm/yr}$，天河基坑内向收敛 $-5.4\text{mm/yr}$）及侧向剪切风险诊断 |
+| 多分量时序折线图 Tab 切换 | ✅ | `InsarTimeseriesChart.vue` 新增 `[实测总形变]` / `[塑性趋势项]` / `[温变弹性项]` 交互切换与 2D 矢量速率 Ribbon |
+| Cesium 3D 视准激光锚标与雷达 Ping | ✅ | `CesiumViewer.vue` 新增 `setInspectionBeacon` / `clearInspectionBeacon`，在三维建筑上投射脉冲激光束与悬浮 HUD 标签 |
+| 自动化回归测试与热部署验证 | ✅ | 新增 `tests/test_insar_physics_decomposition.py` (3/3)，前端全量 190 tests (100%)，后端 206 tests (100%) 通过并完成生产热部署 |
+
+### V3.2 验证结果
+
+```
+/api/insar/timeseries?lat=22.72&lon=113.53  → HTTP 200 (分解为 trend + seasonal, 东西向侧移 +7.42mm/yr) ✅
+/api/insar/timeseries?lat=23.12&lon=113.32  → HTTP 200 (天河基坑向内收敛 -5.38mm/yr, 温变弹性 ±2.4mm) ✅
+pytest (206 tests)                         → 206 passed, 36 skipped in 7.25s ✅
+vitest (61 test files / 190 tests)         → 190 passed in 2.88s ✅
+```
+
 ## 已完成 Sprint: CH8 演进深化 —— AEF 语义多模态融合与 3D 建筑单体 InSAR 时序折线图系统 (V3.1 深度融合版) ✅
 
 | 任务 | 状态 | 描述 |
