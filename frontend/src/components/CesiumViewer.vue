@@ -1106,15 +1106,30 @@ export default {
         currentAIProviderUnsub = null
       }
       
+      let rect = undefined
+      if (options?.bounds && Array.isArray(options.bounds) && options.bounds.length === 4) {
+        try {
+          rect = Cesium.Rectangle.fromDegrees(
+            options.bounds[0],
+            options.bounds[1],
+            options.bounds[2],
+            options.bounds[3]
+          )
+        } catch (_) {
+          // ignore
+        }
+      }
+
       // 添加新图层
       const provider = new Cesium.UrlTemplateImageryProvider({
         url: tileUrl,
         tileWidth: 256,
         tileHeight: 256,
         minimumLevel: 0,
+        maximumLevel: 18,
+        rectangle: rect,
         // 透明 PNG 也应被视为“成功瓦片”，否则 Cesium 可能持续丢弃并重试
-        tileDiscardPolicy: new Cesium.NeverTileDiscardPolicy(),
-        maximumLevel: 18
+        tileDiscardPolicy: new Cesium.NeverTileDiscardPolicy()
       })
 
       const onProviderError = (tileError) => {

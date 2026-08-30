@@ -52,6 +52,12 @@ def generate_all_tiles():
         coh_path = data_dir / "gz_coherence_real.tif"
         out_dir = Path("/mnt/data/hyf/aef_cesium/data/tiles/ch8_insar")
 
+    import shutil
+    if out_dir.exists():
+        print(f"🧹 彻底清理旧切片缓存目录: {out_dir}")
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     print(f"📡 载入真实雷达形变栅格: {vel_path}")
     t0 = time.time()
     with rasterio.open(vel_path) as src_v:
@@ -67,7 +73,8 @@ def generate_all_tiles():
     west, south, east, north = 113.10, 22.50, 113.75, 23.35
     total_saved = 0
 
-    for z in range(10, 16):
+    # 包含从高空俯瞰到近地巡检全量层级 (Zoom 8 ~ 15)
+    for z in range(8, 16):
         z_t0 = time.time()
         x_min, y_min = deg2num(north, west, z)
         x_max, y_max = deg2num(south, east, z)

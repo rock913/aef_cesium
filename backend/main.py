@@ -2133,7 +2133,7 @@ async def get_layer(
             local_insar_tiles = Path("/mnt/data/hyf/aef_cesium/data/tiles/ch8_insar")
 
         if is_ch8 and local_insar_tiles.exists():
-            tile_url = "/api/tiles/local_ch8_insar/{z}/{x}/{y}"
+            tile_url = "/api/tiles/local_ch8_insar/{z}/{x}/{y}?v=4.3"
             status_html = "<span class='status-badge status-live'>🛰️ 星载雷达实测 (Sentinel-1)</span>"
             return {
                 "tile_url": tile_url,

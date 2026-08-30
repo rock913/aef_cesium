@@ -577,6 +577,7 @@ export default {
     // and later restore it without re-hitting /api/layers.
     const lastAiTileUrl = ref('')
     const lastAiOpacity = ref(0.88)
+    const lastAiBounds = ref(null)
 
     // Old version behavior: no managed Sentinel-2 basemap overlay by default.
     // Keep the feature behind an env flag so the globe doesn't get a "mask layer"
@@ -1107,8 +1108,9 @@ export default {
 
         lastAiTileUrl.value = url
         lastAiOpacity.value = opacity
+        lastAiBounds.value = layerData?.bounds || null
 
-        cesiumViewer.value.loadAILayer(url, opacity, { fadeIn: true })
+        cesiumViewer.value.loadAILayer(url, opacity, { fadeIn: true, bounds: layerData?.bounds })
         try {
           cesiumViewer.value?.setAILayerVisible?.(aiLayerVisible.value)
         } catch (_) {
@@ -1262,7 +1264,7 @@ export default {
         const url = String(lastAiTileUrl.value || '')
         if (url) {
           try {
-            cesiumViewer.value?.loadAILayer?.(url, Number(lastAiOpacity.value) || 0.88, { fadeIn: true })
+            cesiumViewer.value?.loadAILayer?.(url, Number(lastAiOpacity.value) || 0.88, { fadeIn: true, bounds: lastAiBounds.value })
           } catch (_) {
             // ignore
           }
