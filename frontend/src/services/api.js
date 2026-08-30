@@ -176,5 +176,15 @@ export const apiService = {
       params: { lat, lon, mode }
     })
     return data
+  },
+
+  /**
+   * 获取 InSAR 实测永久散射体 (PS) 靶向观测点集 (点图层)
+   */
+  async getInsarPoints(location) {
+    const { data } = await api.get('/api/insar/points', {
+      params: location ? { location } : {}
+    })
+    return data
   }
 }

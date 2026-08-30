@@ -58,6 +58,7 @@ export default {
     let lastCenterLon = null
     let clickHandler = null
     let inspectionBeaconEntity = null
+    let insarPointEntities = []
     
     onMounted(() => {
       Promise.resolve()
@@ -72,6 +73,7 @@ export default {
     onBeforeUnmount(() => {
       disposed = true
       clearInspectionBeacon()
+      clearInsarPoints()
       if (viewer) {
         if (clickHandler) {
           try {
@@ -1447,6 +1449,65 @@ export default {
         inspectionBeaconEntity = null
       }
     }
+
+    /**
+     * 加载 InSAR 实测永久散射体 (PS) 靶向观测点图层
+     */
+    function loadInsarPoints(points = []) {
+      clearInsarPoints()
+      if (!viewer || disposed || !Array.isArray(points) || !points.length) return
+      try {
+        for (const pt of points) {
+          const lon = Number(pt.lon)
+          const lat = Number(pt.lat)
+          const h = Number(pt.height || 10)
+          const v = Number(pt.velocity_mm_yr || 0)
+          const isCritical = pt.risk_level === 'critical' || v < -20
+          const isWarning = pt.risk_level === 'warning' || (v >= -20 && v < -10)
+          const color = isCritical
+            ? Cesium.Color.RED
+            : (isWarning ? Cesium.Color.ORANGE : Cesium.Color.YELLOW)
+
+          const ent = viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(lon, lat, h),
+            point: {
+              pixelSize: 8,
+              color: color,
+              outlineColor: Cesium.Color.WHITE,
+              outlineWidth: 1.5,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
+            label: {
+              text: `${pt.name}\n${v > 0 ? '+' : ''}${v} mm/yr`,
+              font: '10px ui-monospace, SFMono-Regular, monospace, sans-serif',
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.BLACK,
+              outlineWidth: 3,
+              pixelOffset: new Cesium.Cartesian2(0, -24),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            }
+          })
+          ent._insarData = pt
+          insarPointEntities.push(ent)
+        }
+      } catch (err) {
+        console.warn('Failed to load InSAR point layer:', err)
+      }
+    }
+
+    function clearInsarPoints() {
+      if (viewer && insarPointEntities.length) {
+        try {
+          for (const ent of insarPointEntities) {
+            viewer.entities.remove(ent)
+          }
+        } catch (_) {
+          // ignore
+        }
+        insarPointEntities = []
+      }
+    }
     
     return {
       cesiumContainer,
@@ -1467,7 +1528,9 @@ export default {
       setGlobeVisible,
       applyAct2StoryboardPresetA,
       setInspectionBeacon,
-      clearInspectionBeacon
+      clearInspectionBeacon,
+      loadInsarPoints,
+      clearInsarPoints
     }
   }
 }

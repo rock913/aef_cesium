@@ -75,3 +75,15 @@ class TestInsarTimeseriesAPI:
         assert isinstance(prof["epochs"], list)
         assert isinstance(prof["displacements_mm"], list)
         assert all(isinstance(v, (int, float)) for v in prof["displacements_mm"])
+
+    def test_insar_points_api(self, client):
+        """测试 InSAR PS 靶向观测点集接口"""
+        res = client.get("/api/insar/points?location=guangzhou_nansha")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "success"
+        assert len(data["points"]) >= 3
+        pt0 = data["points"][0]
+        assert "lat" in pt0 and "lon" in pt0
+        assert "velocity_mm_yr" in pt0
+        assert "name" in pt0

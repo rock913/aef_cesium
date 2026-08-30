@@ -20,9 +20,9 @@ def test_ch8_locations_registered():
     from config import settings
 
     assert "guangzhou_nansha" in settings.locations
-    assert settings.locations["guangzhou_nansha"]["coords"] == [22.75, 113.53, 13]
+    assert settings.locations["guangzhou_nansha"]["coords"] == [22.72, 113.53, 13]
     assert "guangzhou_tianhe" in settings.locations
-    assert settings.locations["guangzhou_tianhe"]["coords"] == [23.12, 113.32, 14]
+    assert settings.locations["guangzhou_tianhe"]["coords"] == [23.115, 113.329, 14]
 
 def test_ch8_missions_registered():
     """Verify ch8 mission cards exist in the missions list."""

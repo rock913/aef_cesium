@@ -533,6 +533,18 @@ export default {
       }
     }
 
+    async function fetchInsarPoints(location) {
+      if (!location) return
+      try {
+        const res = await apiService.getInsarPoints(location)
+        if (res && res.status === 'success' && Array.isArray(res.points)) {
+          cesiumViewer.value?.loadInsarPoints?.(res.points)
+        }
+      } catch (err) {
+        console.warn('Failed to fetch InSAR point layer:', err)
+      }
+    }
+
     function onMapClick({ lat, lon }) {
       if (selectedMode.value?.includes('insar') || appState.value === 'analyzing') {
         fetchInsarTimeseries(lat, lon)
@@ -765,6 +777,8 @@ export default {
 
       try {
         cesiumViewer.value?.clearBasemapLayer?.()
+        cesiumViewer.value?.clearInspectionBeacon?.()
+        cesiumViewer.value?.clearInsarPoints?.()
       } catch (_) {
         // ignore
       }
@@ -791,8 +805,10 @@ export default {
           runAgenticWorkflow(mission)
           if (mission.api_mode?.includes('insar')) {
             fetchInsarTimeseries(lat, lon)
+            fetchInsarPoints(mission.location)
           } else {
             insarTimeseriesData.value = null
+            cesiumViewer.value?.clearInsarPoints?.()
           }
         }
       )
@@ -808,6 +824,7 @@ export default {
       insarTimeseriesLoading.value = false
       try {
         cesiumViewer.value?.clearInspectionBeacon?.()
+        cesiumViewer.value?.clearInsarPoints?.()
       } catch (_) {
         // ignore
       }

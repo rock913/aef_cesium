@@ -2314,6 +2314,32 @@ async def get_insar_timeseries_endpoint(
         raise HTTPException(status_code=500, detail={"error": f"InSAR timeseries extraction failed: {str(e)}"})
 
 
+@app.get("/api/insar/points")
+async def get_insar_points_endpoint(
+    location: str = Query(None, description="地点代码 (如 guangzhou_nansha 或 guangzhou_tianhe)")
+):
+    """获取 InSAR 实测永久散射体 (PS) 靶向观测点集 (点图层)"""
+    import json
+    points_file = Path("data/insar_hyp3/gz_insar_points.json")
+    if not points_file.exists():
+        points_file = Path("/app/data/insar_hyp3/gz_insar_points.json")
+    if not points_file.exists():
+        points_file = Path("/mnt/data/hyf/aef_cesium/data/insar_hyp3/gz_insar_points.json")
+        
+    if points_file.exists():
+        try:
+            with open(points_file, "r", encoding="utf-8") as f:
+                all_pts = json.load(f)
+            if location and location in all_pts:
+                return {"status": "success", "location": location, "points": all_pts[location]}
+            return {"status": "success", "points": all_pts}
+        except Exception as e:
+            logger.warning(f"Failed to read InSAR points file: {e}")
+            
+    return {"status": "success", "points": []}
+
+
+
 @app.get("/api/sentinel2")
 async def get_sentinel2_layer(request: Request, location: str):
     """
