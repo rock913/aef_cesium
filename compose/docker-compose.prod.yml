@@ -45,8 +45,9 @@ services:
         VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M: ${VITE_PHOTOREALISTIC_VISIBILITY_THRESHOLD_M:-}
         VITE_PHOTOREALISTIC_AI_OCCLUSION: ${VITE_PHOTOREALISTIC_AI_OCCLUSION:-}
     ports:
-      # 外部端口跟随 .env 的 FRONTEND_PORT（默认 8406）；容器内 nginx 固定 80
-      - "${ONEEARTH_BIND_IP:-0.0.0.0}:${FRONTEND_PORT:-8406}:80"
+      # 外部端口：开通 7702（外部开放端口）与 8406（常规生产端口）；容器内 nginx 固定 80
+      - "${ONEEARTH_BIND_IP:-0.0.0.0}:7702:80"
+      - "${ONEEARTH_BIND_IP:-0.0.0.0}:8406:80"
     depends_on:
       backend_prod:
         condition: service_healthy
