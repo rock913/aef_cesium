@@ -213,7 +213,7 @@
     <div class="dual-standard-tip">
       <span class="tip-icon">⚖️</span>
       <span class="tip-text">
-        <strong>工程双物理标尺提示：</strong>沉降速率（mm/yr）与 5 年累积沉降（mm）解耦分别对应独立控制线，彻底避免多年累积量与单年速率控制线误混。
+        <strong>工程双物理标尺提示：</strong>沉降速率（mm/yr）与时序累积沉降（mm）解耦分别对应独立控制线，彻底避免跨期累积量与单年速率控制线误混。
       </span>
     </div>
 

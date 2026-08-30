@@ -25,8 +25,10 @@ class TestInsarPhysicsDecomposition:
         # 物理要素分解
         assert "trend_displacements_mm" in prof
         assert "seasonal_elastic_mm" in prof
-        assert len(prof["trend_displacements_mm"]) == 10
-        assert len(prof["seasonal_elastic_mm"]) == 10
+        assert len(prof["trend_displacements_mm"]) == 13
+        assert len(prof["seasonal_elastic_mm"]) == 13
+        assert prof["epochs"][0] == "2022-10-24"
+        assert prof["epochs"][-1] == "2023-12-30"
         assert prof["elastic_amplitude_mm"] == 3.2
 
         # 线性叠加一致性：总位移 = 趋势项 + 季节性弹性项
@@ -43,6 +45,9 @@ class TestInsarPhysicsDecomposition:
         assert prof["status"] == "success"
         assert "天河" in prof["target_name"]
         assert prof["elastic_amplitude_mm"] == 2.4
+        assert len(prof["trend_displacements_mm"]) == 13
+        assert prof["epochs"][0] == "2022-10-24"
+        assert prof["epochs"][-1] == "2023-12-30"
 
         # 线性叠加一致性
         for t_val, s_val, tot in zip(prof["trend_displacements_mm"], prof["seasonal_elastic_mm"], prof["displacements_mm"]):
@@ -61,7 +66,9 @@ class TestInsarPhysicsDecomposition:
         assert "seasonal_elastic_mm" in data
         assert "lateral_velocity_mm_yr" in data
         assert "epoch_velocities_mm_yr" in data
-        assert len(data["epoch_velocities_mm_yr"]) == 10
+        assert len(data["epoch_velocities_mm_yr"]) == 13
+        assert data["epochs"][0] == "2022-10-24"
+        assert data["epochs"][-1] == "2023-12-30"
         assert data["rate_threshold_mm_yr"] == -20.0
         assert "cumulative_threshold_mm" in data
         assert data["cumulative_threshold_mm"] < 0

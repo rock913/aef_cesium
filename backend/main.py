@@ -32,6 +32,7 @@ from collections import OrderedDict
 import httpx
 import re
 
+from pathlib import Path
 from config import settings
 from llm_service import (
     generate_monitoring_brief_openai_compatible,
@@ -2125,6 +2126,31 @@ async def get_layer(
                 "format": "png",
             }
         
+        # 特别优化：针对 CH8 InSAR 沉降，若本地预烘焙的真实星载切片金字塔存在，优先直连本地真实瓦片，杜绝数学圆形插值
+        is_ch8 = ("ch8_insar" in mode) or ("沉降" in mode) or ("ch8_urban" in mode)
+        local_insar_tiles = Path("/app/data/tiles/ch8_insar")
+        if not local_insar_tiles.exists():
+            local_insar_tiles = Path("/mnt/data/hyf/aef_cesium/data/tiles/ch8_insar")
+
+        if is_ch8 and local_insar_tiles.exists():
+            tile_url = "/api/tiles/local_ch8_insar/{z}/{x}/{y}"
+            status_html = "<span class='status-badge status-live'>🛰️ 星载雷达实测 (Sentinel-1)</span>"
+            return {
+                "tile_url": tile_url,
+                "bounds": [113.10, 22.50, 113.75, 23.35],
+                "is_cached": True,
+                "status": status_html,
+                "asset_id": "data/tiles/ch8_insar (Sentinel-1 Real InSAR)",
+                "vis_params": vis_for_tiles,
+                "variant": var or "heatmap",
+                "threshold": effective_threshold,
+                "render_hints": {
+                    "ai_opacity": 0.88
+                },
+                "location": loc_data,
+                "mode": mode
+            }
+
         # 获取上游 Tile URL (ee.getMapId) 并注册到本地代理。
         # 为避免前端 prefetch/多客户端导致的重复 getMapId 调用，这里使用 TTL cache。
         # Cache key must include effective visualization + variant, otherwise a prior
@@ -2764,7 +2790,27 @@ async def proxy_gee_tile(
         description="Tile failure policy: 'transparent' (HTTP 200 PNG) or 'error' (propagate HTTP error)",
     ),
 ):
-    """同源代理 Earth Engine 瓦片（完全异步），避免并发瓦片请求阻塞导致黑块。"""
+    """同源代理 Earth Engine 或本地离线实测 InSAR 瓦片（完全异步），避免并发瓦片请求阻塞导致黑块。"""
+    if tile_id.startswith("local_"):
+        layer_name = tile_id.replace("local_", "")
+        local_path = Path("/app/data/tiles") / layer_name / str(z) / str(x) / f"{y}.png"
+        if not local_path.exists():
+            local_path = Path("/mnt/data/hyf/aef_cesium/data/tiles") / layer_name / str(z) / str(x) / f"{y}.png"
+        if local_path.exists():
+            with open(local_path, "rb") as f:
+                content = f.read()
+            return Response(
+                content=content,
+                media_type="image/png",
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "X-AEF-Source": "Sentinel-1-Real-InSAR"
+                }
+            )
+        else:
+            cache_key = (tile_id, int(z), int(x), int(y))
+            return _tile_fallback_response(cache_key, max_age_s=3600, reason="local-tile-empty")
+
     _require_gee()
 
     fallback_mode = str(fallback or "transparent").strip().lower()

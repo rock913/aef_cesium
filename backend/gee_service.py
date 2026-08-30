@@ -727,15 +727,25 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
     v_tianhe = v_tianhe_anchor * math.exp(-d_tianhe * 200.0)
     velocity = round(v_nansha + v_tianhe - 0.5, 2)  # -0.5mm/yr 区域背景构造沉降
 
-    # 10 个半年度观测时相 (2020.03 ~ 2024.09)
+    # 7 组 Sentinel-1 升轨像对实际获取的 13 个雷达历元 (2022-10-24 ~ 2023-12-30)
     epochs = [
-        "2020-03-15", "2020-09-15",
-        "2021-03-15", "2021-09-15",
-        "2022-03-15", "2022-09-15",
-        "2023-03-15", "2023-09-15",
-        "2024-03-15", "2024-09-15"
+        "2022-10-24",
+        "2022-11-17",
+        "2022-11-29",
+        "2022-12-23",
+        "2023-01-04",
+        "2023-01-28",
+        "2023-02-09",
+        "2023-03-05",
+        "2023-10-31",
+        "2023-11-12",
+        "2023-12-06",
+        "2023-12-18",
+        "2023-12-30"
     ]
-    years_elapsed = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
+    # 对应各历元距初始观测日 (2022-10-24) 的实际流逝年数 (14个月观测跨度)
+    epoch_days = [0, 24, 36, 60, 72, 96, 108, 132, 372, 384, 408, 420, 432]
+    years_elapsed = [round(d / 365.25, 4) for d in epoch_days]
 
     # 根据距离划分典型沉降场景与 AEF 语义及物理要素分解
     if d_nansha < 0.08:
@@ -756,17 +766,17 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         lateral_displacement_type = "滨海软土侧向流滑与挤出 (Coastal Lateral Spread) - 向外海侧向滑移 +6.8 mm/yr"
         lateral_risk_diagnostic = "海堤基础与深水码头基桩面临侧向土压力剪切变形风险，建议复核桩基抗剪冗余度。"
         recommendations = "建议加密布设深层分层沉降标与孔隙水压力计；对沿海海堤防汛标高进行复核，防范雨季风暴潮顶托与侧向剪切滑移。"
-        cumulative_threshold_mm = -80.0
-        cumulative_threshold_label = "海堤防汛与软土标高允许累积亏损上限 (-80mm)"
+        cumulative_threshold_mm = -30.0
+        cumulative_threshold_label = "海堤防汛与软土标高14个月沉降控制上限 (-30mm)"
     elif d_tianhe < 0.06:
         target_name = "广州天河CBD核心区地下立体交通枢纽"
         aef_semantic = "高密城市人造建筑群与地下深基坑 (AEF Embedding: 人造硬化地物)"
         deformation_type = "地下工程开挖与施工降水引发局部不均匀沉降 (Excavation-Induced)"
         coherence = 0.91
         elastic_amplitude = 2.4  # 超高层钢混结构夏季受热伸长与冬季收缩 (温变热胀冷缩)
-        # 纯基坑工程施工扰动趋势项 (S 型加剧后收敛)
+        # 纯基坑工程施工扰动趋势项 (14个月内 S 型加剧后趋缓收敛)
         trend_displacements = [
-            round(velocity * (1.0 / (1.0 + math.exp(-2.0 * (t - 2.0)))) * 1.8, 2)
+            round(velocity * (1.0 / (1.0 + math.exp(-6.0 * (t - 0.5)))) * 1.3, 2)
             for t in years_elapsed
         ]
         # 季节性热胀冷缩项 (夏季 7-8 月热膨胀为正峰)
@@ -778,8 +788,8 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         lateral_displacement_type = "基坑地连墙与周边土体向内收敛 (Inward Wall Convergence) - 向基坑中心收敛 -5.4 mm/yr"
         lateral_risk_diagnostic = "基坑围护地连墙存在向坑内侧凸变形风险，易引发临近地铁管片错台与路面开裂。"
         recommendations = "建议启动基坑围护桩水平位移与周边地铁隧道收敛变形双重监测预警，对邻近高层建筑开展倾斜率复查与应力监测。"
-        cumulative_threshold_mm = -30.0
-        cumulative_threshold_label = "地铁隧道与超高层敏感受体允许累积沉降上限 (-30mm)"
+        cumulative_threshold_mm = -25.0
+        cumulative_threshold_label = "地铁隧道与超高层敏感累积变形控制上限 (-25mm)"
     else:
         target_name = f"城市监测网格点 ({round(lat, 4)}°N, {round(lon, 4)}°E)"
         aef_semantic = "城市常规硬化地表 (AEF Embedding: 稳定工程构筑物)"
@@ -794,8 +804,8 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         lateral_displacement_type = "微弱构造平移 (Negligible Tectonic Drift) - +0.2 mm/yr"
         lateral_risk_diagnostic = "地表水平向处于正常力学稳定状态。"
         recommendations = "地表结构变形处于国家规范允许沉降阈值范围内，维持季度常规卫星遥感监测巡检。"
-        cumulative_threshold_mm = -40.0
-        cumulative_threshold_label = "国家常规工程地基允许累积沉降上限 (-40mm)"
+        cumulative_threshold_mm = -15.0
+        cumulative_threshold_label = "常规工程地基14个月允许累积沉降上限 (-15mm)"
 
     # 计算各期区间年化速率 (mm/yr)
     epoch_velocities_mm_yr = []
@@ -803,7 +813,8 @@ def compute_insar_timeseries_profile(lat: float, lon: float) -> Dict[str, Any]:
         if i == 0:
             epoch_velocities_mm_yr.append(round(velocity, 1))
         else:
-            v_step = (trend_displacements[i] - trend_displacements[i - 1]) / 0.5
+            dt = years_elapsed[i] - years_elapsed[i - 1]
+            v_step = (trend_displacements[i] - trend_displacements[i - 1]) / max(0.001, dt)
             epoch_velocities_mm_yr.append(round(v_step, 1))
 
     # 行业年沉降速率警戒线 (-20mm/yr)

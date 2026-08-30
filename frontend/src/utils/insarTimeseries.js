@@ -91,13 +91,25 @@ export function projectTimeseriesPoints(displacements, epochs = [], options = {}
   // Dynamic Rate Envelope Slope Line (-20mm/yr * t)
   let rateSlopeLine = null
   const rateSlope = options.rateEnvelopeSlope ?? -20.0
-  const totalYears = (epochs.length > 1) ? (epochs.length - 1) * 0.5 : 4.5
-  const endSlopeVal = rateSlope * totalYears
-  if (0.0 >= minVal && 0.0 <= maxVal && endSlopeVal >= minVal && endSlopeVal <= maxVal) {
-    const y0 = Math.round((yBottom - ((0.0 - minVal) / range) * (yBottom - yTop)) * 10) / 10
-    const yEnd = Math.round((yBottom - ((endSlopeVal - minVal) / range) * (yBottom - yTop)) * 10) / 10
-    rateSlopeLine = { x1: xStart, y1: y0, x2: xEnd, y2: yEnd }
+  let totalYears = options.totalYears
+  if (!totalYears && epochs.length > 1) {
+    try {
+      const d1 = new Date(epochs[0]).getTime()
+      const d2 = new Date(epochs[epochs.length - 1]).getTime()
+      const diffYears = (d2 - d1) / (1000 * 3600 * 24 * 365.25)
+      if (diffYears > 0.1) {
+        totalYears = diffYears
+      }
+    } catch (_) {}
   }
+  if (!totalYears) {
+    totalYears = (epochs.length > 1) ? (epochs.length - 1) * 0.5 : 4.5
+  }
+  const endSlopeVal = rateSlope * totalYears
+  const clampedEndVal = Math.max(minVal, Math.min(maxVal, endSlopeVal))
+  const y0 = Math.round((yBottom - ((0.0 - minVal) / range) * (yBottom - yTop)) * 10) / 10
+  const yEnd = Math.round((yBottom - ((clampedEndVal - minVal) / range) * (yBottom - yTop)) * 10) / 10
+  rateSlopeLine = { x1: xStart, y1: y0, x2: xEnd, y2: yEnd }
 
   // Zero baseline at 0mm
   let zeroLineY = null

@@ -31,8 +31,10 @@ class TestInsarTimeseriesAPI:
         assert "软土" in data["aef_semantic"]
         assert data["risk_level"] == "critical"
         assert data["velocity_mm_yr"] < -20.0  # 严重沉降速率
-        assert len(data["epochs"]) == 10
-        assert len(data["displacements_mm"]) == 10
+        assert len(data["epochs"]) == 13
+        assert data["epochs"][0] == "2022-10-24"
+        assert data["epochs"][-1] == "2023-12-30"
+        assert len(data["displacements_mm"]) == 13
         # 累积沉降随时间加深
         assert data["displacements_mm"][-1] < data["displacements_mm"][0]
         assert "孔隙水" in data["recommendations"] or "海堤" in data["recommendations"]
@@ -48,7 +50,9 @@ class TestInsarTimeseriesAPI:
         assert "基坑" in data["aef_semantic"] or "人造" in data["aef_semantic"]
         assert data["velocity_mm_yr"] < -18.0
         assert data["risk_level"] == "critical"
-        assert len(data["epochs"]) == 10
+        assert len(data["epochs"]) == 13
+        assert data["epochs"][0] == "2022-10-24"
+        assert data["epochs"][-1] == "2023-12-30"
         assert "地铁" in data["recommendations"] or "基坑" in data["recommendations"]
 
     def test_insar_timeseries_stable_background(self, client):

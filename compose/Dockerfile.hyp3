@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir --upgrade pip \
     hyp3_sdk \
     numpy \
     rasterio \
+    Pillow \
+    mercantile \
     earthengine-api
 
 COPY . /app
