@@ -42,11 +42,19 @@
     <div class="ts-curve-tabs">
       <button
         class="tab-btn"
+        :class="{ active: activeMode === 'rate' }"
+        @click="activeMode = 'rate'"
+        title="年化沉降速率演化曲线 (与三维空间图层色标 100% 保持一致，-20mm/yr 警戒线)"
+      >
+        年化沉降速率 (mm/yr)
+      </button>
+      <button
+        class="tab-btn"
         :class="{ active: activeMode === 'total' }"
         @click="activeMode = 'total'"
-        title="5年实测累积位移历程 (含塑性固结与温变波动)"
+        title="实测累积位移历程 (含塑性固结与温变波动，单位 mm)"
       >
-        累积总形变
+        累积总形变 (mm)
       </button>
       <button
         class="tab-btn"
@@ -63,14 +71,6 @@
         title="气温热胀冷缩与丰枯水期孔压弹性呼吸波动"
       >
         温变弹性项
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeMode === 'rate' }"
-        @click="activeMode = 'rate'"
-        title="各期区间年化沉降速率对比 (-20mm/yr 警戒线)"
-      >
-        年化沉降速率
       </button>
     </div>
 
@@ -211,9 +211,9 @@
 
     <!-- Dual Physical Metric Clarification -->
     <div class="dual-standard-tip">
-      <span class="tip-icon">⚖️</span>
+      <span class="tip-icon">🎯</span>
       <span class="tip-text">
-        <strong>工程双物理标尺提示：</strong>沉降速率（mm/yr）与时序累积沉降（mm）解耦分别对应独立控制线，彻底避免跨期累积量与单年速率控制线误混。
+        <strong>工程双物理标尺提示（空间图层与曲线联动）：</strong>当前三维空间切片图层直接映射<strong>年均沉降速率（mm/yr）</strong>，默认与上方折线图（各历元年化速率与 -20mm/yr 控制线）100% 保持一致，所见即所得。亦可点击 Tab 切换至累积形变历程（mm）。
       </span>
     </div>
 
@@ -264,7 +264,7 @@ export default {
   },
   setup(props) {
     const hoveredIndex = ref(null)
-    const activeMode = ref('total') // 'total' | 'trend' | 'seasonal' | 'rate'
+    const activeMode = ref('rate') // 默认与空间切片图层直接保持一致：'rate' (年化沉降速率 mm/yr) | 'total' | 'trend' | 'seasonal'
 
     const riskEval = computed(() => {
       const v = props.data?.velocity_mm_yr || 0

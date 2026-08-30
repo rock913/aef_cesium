@@ -249,25 +249,25 @@ export function buildCommanderBrief(modeId, mission, stats) {
       '[金标准] Copernicus DEM GLO30 坡度约束 + AEF 16维欧氏距离时空差分，无需人工标注。',
     ]
   } else if (modeId === 'ch8_insar_subsidence') {
-    operator = 'NASA ISCE2 + MintPy (Sentinel-1 SBAS)'
-    brief = '结合雷达干涉测量与 AEF 语义底座：基于 NASA ISCE2 + MintPy 国际金标准管线反演毫米级沉降场，剥离 ERA5 大气延迟与 DEM 误差，将微观建筑下沉靶向锁定在三维孪生底座上。'
-    mechanism = 'SBAS-InSAR 时序形变反演：Sentinel-1 短基线干涉组网，SNAPHU 最小费用流解缠，PyAPS+ERA5 对流层水汽延迟物理建模剥离，WLS 加权最小二乘反演解算 PS 点年均沉降速率，coherence > 0.75 质量控制。'
+    operator = 'NASA ISCE2 + MintPy / HyP3 (Sentinel-1 SBAS)'
+    brief = '结合雷达干涉测量与 AEF 语义底座：三维空间图层直接映射 Sentinel-1 年均沉降速率场 (mm/yr)，与时序分析曲线保持 100% 物理量与数值一致。严格剥离对流层湿延迟，将微观建筑与吹填软土下沉精准靶向锁定。'
+    mechanism = 'SBAS-InSAR 时序年均沉降速率反演：Sentinel-1 升轨干涉组网，3D-SNAPHU 解缠，二次空间曲面对流层斜坡剥离，加权时间滤波解算永久散射体 (PS) 年均沉降速率 (mm/yr)，相干性 >= 0.60 质量控制。'
     legends = [
-      { color: '#FF0000', label: '严重沉降带 (速率 < -20 mm/yr)：填海造陆固结/基坑漏斗' },
-      { color: '#FF8C00', label: '中度沉降区 (速率 -20 ~ -10 mm/yr)：地铁沿线/基建扰动' },
-      { color: '#FFFF00', label: '轻微沉降区 (速率 -10 ~ -5 mm/yr)' },
-      { color: '#00FF00', label: '地表稳定区 (速率 -5 ~ +5 mm/yr)' },
-      { color: '#0000FF', label: '地表抬升区 (速率 > +5 mm/yr)' },
+      { color: '#FF0000', label: '严重沉降高危 (年均速率 < -20 mm/yr)：软土深厚固结/深基坑' },
+      { color: '#FF8C00', label: '中度沉降预警 (年均速率 -20 ~ -10 mm/yr)：地铁沿线/基建扰动' },
+      { color: '#FFFF00', label: '轻微沉降关注 (年均速率 -10 ~ -5 mm/yr)' },
+      { color: '#00FF00', label: '地表基本稳定 (年均速率 -5 ~ +3 mm/yr, 完全透明)' },
+      { color: '#0000FF', label: '地表微弱抬升 (年均速率 > +3 mm/yr)' },
     ]
     insights = [
       ...commonInsights,
-      '南沙填海区大面积橙红色光晕揭示软土压密固结，重点防范沿海堤防与防汛风险。',
-      '天河 CBD 红色沉降漏斗与地铁/在建基坑空间重叠，需警惕建筑物不均匀沉降应力。',
+      '三维空间切片图层已直接映射年均沉降速率 (mm/yr)，与右侧时序速率曲线与 -20mm/yr 控制线所见即所得。',
+      '南沙填海区软土固结沉降达 -26.7 mm/yr，天河 CBD 深基坑沉降达 -16.6 mm/yr，重点防范地基差异沉降与防汛标高变化。',
     ]
     technicalInsights = [
-      '[高精度反演] NASA ISCE2 + MintPy 双核驱动，SBAS-InSAR 反演精度达毫米级 (1–3 mm/yr)。',
-      '[质量控制] 相干性阈值 > 0.75 过滤水体与茂密植被去相干噪点，保留高质量永久散射体 (PS)。',
-      '[误差剥离] PyAPS 融合 ECMWF ERA5 物理模拟对流层延迟，线性回归反演消除 DEM 残余误差。',
+      '[图层与曲线完全一致] 空间图层与折线图均以年均沉降速率 (mm/yr) 为第一物理量，-20mm/yr 阈值红线联动。',
+      '[高精度反演] 基于 NASA ISCE2 + MintPy 与 HyP3 双核驱动，相干性加权与二次曲面对流层剥离，反演精度达毫米级。',
+      '[质量控制] 相干性阈值 >= 0.60 过滤水体去相干噪点，98.7% 正常地表自然透明，透视底图白模。',
       '[多模态融合] InSAR 物理沉降量 × AEF 人造物语义特征空间交集，输出城市生命线风险预警报告。',
     ]
   } else {
