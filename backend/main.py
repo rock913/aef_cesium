@@ -1722,6 +1722,23 @@ async def get_heritage_asset(filename: str):
     return FileResponse(target, media_type=media_type, filename=safe_name)
 
 
+@app.get("/api/heritage/points")
+async def get_heritage_points(
+    scope: str = Query("china", description="global | china | local"),
+    location: Optional[str] = Query(None, description="scope=local 时必填"),
+):
+    """CH9 真实开放数据点位（Wikidata 国保/世界遗产 + OSM 靶场）。
+
+    离线缓存，无网络依赖；数据来源见 sources 字段。
+    """
+    scope = (scope or "china").strip().lower()
+    if scope not in ("global", "china", "local"):
+        raise HTTPException(status_code=400, detail=f"Invalid scope: {scope}. Valid: global|china|local")
+    if scope == "local" and not location:
+        raise HTTPException(status_code=400, detail="scope=local requires location")
+    return heritage_catalog.heritage_points(scope, location)
+
+
 @app.get("/api/astro-gis/catalog/simbad")
 async def astro_gis_catalog_simbad(
     ra: float = Query(..., description="Right ascension (deg), will be normalized into [0,360)"),

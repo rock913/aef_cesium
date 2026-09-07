@@ -14,13 +14,17 @@
 | 前端五层档案面板 | ✅ | `HeritageArchivePanel.vue`：L1-L5 + fusion 证据链 + FEA云图/病害标注 SVG 叠加 + 数据来源角标 |
 | 前端 missionBrief/missionDeck/api | ✅ | 4 个 CH9 简报分支 + `heritage` 分类（🏯）+ 3 个 heritage API 方法 |
 | CesiumViewer/App 接线 | ✅ | `loadHeritageBuildings`（🏯 语义色标记）+ 点击就近建筑弹出五层档案 + 退出清理 |
-| 自动化测试 | ✅ | 后端 `tests/test_ch9_heritage.py`（20 tests），全套 227 passed / 36 skipped；前端 missionBrief/missionDeck 补 CH9 断言 |
+| 自动化测试 | ✅ | 后端 `tests/test_ch9_heritage.py`（25 tests），全套 232 passed / 36 skipped；前端 missionBrief/missionDeck 补 CH9 断言 |
+| 真实开放数据接入 | ✅ | `scripts/ch9_fetch_heritage_points.py`（Wikidata SPARQL + Overpass）→ `data/ch9_heritage_points.json` 缓存；L1 世界遗产 3643 + L2 国保 5678 + 本地 OSM；`/api/heritage/points` 端点 + 前端 EntityCluster 点云 |
 
 ### V4.0 验证结果
 
 ```
-pytest (227 tests)                          → 227 passed, 36 skipped ✅
-tests/test_ch9_heritage.py (20 tests)       → 20 passed ✅
+pytest (232 tests)                          → 232 passed, 36 skipped ✅
+tests/test_ch9_heritage.py (25 tests)       → 25 passed ✅
+/api/heritage/points?scope=china            → 国保 5678 ✅
+/api/heritage/points?scope=global           → 世界遗产 3643 ✅
+/api/heritage/points?scope=local            → 越城 OSM 30 处 ✅
 /api/missions (CH9)                         → 卢宅风险 + 越城体检 + 跨省发现 ✅
 /api/heritage/building/SX-YC-ZP-08          → 恒济台门 · 角变形 1/280 · unstable ✅
 /api/heritage/wind_assessment               → review.required=true, Ⅲ 级风险 ✅

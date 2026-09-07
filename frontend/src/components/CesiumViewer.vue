@@ -60,6 +60,7 @@ export default {
     let inspectionBeaconEntity = null
     let insarPointEntities = []
     let heritageBuildingEntities = []
+    let heritagePointDataSource = null
     
     onMounted(() => {
       Promise.resolve()
@@ -1584,6 +1585,66 @@ export default {
       }
     }
 
+    function _heritageLevelColor(level, type) {
+      if (level === 'world_heritage') return Cesium.Color.GOLD
+      if (level === 'national') return Cesium.Color.fromCssColorString('#FF7A45')
+      if (type === 'temple' || type === 'shrine' || type === 'pagoda') return Cesium.Color.fromCssColorString('#5DAE8B')
+      return Cesium.Color.CYAN
+    }
+
+    /**
+     * 加载 CH9 真实开放数据点云（L1 世界遗产 / L2 国保 / 本地 OSM）。
+     * 使用独立 CustomDataSource + EntityCluster 做 LOD 聚合，避免万级点位卡顿。
+     * 颜色分级：world_heritage=金 / national=橙红 / 其他=青。
+     */
+    function loadHeritagePointCloud(points = [], opts = {}) {
+      clearHeritagePointCloud()
+      if (!viewer || disposed || !Array.isArray(points) || !points.length) return
+      try {
+        const ds = new Cesium.CustomDataSource('ch9-heritage-points')
+        const colorFn = opts.colorBy === 'national'
+          ? () => Cesium.Color.fromCssColorString('#FF7A45')
+          : _heritageLevelColor
+
+        ds.entities.suspendEvents()
+        for (const pt of points) {
+          const lon = Number(pt.lon)
+          const lat = Number(pt.lat)
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
+          const color = colorFn(pt.level, pt.type)
+          ds.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+            point: {
+              pixelSize: 5,
+              color: color,
+              outlineColor: Cesium.Color.WHITE.withAlpha(0.35),
+              outlineWidth: 1,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            }
+          })
+        }
+        ds.entities.resumeEvents()
+        ds.clustering.enabled = true
+        ds.clustering.pixelRange = 38
+        ds.clustering.minimumClusterSize = 3
+        viewer.dataSources.add(ds)
+        heritagePointDataSource = ds
+      } catch (err) {
+        console.warn('Failed to load heritage point cloud:', err)
+      }
+    }
+
+    function clearHeritagePointCloud() {
+      if (viewer && heritagePointDataSource) {
+        try {
+          viewer.dataSources.remove(heritagePointDataSource)
+        } catch (_) {
+          // ignore
+        }
+        heritagePointDataSource = null
+      }
+    }
+
     return {
       cesiumContainer,
       creditContainer,
@@ -1607,7 +1668,9 @@ export default {
       loadInsarPoints,
       clearInsarPoints,
       loadHeritageBuildings,
-      clearHeritageBuildings
+      clearHeritageBuildings,
+      loadHeritagePointCloud,
+      clearHeritagePointCloud
     }
   }
 }

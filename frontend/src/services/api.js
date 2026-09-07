@@ -212,5 +212,15 @@ export const apiService = {
     if (typhoon) payload.typhoon = typhoon
     const { data } = await api.post('/api/heritage/wind_assessment', payload)
     return data
+  },
+
+  /**
+   * CH9：真实开放数据点位（scope: global|china|local）
+   */
+  async getHeritagePoints(scope = 'china', location = null) {
+    const params = { scope }
+    if (location) params.location = location
+    const { data } = await api.get('/api/heritage/points', { params })
+    return data
   }
 }

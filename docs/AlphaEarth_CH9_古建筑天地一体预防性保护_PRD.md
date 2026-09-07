@@ -57,10 +57,20 @@ CH9 的技术命题就是：**把这两条物理链，锚定到同一栋建筑�
 - `GET /api/heritage/assets/{filename}` → 同源提供 `data/` 真实物料（FEA云图/病害照片等）
 - `GET /api/layers?mode=ch9_heritage_*` → 四个 CH9 图层（deformation/wind_risk/aef_discovery/change）
 
-### 本次未落地（明确后置）
+### 真实开放数据已接入（路线一 · 零审批）
 
-- L1 全球遗产点位 / L2 全国 30.8 万古建聚合点（依赖 OSM/Wikidata/政府名录，独立数据管线）
+- **L1 全球分布**：Wikidata 联合国教科文组织世界遗产 **3643 处**（含中文标签与国别）→ `/api/heritage/points?scope=global`
+- **L2 中国全景**：Wikidata 全国重点文物保护单位 **5678 处**（`wdt:P1435 wd:Q1188574`）→ `/api/heritage/points?scope=china`
+- **本地靶场**：OSM `historic=*` / `heritage=*` / `building=temple|shrine|pagoda`（越城 30 / 东阳 3 / 平遥 0）→ `/api/heritage/points?scope=local&location=...`
+- 数据管线：`scripts/ch9_fetch_heritage_points.py`（Wikidata SPARQL + Overpass），产出 `data/ch9_heritage_points.json`（离线缓存，demo 现场零网络依赖）
+- 前端：`CesiumViewer.loadHeritagePointCloud`（独立 CustomDataSource + EntityCluster LOD 聚合，万级点位不卡顿；三色分级：世界遗产=金 / 国保=橙红 / 其他=青）
+
+> 诚实口径：开放数据（Wikidata 国保 5678 + OSM）覆盖的是**名录内**部分，远低于四普口径 30.8 万古建总量；这正是「开放数据对政府名录的覆盖率」叙事数字的来源。
+
+### 本次仍未落地（明确后置）
+
 - L3 三体过境卫星轨迹（依赖 TLE + 轨道计算）
+- 四普/三普政府名录全量 30.8 万点位（需省文物局正式申请，审批周期不可控）
 - 真实绍兴 InSAR（依赖 LiCSAR 取数或自跑 HPC）、真实风载荷知识库接口、CMA 台风预报 API
 
 所有对外口径以 §11.1 为准：形变标注 `LOS 向相对形变`、输出为「相对风险排序」而非「结构安全鉴定结论」。

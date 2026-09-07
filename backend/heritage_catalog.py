@@ -13,6 +13,62 @@ DISEASE_ANNOTATION = "072500002AAaa.json"
 FEA_PANORAMA = "FEA云图_全景.png"
 FEA_WEAKPOINTS = "FEA云图_薄弱点标注.png"
 
+import json
+from pathlib import Path
+
+_POINTS_CACHE = None
+
+
+def _load_points_json():
+    """加载真实开放数据点位缓存（data/ch9_heritage_points.json）。"""
+    global _POINTS_CACHE
+    if _POINTS_CACHE is not None:
+        return _POINTS_CACHE
+    candidates = [
+        Path("/app/data/ch9_heritage_points.json"),
+        Path("/mnt/data/hyf/aef_cesium/data/ch9_heritage_points.json"),
+        Path("data/ch9_heritage_points.json"),
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                _POINTS_CACHE = json.loads(p.read_text(encoding="utf-8"))
+                return _POINTS_CACHE
+            except Exception:
+                pass
+    return None
+
+
+def heritage_points(scope: str = "china", location: str = None):
+    """返回真实开放数据点位（scope: global|china|local）。
+
+    - global: 联合国教科文组织世界遗产（Wikidata）
+    - china:  全国重点文物保护单位（Wikidata）+ 世界遗产（中国）
+    - local:  三个 CH9 靶场的 OSM historic/heritage/temple 点位
+    """
+    data = _load_points_json()
+    if not data:
+        return {"status": "success", "scope": scope, "count": 0,
+                "points": [], "sources": {}, "data_track": "real_open_data"}
+
+    if scope == "global":
+        points = data.get("global", [])
+    elif scope == "local":
+        points = data.get("local", {}).get(location or "", [])
+    else:
+        points = data.get("china", [])
+
+    return {
+        "status": "success",
+        "scope": scope,
+        "location": location,
+        "count": len(points),
+        "points": points,
+        "sources": data.get("sources", {}),
+        "generated_at": data.get("generated_at"),
+        "data_track": "real_open_data",
+    }
+
 _DISCLAIMER = (
     "LOS 向相对形变；输出为相对风险排序，非结构安全鉴定结论。"
     "形变/风载/AEF 候选为演示仿真数据，真实值需由实际管线回填。"

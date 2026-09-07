@@ -210,6 +210,46 @@ def test_heritage_assets_no_traversal(client):
     assert resp.status_code in (400, 404)
 
 
+# --- CH9 真实开放数据点位 (Wikidata 国保/世界遗产 + OSM) ---
+
+def test_heritage_points_china(client):
+    resp = client.get("/api/heritage/points?scope=china")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["data_track"] == "real_open_data"
+    assert data["count"] > 1000  # 全国重点文物保护单位 ~5678
+    assert "sources" in data and data["sources"].get("wikidata_guobao", 0) > 1000
+    p = data["points"][0]
+    assert {"id", "name", "lon", "lat", "level"} <= set(p.keys())
+
+
+def test_heritage_points_global(client):
+    resp = client.get("/api/heritage/points?scope=global")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] > 1000  # 世界遗产 ~3643
+    assert data["points"][0]["level"] == "world_heritage"
+
+
+def test_heritage_points_local(client):
+    resp = client.get("/api/heritage/points?scope=local&location=shaoxing_yuecheng")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["count"] > 0
+
+
+def test_heritage_points_invalid_scope(client):
+    resp = client.get("/api/heritage/points?scope=bogus")
+    assert resp.status_code == 400
+
+
+def test_heritage_points_local_requires_location(client):
+    resp = client.get("/api/heritage/points?scope=local")
+    assert resp.status_code == 400
+
+
 @pytest.fixture
 def client():
     """Create a FastAPI TestClient with GEE stubs active."""

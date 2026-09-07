@@ -197,6 +197,9 @@
               <button class="ai-btn ai-btn-swipe" @click="toggleSplitCompare" :disabled="!viewerReady" title="开启分屏滑杆对比（左底图/右AI）">
                 Swipe: {{ splitCompareEnabled ? 'ON' : 'OFF' }}
               </button>
+              <button class="ai-btn" @click="toggleGlobalHeritage" :disabled="!viewerReady" title="叠加全球世界遗产点位（Wikidata 真实数据）">
+                🌍 全球遗产: {{ globalHeritageVisible ? 'ON' : 'OFF' }}
+              </button>
               <button
                 class="ai-btn secondary ai-btn-hold"
                 :class="{ active: holdingCompare }"
@@ -515,6 +518,7 @@ export default {
     // CH9 古建单体档案（五层档案面板）
     const heritageArchiveData = ref(null)
     const heritageBuildings = ref([])
+    const globalHeritageVisible = ref(false)
 
     async function fetchInsarTimeseries(lat, lon) {
       if (!lat || !lon) return
@@ -578,6 +582,36 @@ export default {
         }
       } catch (err) {
         console.warn('Failed to fetch heritage buildings:', err)
+      }
+    }
+
+    async function fetchHeritagePoints(scope, location = null) {
+      try {
+        const res = await apiService.getHeritagePoints(scope, location)
+        if (res && res.status === 'success' && Array.isArray(res.points) && res.points.length) {
+          cesiumViewer.value?.loadHeritagePointCloud?.(res.points, {
+            colorBy: scope === 'china' ? 'national' : 'level'
+          })
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch heritage points (${scope}):`, err)
+      }
+    }
+
+    async function toggleGlobalHeritage() {
+      if (globalHeritageVisible.value) {
+        globalHeritageVisible.value = false
+        cesiumViewer.value?.clearHeritagePointCloud?.()
+        return
+      }
+      try {
+        const res = await apiService.getHeritagePoints('global')
+        if (res && res.status === 'success' && Array.isArray(res.points) && res.points.length) {
+          cesiumViewer.value?.loadHeritagePointCloud?.(res.points, { colorBy: 'level' })
+          globalHeritageVisible.value = true
+        }
+      } catch (err) {
+        console.warn('Failed to fetch global heritage points:', err)
       }
     }
 
@@ -826,6 +860,7 @@ export default {
       _stopInsightsTypewriter()
       heritageArchiveData.value = null
       heritageBuildings.value = []
+      globalHeritageVisible.value = false
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -849,6 +884,7 @@ export default {
         cesiumViewer.value?.clearInspectionBeacon?.()
         cesiumViewer.value?.clearInsarPoints?.()
         cesiumViewer.value?.clearHeritageBuildings?.()
+        cesiumViewer.value?.clearHeritagePointCloud?.()
       } catch (_) {
         // ignore
       }
@@ -875,6 +911,8 @@ export default {
           runAgenticWorkflow(mission)
           if (mission.api_mode?.startsWith('ch9_heritage')) {
             fetchHeritageBuildings(mission.location)
+            fetchHeritagePoints('china')
+            fetchHeritagePoints('local', mission.location)
             insarTimeseriesData.value = null
           } else if (mission.api_mode?.includes('insar')) {
             fetchInsarTimeseries(lat, lon)
@@ -899,6 +937,7 @@ export default {
         cesiumViewer.value?.clearInspectionBeacon?.()
         cesiumViewer.value?.clearInsarPoints?.()
         cesiumViewer.value?.clearHeritageBuildings?.()
+        cesiumViewer.value?.clearHeritagePointCloud?.()
       } catch (_) {
         // ignore
       }
@@ -916,6 +955,7 @@ export default {
       _stopInsightsTypewriter()
       heritageArchiveData.value = null
       heritageBuildings.value = []
+      globalHeritageVisible.value = false
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -1517,7 +1557,9 @@ export default {
       fetchInsarTimeseries,
       onMapClick,
       heritageArchiveData,
-      closeHeritageArchive
+      closeHeritageArchive,
+      globalHeritageVisible,
+      toggleGlobalHeritage
     }
   }
 }
