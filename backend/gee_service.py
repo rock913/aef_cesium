@@ -366,6 +366,131 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         }
         suffix = "ch7_disaster"
 
+    elif ("ch9_heritage_deformation" in mode_s):
+        # CH9-B 古建单体形变体检（绍兴越城）：无资产时确定性仿真 LOS 速率场
+        # 单体尺度 <30m，越城 60km 视口内以多个台门差异沉降中心叠加。
+        lonlat = ee.Image.pixelLonLat()
+        lon = lonlat.select('longitude')
+        lat = lonlat.select('latitude')
+        centers = [
+            (120.5810, 30.0023, -12.0, 500.0),   # 恒济台门（优先核查旗舰）
+            (120.5760, 30.0060, -7.5, 700.0),
+            (120.5860, 29.9980, -5.0, 800.0),
+            (120.5720, 29.9960, -3.2, 900.0),
+            (120.5900, 30.0080, -2.0, 1000.0),
+            (120.5670, 30.0110, 1.5, 1200.0),    # 稳定硬地参考区轻微抬升
+        ]
+        terms = [
+            (lon.subtract(clon)).pow(2).add((lat.subtract(clat)).pow(2)).sqrt()
+            .multiply(-k).exp().multiply(amp)
+            for (clon, clat, amp, k) in centers
+        ]
+        sim_velocity = terms[0]
+        for t in terms[1:]:
+            sim_velocity = sim_velocity.add(t)
+        sim_velocity = sim_velocity.rename('velocity')
+        sim_coherence = ee.Image(0.85).rename('coherence')
+        insar_img = sim_velocity.addBands(sim_coherence)
+
+        velocity = insar_img.select('velocity')
+        coherence = insar_img.select('coherence')
+        # 古建阈值比城市更敏感（木构对差异沉降容忍度低）
+        hq_mask = coherence.gt(0.75)
+        significant = velocity.lt(-3).Or(velocity.gt(3))
+        img = velocity.updateMask(hq_mask.And(significant))
+        vis = {
+            "min": -20, "max": 6,
+            "palette": ["B03A2E", "C85F45", "C89A3C", "5DAE8B", "2E9CB8"],
+            "format": "png",
+        }
+        suffix = "ch9_heritage_deformation"
+
+    elif ("ch9_heritage_wind_risk" in mode_s):
+        # CH9-A 古建风载荷风险研判（东阳卢宅）：确定性风载风险场（含风向方向性分量）
+        lonlat = ee.Image.pixelLonLat()
+        lon = lonlat.select('longitude')
+        lat = lonlat.select('latitude')
+        # 台风东风（120°）风向下，卢宅迎风面（东侧）及屋脊/翼角薄弱区风险最高
+        centers = [
+            (120.2410, 29.2832, 1.0, 600.0),
+            (120.2440, 29.2810, 0.7, 800.0),
+            (120.2380, 29.2850, 0.55, 900.0),
+        ]
+        terms = [
+            (lon.subtract(clon)).pow(2).add((lat.subtract(clat)).pow(2)).sqrt()
+            .multiply(-k).exp().multiply(amp)
+            for (clon, clat, amp, k) in centers
+        ]
+        risk = terms[0]
+        for t in terms[1:]:
+            risk = risk.add(t)
+        # 风向方向性分量：东风主导，风险随风向下风方向（西侧）适度延伸
+        directional = lon.subtract(120.2410).multiply(0.06).clamp(-0.2, 0.2)
+        risk = risk.add(directional).rename('wind_risk')
+        img = risk.updateMask(risk.gt(0.35))
+        vis = {
+            "min": 0.35, "max": 1.0,
+            "palette": ["B03A2E", "C85F45", "F0C468", "FFF3C4"],
+            "format": "png",
+        }
+        suffix = "ch9_heritage_wind_risk"
+
+    elif ("ch9_heritage_aef_discovery" in mode_s):
+        # CH9-C AEF 语义跨省筛查（山西平遥）：确定性"古建概率"场（多簇候选聚落）
+        lonlat = ee.Image.pixelLonLat()
+        lon = lonlat.select('longitude')
+        lat = lonlat.select('latitude')
+        clusters = [
+            (112.1750, 37.2010, 0.95, 700.0),
+            (112.1600, 37.2060, 0.85, 900.0),
+            (112.1880, 37.1950, 0.78, 950.0),
+            (112.1720, 37.1900, 0.88, 850.0),
+            (112.1950, 37.2100, 0.72, 1000.0),
+        ]
+        terms = [
+            (lon.subtract(clon)).pow(2).add((lat.subtract(clat)).pow(2)).sqrt()
+            .multiply(-k).exp().multiply(amp)
+            for (clon, clat, amp, k) in clusters
+        ]
+        prob = terms[0]
+        for t in terms[1:]:
+            prob = prob.add(t)
+        prob = prob.rename('heritage_prob')
+        img = prob.updateMask(prob.gt(0.72))
+        vis = {
+            "min": 0.7, "max": 1.0,
+            "palette": ["3A3416", "8A6B1F", "C89A3C", "F0C468"],
+            "format": "png",
+        }
+        suffix = "ch9_heritage_aef_discovery"
+
+    elif ("ch9_heritage_change" in mode_s):
+        # CH9-D 古建周边年际变化检测：确定性 AEF 语义差分场（年际变化热点）
+        lonlat = ee.Image.pixelLonLat()
+        lon = lonlat.select('longitude')
+        lat = lonlat.select('latitude')
+        hotspots = [
+            (120.5810, 30.0023, 0.55, 700.0),
+            (120.5850, 30.0050, 0.42, 900.0),
+            (120.5750, 29.9950, 0.35, 1000.0),
+        ]
+        terms = [
+            (lon.subtract(clon)).pow(2).add((lat.subtract(clat)).pow(2)).sqrt()
+            .multiply(-k).exp().multiply(amp)
+            for (clon, clat, amp, k) in hotspots
+        ]
+        change = terms[0]
+        for t in terms[1:]:
+            change = change.add(t)
+        change = change.rename('semantic_change')
+        img = change.updateMask(change.gt(0.25))
+        vis = {
+            "min": 0.2, "max": 0.8,
+            "palette": ["2E9CB8", "C89A3C", "C85F45", "B03A2E"],
+            "format": "png",
+        }
+        suffix = "ch9_heritage_change"
+
     elif ("ch8_insar_subsidence" in mode_s) or ("沉降" in mode_s) or ("形变" in mode_s) or ("insar" in mode_s.lower()):
         # 1. 挂载预处理的 InSAR 时序结果 Asset (NASA ISCE2 + MintPy 产物)
         asset_id = os.getenv("CH8_INSAR_ASSET_ID", "projects/your_gee_project/assets/insar_gz_2020")
@@ -501,6 +626,42 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
                 "format": "png",
             },
             "ch7_disaster",
+        )
+    if ("ch9_heritage_deformation" in mode_s):
+        return (
+            {
+                "min": -20, "max": 6,
+                "palette": ["B03A2E", "C85F45", "C89A3C", "5DAE8B", "2E9CB8"],
+                "format": "png",
+            },
+            "ch9_heritage_deformation",
+        )
+    if ("ch9_heritage_wind_risk" in mode_s):
+        return (
+            {
+                "min": 0.35, "max": 1.0,
+                "palette": ["B03A2E", "C85F45", "F0C468", "FFF3C4"],
+                "format": "png",
+            },
+            "ch9_heritage_wind_risk",
+        )
+    if ("ch9_heritage_aef_discovery" in mode_s):
+        return (
+            {
+                "min": 0.7, "max": 1.0,
+                "palette": ["3A3416", "8A6B1F", "C89A3C", "F0C468"],
+                "format": "png",
+            },
+            "ch9_heritage_aef_discovery",
+        )
+    if ("ch9_heritage_change" in mode_s):
+        return (
+            {
+                "min": 0.2, "max": 0.8,
+                "palette": ["2E9CB8", "C89A3C", "C85F45", "B03A2E"],
+                "format": "png",
+            },
+            "ch9_heritage_change",
         )
     if ("ch8_insar_subsidence" in mode_s) or ("沉降" in mode_s) or ("形变" in mode_s) or ("insar" in mode_s.lower()):
         return (

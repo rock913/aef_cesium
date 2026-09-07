@@ -33,6 +33,40 @@ CH9 的技术命题就是：**把这两条物理链，锚定到同一栋建筑�
 
 ---
 
+## 0.1 本次 Demo 实现口径（2026-09-07 落地 · 演示沙箱轨）
+
+> 本节记录**实际落地**与上文示意代码的差异。§6/§7 中的 `get_layer_logic` 分支与 config 注册为「示意性」写法，引用了尚不存在的 GEE 资产（如 `ch9_heritage_insar_shaoxing_v1`、`ch9_heritage_points_zj_positive`）。Demo 实现改为**「无资产即确定性物理仿真」**，严格对齐 PRD §10 双轨真实性机制。
+
+### 真实 vs 仿真（诚实边界）
+
+| 模块 | 落地方式 | 真实性 |
+|---|---|---|
+| 五层单体档案结构（§8.2） | 已落地为 `/api/heritage/building/{id}` | ✅ 结构真实，接口契约即海报六行档案 |
+| 病害标注物料 | `data/072500002AAaa.jpg + json`（木构件开裂多边形） | ✅ 真实物料，前端 SVG 叠加 |
+| 风载荷云图 | `data/FEA云图_全景.png` / `FEA云图_薄弱点标注.png` | ✅ 真实物料（东南大学预计算知识库成果） |
+| InSAR 形变五指标 | 确定性高斯仿真场（越城多台门沉降中心，LOS 向，-12~+1.5 mm/yr） | ⚠️ 演示仿真，标注 `data_track: demo_sandbox` |
+| 风载薄弱点 / 累计概率 | 确定性查表（`heritage_catalog.py` 内置基本型→薄弱点映射） | ⚠️ 演示仿真（知识库真实、查表键为演示值） |
+| AEF 跨省筛查 | 确定性「古建概率」簇场（平遥多簇候选） | ⚠️ 演示仿真（AEF 底座真实、候选概率为演示值） |
+| 图层渲染 | GEE 实时仿真（`pixelLonLat` 高斯场 → 透明 PNG 瓦片） | ⚠️ 仿真场，经 GEE 出瓦片 |
+
+### 实际落地的接口
+
+- `GET /api/heritage/buildings/{location}` → 单体清单摘要（id/name/centroid/risk_level）
+- `GET /api/heritage/building/{building_id}` → 五层档案全量（含 `disclaimer` 与 `data_track`）
+- `POST /api/heritage/wind_assessment` → 风载研判（`review.required=true` 恒为真）
+- `GET /api/heritage/assets/{filename}` → 同源提供 `data/` 真实物料（FEA云图/病害照片等）
+- `GET /api/layers?mode=ch9_heritage_*` → 四个 CH9 图层（deformation/wind_risk/aef_discovery/change）
+
+### 本次未落地（明确后置）
+
+- L1 全球遗产点位 / L2 全国 30.8 万古建聚合点（依赖 OSM/Wikidata/政府名录，独立数据管线）
+- L3 三体过境卫星轨迹（依赖 TLE + 轨道计算）
+- 真实绍兴 InSAR（依赖 LiCSAR 取数或自跑 HPC）、真实风载荷知识库接口、CMA 台风预报 API
+
+所有对外口径以 §11.1 为准：形变标注 `LOS 向相对形变`、输出为「相对风险排序」而非「结构安全鉴定结论」。
+
+---
+
 ## 一、业务洞察与场景演进逻辑
 
 ### 1.1 为什么 CH8 不能直接套用

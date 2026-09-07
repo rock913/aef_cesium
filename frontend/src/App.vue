@@ -33,6 +33,13 @@
         @map-click="onMapClick"
       />
 
+      <!-- CH9 古建单体五层档案面板 -->
+      <HeritageArchivePanel
+        v-if="heritageArchiveData"
+        :building="heritageArchiveData"
+        @close="closeHeritageArchive"
+      />
+
       <!-- Debug HUD: map screen-center coordinates (bottom-left) -->
       <div v-if="viewerReady" class="debug-center">
         CENTER: {{ mapCenterText }}
@@ -289,6 +296,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
 import InsarTimeseriesChart from './components/InsarTimeseriesChart.vue'
+import HeritageArchivePanel from './components/HeritageArchivePanel.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
 import { buildAct2ChoreoHref, getChoreoFromSearch } from './utils/choreo.js'
@@ -309,7 +317,8 @@ export default {
   name: 'App',
   components: {
     CesiumViewer,
-    InsarTimeseriesChart
+    InsarTimeseriesChart,
+    HeritageArchivePanel
   },
   
   setup() {
@@ -503,6 +512,10 @@ export default {
     const insarTimeseriesData = ref(null)
     const insarTimeseriesLoading = ref(false)
 
+    // CH9 古建单体档案（五层档案面板）
+    const heritageArchiveData = ref(null)
+    const heritageBuildings = ref([])
+
     async function fetchInsarTimeseries(lat, lon) {
       if (!lat || !lon) return
       insarTimeseriesLoading.value = true
@@ -546,9 +559,62 @@ export default {
     }
 
     function onMapClick({ lat, lon }) {
+      if (selectedMode.value?.startsWith('ch9_heritage')) {
+        openNearestHeritageBuilding(lat, lon)
+        return
+      }
       if (selectedMode.value?.includes('insar') || appState.value === 'analyzing') {
         fetchInsarTimeseries(lat, lon)
       }
+    }
+
+    async function fetchHeritageBuildings(location) {
+      if (!location) return
+      try {
+        const res = await apiService.getHeritageBuildings(location)
+        if (res && res.status === 'success' && Array.isArray(res.buildings)) {
+          heritageBuildings.value = res.buildings
+          cesiumViewer.value?.loadHeritageBuildings?.(res.buildings)
+        }
+      } catch (err) {
+        console.warn('Failed to fetch heritage buildings:', err)
+      }
+    }
+
+    function findNearestHeritageBuilding(lat, lon) {
+      const list = heritageBuildings.value || []
+      if (!list.length) return null
+      let best = null
+      let bestD = Infinity
+      for (const b of list) {
+        const c = b.centroid
+        if (!Array.isArray(c) || c.length < 2) continue
+        const d = (c[1] - lat) ** 2 + (c[0] - lon) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = b
+        }
+      }
+      return best
+    }
+
+    async function openHeritageBuilding(buildingId) {
+      if (!buildingId) return
+      try {
+        const res = await apiService.getHeritageBuilding(buildingId)
+        if (res) heritageArchiveData.value = res
+      } catch (err) {
+        console.warn('Failed to fetch heritage building archive:', err)
+      }
+    }
+
+    async function openNearestHeritageBuilding(lat, lon) {
+      const b = findNearestHeritageBuilding(lat, lon)
+      if (b?.building_id) await openHeritageBuilding(b.building_id)
+    }
+
+    function closeHeritageArchive() {
+      heritageArchiveData.value = null
     }
 
     // Typewriter / analysis console
@@ -758,6 +824,8 @@ export default {
       commanderBrief.value = null
       insightsText.value = ''
       _stopInsightsTypewriter()
+      heritageArchiveData.value = null
+      heritageBuildings.value = []
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -780,6 +848,7 @@ export default {
         cesiumViewer.value?.clearBasemapLayer?.()
         cesiumViewer.value?.clearInspectionBeacon?.()
         cesiumViewer.value?.clearInsarPoints?.()
+        cesiumViewer.value?.clearHeritageBuildings?.()
       } catch (_) {
         // ignore
       }
@@ -804,7 +873,10 @@ export default {
           statusMsg.value = '情报展开：智能体接管中...'
           // Auto-load the default layer for the mission (agentic)
           runAgenticWorkflow(mission)
-          if (mission.api_mode?.includes('insar')) {
+          if (mission.api_mode?.startsWith('ch9_heritage')) {
+            fetchHeritageBuildings(mission.location)
+            insarTimeseriesData.value = null
+          } else if (mission.api_mode?.includes('insar')) {
             fetchInsarTimeseries(lat, lon)
             fetchInsarPoints(mission.location)
           } else {
@@ -826,6 +898,7 @@ export default {
       try {
         cesiumViewer.value?.clearInspectionBeacon?.()
         cesiumViewer.value?.clearInsarPoints?.()
+        cesiumViewer.value?.clearHeritageBuildings?.()
       } catch (_) {
         // ignore
       }
@@ -841,6 +914,8 @@ export default {
       commanderBrief.value = null
       insightsText.value = ''
       _stopInsightsTypewriter()
+      heritageArchiveData.value = null
+      heritageBuildings.value = []
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -1440,7 +1515,9 @@ export default {
       insarTimeseriesData,
       insarTimeseriesLoading,
       fetchInsarTimeseries,
-      onMapClick
+      onMapClick,
+      heritageArchiveData,
+      closeHeritageArchive
     }
   }
 }

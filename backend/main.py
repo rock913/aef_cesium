@@ -9,7 +9,7 @@ Cesium(WebGL texture) 会因此拒绝加载瓦片并表现为“地图空白”�
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -49,6 +49,7 @@ from gee_service import (
     init_earth_engine,
     compute_insar_timeseries_profile,
 )
+import heritage_catalog
 
 
 # 创建 FastAPI 应用
@@ -108,6 +109,12 @@ class ExportRequest(BaseModel):
     """缓存导出请求模型"""
     mode: str
     location: str
+
+
+class WindAssessmentRequest(BaseModel):
+    """CH9-A 古建风载荷风险研判请求模型"""
+    building_ids: List[str]
+    typhoon: Optional[Dict[str, Any]] = None
 
 
 class StatsRequest(BaseModel):
@@ -1645,6 +1652,76 @@ async def get_missions():
     return settings.missions
 
 
+# ══════════════════════════════════════════════════════════════
+# CH9 古建筑天地一体预防性保护（演示沙箱轨，不依赖 GEE）
+# ══════════════════════════════════════════════════════════════
+
+def _heritage_data_dir() -> Path:
+    """返回 data/ 目录（容器 /app/data 优先，回退到本机仓库路径）。"""
+    for cand in (Path("/app/data"), Path("/mnt/data/hyf/aef_cesium/data"), Path("data")):
+        if (cand / "FEA云图_全景.png").exists():
+            return cand
+    return Path("/app/data")
+
+
+@app.get("/api/heritage/buildings/{location}")
+async def get_heritage_buildings(location: str):
+    """CH9 单体建筑清单摘要（含 centroid / risk_level）。"""
+    if location not in settings.locations:
+        raise HTTPException(status_code=400, detail=f"Invalid location: {location}")
+    buildings = heritage_catalog.get_buildings(location)
+    return {
+        "status": "success",
+        "location": location,
+        "count": len(buildings),
+        "buildings": buildings,
+        "data_track": "demo_sandbox",
+    }
+
+
+@app.get("/api/heritage/building/{building_id}")
+async def get_heritage_building(building_id: str):
+    """CH9 单体五层档案全量（L1 卫星 / L2 语义 / L3 形变 / L4 病害 / L5 结构风载 + fusion）。"""
+    b = heritage_catalog.get_building(building_id)
+    if not b:
+        raise HTTPException(status_code=404, detail=f"Unknown building_id: {building_id}")
+    return b
+
+
+@app.post("/api/heritage/wind_assessment")
+async def heritage_wind_assessment(req: WindAssessmentRequest):
+    """CH9-A 风载荷风险研判（确定性查表，演示沙箱轨；review.required 恒为真）。"""
+    if not req.building_ids:
+        raise HTTPException(status_code=400, detail="building_ids must be non-empty")
+    return heritage_catalog.wind_assessment(req.building_ids, req.typhoon)
+
+
+@app.get("/api/heritage/assets/{filename}")
+async def get_heritage_asset(filename: str):
+    """同源提供 data/ 真实物料（FEA云图 / 病害标注照片等），中文文件名由前端 URL 编码。"""
+    # 防路径穿越：仅允许纯文件名，禁止目录分隔。
+    safe_name = Path(filename).name
+    if safe_name != filename or not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid asset filename")
+
+    data_dir = _heritage_data_dir()
+    target = data_dir / safe_name
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"Asset not found: {safe_name}")
+
+    ext = target.suffix.lower()
+    media_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".mp4": "video/mp4",
+        ".pdf": "application/pdf",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }.get(ext, "application/octet-stream")
+
+    return FileResponse(target, media_type=media_type, filename=safe_name)
+
+
 @app.get("/api/astro-gis/catalog/simbad")
 async def astro_gis_catalog_simbad(
     ra: float = Query(..., description="Right ascension (deg), will be normalized into [0,360)"),
@@ -2227,6 +2304,10 @@ async def get_layer(
                     "ch6_water_pulse": 0.88,
                     "ch7_disaster_warning": 0.88,
                     "ch8_insar_subsidence": 0.88,
+                    "ch9_heritage_deformation": 0.88,
+                    "ch9_heritage_wind_risk": 0.88,
+                    "ch9_heritage_aef_discovery": 0.88,
+                    "ch9_heritage_change": 0.88,
                     # Yancheng optimization: reduce perceived "white film" for coastline audit.
                     "ch5_coastline_audit": 0.65,
                 }.get(mode, 0.88),

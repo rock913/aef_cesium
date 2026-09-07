@@ -25,15 +25,18 @@ describe('missionDeck utilities', () => {
     { id: 'ch7_guangdong', name: '预警', title: '汛期山洪与滑坡预警', api_mode: 'ch7_disaster_warning' },
     { id: '填海区沉降', chapter: 'CH8', name: '南沙沉降', title: '南沙填海造陆区固结监测', api_mode: 'ch8_insar_subsidence' },
     { id: '核心区沉降', chapter: 'CH8', name: '天河形变', title: '天河地下空间形变监测', api_mode: 'ch8_insar_subsidence' },
+    { id: '卢宅风险', chapter: 'CH9', name: '东阳卢宅', title: '东阳卢宅台风风险研判', api_mode: 'ch9_heritage_wind_risk' },
+    { id: '越城体检', chapter: 'CH9', name: '绍兴越城', title: '绍兴越城古建群形变体检', api_mode: 'ch9_heritage_deformation' },
+    { id: '跨省发现', chapter: 'CH9', name: '平遥泛化', title: '古建聚落跨省零微调筛查', api_mode: 'ch9_heritage_aef_discovery' },
   ]
 
-  it('defines the 4 primary categories', () => {
-    expect(MISSION_CATEGORIES).toHaveLength(4)
+  it('defines the 5 primary categories', () => {
+    expect(MISSION_CATEGORIES).toHaveLength(5)
     const keys = MISSION_CATEGORIES.map((c) => c.key)
-    expect(keys).toEqual(['all', 'urban', 'ecology', 'hazard'])
+    expect(keys).toEqual(['all', 'urban', 'ecology', 'hazard', 'heritage'])
   })
 
-  it('correctly classifies missions into urban, ecology, and hazard', () => {
+  it('correctly classifies missions into urban, ecology, hazard, and heritage', () => {
     expect(getMissionCategory(mockMissions[0])).toBe('urban') // ch1 yuhang
     expect(getMissionCategory(mockMissions[1])).toBe('ecology') // ch2 maowusu
     expect(getMissionCategory(mockMissions[2])).toBe('hazard') // ch3 zhoukou 内涝
@@ -44,19 +47,23 @@ describe('missionDeck utilities', () => {
     expect(getMissionCategory(mockMissions[7])).toBe('hazard') // ch7 guangdong 山洪
     expect(getMissionCategory(mockMissions[8])).toBe('urban') // ch8 nansha insar
     expect(getMissionCategory(mockMissions[9])).toBe('urban') // ch8 tianhe insar
+    expect(getMissionCategory(mockMissions[10])).toBe('heritage') // ch9 卢宅 wind
+    expect(getMissionCategory(mockMissions[11])).toBe('heritage') // ch9 越城 deformation
+    expect(getMissionCategory(mockMissions[12])).toBe('heritage') // ch9 平遥 discovery
   })
 
   it('computes category counts accurately', () => {
     const counts = computeCategoryCounts(mockMissions)
-    expect(counts.all).toBe(10)
+    expect(counts.all).toBe(13)
     expect(counts.urban).toBe(3)
     expect(counts.ecology).toBe(4)
     expect(counts.hazard).toBe(3)
+    expect(counts.heritage).toBe(3)
   })
 
   it('filters missions by category key', () => {
     const all = filterMissionsByCategory(mockMissions, 'all')
-    expect(all).toHaveLength(10)
+    expect(all).toHaveLength(13)
 
     const urban = filterMissionsByCategory(mockMissions, 'urban')
     expect(urban).toHaveLength(3)
@@ -69,12 +76,16 @@ describe('missionDeck utilities', () => {
     const hazard = filterMissionsByCategory(mockMissions, 'hazard')
     expect(hazard).toHaveLength(3)
     expect(hazard.every((m) => getMissionCategory(m) === 'hazard')).toBe(true)
+
+    const heritage = filterMissionsByCategory(mockMissions, 'heritage')
+    expect(heritage).toHaveLength(3)
+    expect(heritage.every((m) => getMissionCategory(m) === 'heritage')).toBe(true)
   })
 
   it('handles empty or invalid inputs gracefully', () => {
     expect(filterMissionsByCategory([], 'all')).toEqual([])
     expect(filterMissionsByCategory(null, 'urban')).toEqual([])
-    expect(computeCategoryCounts(null)).toEqual({ all: 0, urban: 0, ecology: 0, hazard: 0 })
+    expect(computeCategoryCounts(null)).toEqual({ all: 0, urban: 0, ecology: 0, hazard: 0, heritage: 0 })
     expect(getMissionCategory(null)).toBe('urban')
   })
 })

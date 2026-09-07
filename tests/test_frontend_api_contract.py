@@ -147,6 +147,10 @@ class TestModesAPIContract:
             "ch6_water_pulse",
             "ch7_disaster_warning",
             "ch8_insar_subsidence",
+            "ch9_heritage_deformation",
+            "ch9_heritage_wind_risk",
+            "ch9_heritage_aef_discovery",
+            "ch9_heritage_change",
         }
         
         for mode_id in data.keys():

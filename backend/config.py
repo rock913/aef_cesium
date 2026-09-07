@@ -68,6 +68,10 @@ class Settings(BaseModel):
         "ch6_water_pulse": 90000,
         "ch7_disaster_warning": 90000,
         "ch8_insar_subsidence": 60000,
+        "ch9_heritage_deformation": 60000,
+        "ch9_heritage_wind_risk": 30000,
+        "ch9_heritage_aef_discovery": 90000,
+        "ch9_heritage_change": 90000,
     }
 
     def get_viewport_buffer_m_for_mode(self, mode_id: str | None) -> int:
@@ -107,6 +111,12 @@ class Settings(BaseModel):
         "guangzhou_nansha": {"coords": [22.72, 113.53, 13], "name": "广州 · 南沙区", "code": "guangzhou_nansha"},
         # 主案例 10：天河核心区
         "guangzhou_tianhe": {"coords": [23.115, 113.329, 14], "name": "广州 · 天河核心区", "code": "guangzhou_tianhe"},
+        # CH9-A：金华东阳 · 卢宅建筑群（纯风载靶场）
+        "dongyang_luzhai": {"coords": [29.2832, 120.2410, 16], "name": "金华东阳 · 卢宅建筑群", "code": "dongyang_luzhai"},
+        # CH9-B：绍兴越城 · 历史城区（宁绍平原软土差异沉降）
+        "shaoxing_yuecheng": {"coords": [30.0023, 120.5810, 14], "name": "绍兴 · 越城历史城区", "code": "shaoxing_yuecheng"},
+        # CH9-C：山西平遥 · 跨省泛化验证
+        "shanxi_pingyao": {"coords": [37.2010, 112.1750, 13], "name": "山西 · 平遥古城（泛化验证）", "code": "shanxi_pingyao"},
     }
      
     # V6.6 高级算法模式注册
@@ -119,6 +129,10 @@ class Settings(BaseModel):
         "ch6_water_pulse": "ch6_water_pulse 水网脉动监测 (维差分)",
         "ch7_disaster_warning": "ch7_disaster_warning 地质灾害极速定损 (AEF Diff × DEM Topology)",
         "ch8_insar_subsidence": "ch8_insar_subsidence 城市沉降数字孪生 (SBAS-InSAR 毫米级)",
+        "ch9_heritage_deformation": "ch9_heritage_deformation 古建单体形变体检 (SBAS-InSAR + 五指标归因)",
+        "ch9_heritage_wind_risk": "ch9_heritage_wind_risk 古建风载荷风险研判 (工况知识库 + 累计概率)",
+        "ch9_heritage_aef_discovery": "ch9_heritage_aef_discovery 古建聚落语义筛查 (AEF 零微调迁移)",
+        "ch9_heritage_change": "ch9_heritage_change 古建周边年际变化检测 (AEF 语义差分)",
     }
 
     # V6 mission registry (ordered)
@@ -225,6 +239,53 @@ class Settings(BaseModel):
             "formula": "NASA HyP3 / GAMMA / 3D-SNAPHU (Sentinel-1)",
             "narrative": "视角切换至高楼林立的天河CBD。在高度复杂的城市峡谷中，InSAR 算法滤除了相干性 < 0.60 的水体与绿化噪点，精准锁定了天河路/珠江新城地铁枢纽及深基坑周边的沉降漏斗。红色的实测靶向点揭示了建筑物地基承受的不均匀沉降应力（实测速率 -21.7 mm/yr）。结合三维白模，彻底将二维工程报表升维成了具有空间归因能力的‘城市生命线安全大脑’。",
             "camera": {"lat": 23.115, "lon": 113.329, "height": 4500, "duration_s": 4.0}
+        },
+        {
+            "id": "卢宅风险",
+            "chapter": "CH9",
+            "name": "东阳卢宅",
+            "title": "东阳卢宅台风风险研判",
+            "location": "dongyang_luzhai",
+            "api_mode": "ch9_heritage_wind_risk",
+            "formula": "CMA 智能网格预报 × 风载荷工况知识库 (3000+) × 累计概率",
+            "narrative": (
+                "台风逼近前 48 小时，One Earth 接入气象智能网格预报，逐小时提取卢宅所在格点的风速与风向序列。"
+                "系统将建筑群匹配到地区性基本型与变体，检索与东南大学共建的风载荷结构响应知识库——"
+                "40 余种基本型、3000 余种工况全部离线预计算，现场毫秒级查表。结合历史风向玫瑰图计算过境窗口内"
+                "各构件部位的累计受力概率，标定屋脊、檐口、翼角等构件级薄弱点，输出灾前专项巡检要点。"
+            ),
+            "camera": {"lat": 29.2790, "lon": 120.2410, "height": 900, "duration_s": 4.5},
+        },
+        {
+            "id": "越城体检",
+            "chapter": "CH9",
+            "name": "绍兴越城",
+            "title": "绍兴越城古建群形变体检",
+            "location": "shaoxing_yuecheng",
+            "api_mode": "ch9_heritage_deformation",
+            "formula": "NASA ISCE2 + MintPy (Sentinel-1) + 单体 3m 缓冲区五指标归因",
+            "narrative": (
+                "视角落到宁绍平原上的绍兴古城。系统载入经 ERA5 大气校正的 Sentinel-1 时序形变场，滤除相干性低于"
+                "0.75 的噪点。古建单体尺度常小于 30 米，系统对每栋建筑轮廓做 3 米缓冲区采集相干点，计算最大沉降速率、"
+                "沉降速率差、角变形、倾斜度与时序形变模式五项指标并打分，输出建筑单体相对风险排序。"
+                "角变形超过 1/300 的台门建筑被优先标出，与地面巡检台账中的墙体开裂记录相互印证。"
+            ),
+            "camera": {"lat": 29.9950, "lon": 120.5810, "height": 3200, "duration_s": 4.0},
+        },
+        {
+            "id": "跨省发现",
+            "chapter": "CH9",
+            "name": "平遥泛化",
+            "title": "古建聚落跨省零微调筛查",
+            "location": "shanxi_pingyao",
+            "api_mode": "ch9_heritage_aef_discovery",
+            "formula": "AEF Satellite Embedding V1 (64 维 · 10m) + 线性分类器",
+            "narrative": (
+                "以浙江省内已知国保与省保古建为正样本、随机非古建区域为负样本，直接在 64 维语义嵌入空间拟合轻量"
+                "线性分类器——不对基础模型做任何微调。将该分类器搬到一千公里外的山西盆地全域推理，系统在名录之外"
+                "浮现出大片高相似度的古建聚落候选。这些是需要文物部门实地核实的线索，不是认定结论。"
+            ),
+            "camera": {"lat": 37.1900, "lon": 112.1750, "height": 6000, "duration_s": 4.0},
         },
     ]
     

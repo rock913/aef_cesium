@@ -186,5 +186,31 @@ export const apiService = {
       params: location ? { location } : {}
     })
     return data
+  },
+
+  /**
+   * CH9：获取指定地点的古建单体清单摘要
+   */
+  async getHeritageBuildings(location) {
+    const { data } = await api.get(`/api/heritage/buildings/${location}`)
+    return data
+  },
+
+  /**
+   * CH9：获取古建单体五层档案全量
+   */
+  async getHeritageBuilding(buildingId) {
+    const { data } = await api.get(`/api/heritage/building/${buildingId}`)
+    return data
+  },
+
+  /**
+   * CH9：古建风载荷风险研判
+   */
+  async windAssessment(buildingIds, typhoon = null) {
+    const payload = { building_ids: buildingIds }
+    if (typhoon) payload.typhoon = typhoon
+    const { data } = await api.post('/api/heritage/wind_assessment', payload)
+    return data
   }
 }

@@ -3,6 +3,7 @@ export const MISSION_CATEGORIES = [
   { key: 'urban', label: '城市基建', icon: '🏙️' },
   { key: 'ecology', label: '生态环境', icon: '🌿' },
   { key: 'hazard', label: '应急防汛', icon: '⚠️' },
+  { key: 'heritage', label: '文保古建', icon: '🏯' },
 ]
 
 /**
@@ -16,6 +17,20 @@ export function getMissionCategory(m) {
   const mode = String(m.api_mode || '').toLowerCase()
   const text = (String(m.title || '') + ' ' + String(m.name || '') + ' ' + String(m.formula || '')).toLowerCase()
 
+  if (
+    mode.includes('heritage') ||
+    mode.includes('wind_risk') ||
+    id.includes('古建') ||
+    id.includes('卢宅') ||
+    id.includes('越城') ||
+    id.includes('平遥') ||
+    text.includes('古建') ||
+    text.includes('文保') ||
+    text.includes('风载') ||
+    text.includes('形变体检')
+  ) {
+    return 'heritage'
+  }
   if (
     mode.includes('insar') ||
     mode.includes('yuhang') ||
@@ -72,7 +87,7 @@ export function filterMissionsByCategory(missions, categoryKey) {
  * @returns {Record<string, number>}
  */
 export function computeCategoryCounts(missions) {
-  const counts = { all: Array.isArray(missions) ? missions.length : 0, urban: 0, ecology: 0, hazard: 0 }
+  const counts = { all: Array.isArray(missions) ? missions.length : 0, urban: 0, ecology: 0, hazard: 0, heritage: 0 }
   if (!Array.isArray(missions)) return counts
   for (const m of missions) {
     const cat = getMissionCategory(m)

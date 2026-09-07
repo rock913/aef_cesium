@@ -50,6 +50,10 @@ describe('missionBrief', () => {
       'ch6_water_pulse',
       'ch7_disaster_warning',
       'ch8_insar_subsidence',
+      'ch9_heritage_deformation',
+      'ch9_heritage_wind_risk',
+      'ch9_heritage_aef_discovery',
+      'ch9_heritage_change',
     ]
 
     const colorRe = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
@@ -87,6 +91,21 @@ describe('missionBrief', () => {
     expect(ch8.technical).toContain('ISCE2 + MintPy')
     expect(ch8.legends.map((l) => l.color)).toContain('#FF0000')
     expect(ch8.legends.map((l) => l.color)).toContain('#0000FF')
+  })
+
+  it('chapter 9 heritage modes expose honest legends and disclaimers', () => {
+    const deform = buildCommanderBrief('ch9_heritage_deformation', { title: 'T', location: 'shaoxing_yuecheng' }, null)
+    expect(deform.mechanism).toContain('五指标')
+    expect(deform.technical).toContain('LOS 向相对形变')
+    expect(deform.legends.map((l) => l.color)).toContain('#B03A2E')
+
+    const wind = buildCommanderBrief('ch9_heritage_wind_risk', { title: 'T', location: 'dongyang_luzhai' }, null)
+    expect(wind.mechanism).toContain('查表')
+    expect(wind.technical).toContain('预计算知识库')
+
+    const discovery = buildCommanderBrief('ch9_heritage_aef_discovery', { title: 'T', location: 'shanxi_pingyao' }, null)
+    expect(discovery.mechanism).toContain('线性分类器')
+    expect(discovery.technical).toContain('零微调')
   })
 
   it('extractActionInsightsFromReport prefers suggestion line/section', () => {

@@ -1,6 +1,43 @@
 # ROADMAP — AlphaEarth Cesium 开发进度
 
-> 最后更新: 2026-08-29
+> 最后更新: 2026-09-07
+
+## 已完成 Sprint: CH9 古建筑天地一体预防性保护 —— 核心叙事 + 单体五层档案 (V4.0 演示沙箱轨) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| PRD 建立与合理性落地 | ✅ | `docs/AlphaEarth_CH9_古建筑天地一体预防性保护_PRD.md`（1202 行），新增 §0.1「Demo 实现口径」明确真实/仿真边界 |
+| `backend/config.py` 配置注册 | ✅ | 新增 3 location（dongyang_luzhai / shaoxing_yuecheng / shanxi_pingyao）、4 mode（ch9_heritage_deformation/wind_risk/aef_discovery/change）、3 mission 卡、viewport buffer |
+| `backend/gee_service.py` 确定性仿真 | ✅ | 4 个 CH9 模式采用 `pixelLonLat` 高斯场（越城形变/卢宅风载/平遥 AEF/年际变化），png 透明，置于 CH8 分支之前避免「形变」关键词误命中 |
+| `backend/heritage_catalog.py` 单体目录 | ✅ | 纯 Python 五层档案目录：越城 6 栋（恒济台门 1/280 旗舰）、卢宅 2 栋、平遥 3 候选；引用 `data/` 真实物料 |
+| `backend/main.py` 端点 | ✅ | 新增 `/api/heritage/buildings`、`/building/{id}`、`/wind_assessment`、`/assets/{filename}`（均不依赖 GEE）；`render_hints` 补 CH9 opacity |
+| 前端五层档案面板 | ✅ | `HeritageArchivePanel.vue`：L1-L5 + fusion 证据链 + FEA云图/病害标注 SVG 叠加 + 数据来源角标 |
+| 前端 missionBrief/missionDeck/api | ✅ | 4 个 CH9 简报分支 + `heritage` 分类（🏯）+ 3 个 heritage API 方法 |
+| CesiumViewer/App 接线 | ✅ | `loadHeritageBuildings`（🏯 语义色标记）+ 点击就近建筑弹出五层档案 + 退出清理 |
+| 自动化测试 | ✅ | 后端 `tests/test_ch9_heritage.py`（20 tests），全套 227 passed / 36 skipped；前端 missionBrief/missionDeck 补 CH9 断言 |
+
+### V4.0 验证结果
+
+```
+pytest (227 tests)                          → 227 passed, 36 skipped ✅
+tests/test_ch9_heritage.py (20 tests)       → 20 passed ✅
+/api/missions (CH9)                         → 卢宅风险 + 越城体检 + 跨省发现 ✅
+/api/heritage/building/SX-YC-ZP-08          → 恒济台门 · 角变形 1/280 · unstable ✅
+/api/heritage/wind_assessment               → review.required=true, Ⅲ 级风险 ✅
+/api/heritage/assets/FEA云图_全景.png       → image/png 200 ✅
+```
+
+### CH9 演示入口
+
+浏览器打开 `http://127.0.0.1:7702/` → Demo 任务栏「文保古建 🏯」分类可见三张 CH9 卡：
+
+| 卡片 | 地点 | 相机 | 核心看点 |
+|------|------|------|----------|
+| 东阳卢宅台风风险研判 | 金华东阳·卢宅 | 29.279°N 120.241°E, 900m | 风载荷薄弱点 + FEA云图 + 灾前巡检要点 |
+| 绍兴越城古建群形变体检 | 绍兴·越城 | 29.995°N 120.581°E, 3200m | 单体形变五指标 + 点击建筑弹五层档案（病害标注） |
+| 古建聚落跨省零微调筛查 | 山西·平遥 | 37.190°N 112.175°E, 6000m | AEF 候选古建聚落线索 |
+
+---
 
 ## 已完成 Sprint: CH8 深度演进 —— InSAR 物理全要素分解与 Cesium 3D 空间锚标孪生系统 (V3.2 物理全要素与三维高亮版) ✅
 

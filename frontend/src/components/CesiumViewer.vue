@@ -59,6 +59,7 @@ export default {
     let clickHandler = null
     let inspectionBeaconEntity = null
     let insarPointEntities = []
+    let heritageBuildingEntities = []
     
     onMounted(() => {
       Promise.resolve()
@@ -1523,7 +1524,66 @@ export default {
         insarPointEntities = []
       }
     }
-    
+
+    /**
+     * 加载 CH9 古建单体标记图层（🏯 语义色：unstable=红 / moderate=橙 / stable=青 / candidate=金）
+     */
+    function loadHeritageBuildings(points = []) {
+      clearHeritageBuildings()
+      if (!viewer || disposed || !Array.isArray(points) || !points.length) return
+      try {
+        for (const pt of points) {
+          const lon = Number(pt.centroid?.[0])
+          const lat = Number(pt.centroid?.[1])
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
+          const h = Number(pt.height || 24)
+          const risk = String(pt.risk_level || '')
+          const isCandidate = !!pt.is_candidate
+          const color = isCandidate
+            ? Cesium.Color.GOLD
+            : (risk === 'unstable' ? Cesium.Color.RED : (risk === 'moderate' ? Cesium.Color.ORANGE : Cesium.Color.CYAN))
+
+          const ent = viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(lon, lat, h),
+            point: {
+              pixelSize: isCandidate ? 7 : 9,
+              color: color,
+              outlineColor: Cesium.Color.WHITE,
+              outlineWidth: 1.5,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
+            label: {
+              text: `🏯 ${pt.name || ''}`,
+              font: '11px ui-monospace, SFMono-Regular, monospace, sans-serif',
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.BLACK,
+              outlineWidth: 3,
+              pixelOffset: new Cesium.Cartesian2(0, -26),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            }
+          })
+          ent._heritageData = pt
+          heritageBuildingEntities.push(ent)
+        }
+      } catch (err) {
+        console.warn('Failed to load heritage building layer:', err)
+      }
+    }
+
+    function clearHeritageBuildings() {
+      if (viewer && heritageBuildingEntities.length) {
+        try {
+          for (const ent of heritageBuildingEntities) {
+            viewer.entities.remove(ent)
+          }
+        } catch (_) {
+          // ignore
+        }
+        heritageBuildingEntities = []
+      }
+    }
+
     return {
       cesiumContainer,
       creditContainer,
@@ -1545,7 +1605,9 @@ export default {
       setInspectionBeacon,
       clearInspectionBeacon,
       loadInsarPoints,
-      clearInsarPoints
+      clearInsarPoints,
+      loadHeritageBuildings,
+      clearHeritageBuildings
     }
   }
 }
