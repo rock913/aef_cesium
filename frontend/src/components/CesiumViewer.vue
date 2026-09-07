@@ -1706,6 +1706,16 @@ export default {
       } catch (_) {
         // ignore
       }
+      // 压暗底图影像，凸显发光点位（暗黑电影场）
+      try {
+        const base = viewer.imageryLayers.get(0)
+        if (base) {
+          base.brightness = enabled ? 0.22 : 1.0
+          base.contrast = enabled ? 1.35 : 1.0
+        }
+      } catch (_) {
+        // ignore
+      }
       try {
         if (enabled && !cinematicBloomStage) {
           cinematicBloomStage = viewer.scene.postProcessStages.add(
@@ -1721,6 +1731,34 @@ export default {
           viewer.scene.postProcessStages.remove(cinematicBloomStage)
           cinematicBloomStage = null
         }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    /**
+     * 一镜到底 · 微观下潜：平滑飞至 CH9 三个靶场（绍兴/东阳/平遥）。
+     */
+    function performDive(targetKey) {
+      if (!viewer) return
+      const microTargets = {
+        shaoxing: { lat: 30.002, lon: 120.581, height: 1200, pitch: -45, heading: 20 },
+        dongyang: { lat: 29.283, lon: 120.241, height: 800, pitch: -30, heading: 90 },
+        pingyao: { lat: 37.201, lon: 112.175, height: 2500, pitch: -60, heading: 0 },
+      }
+      const t = microTargets[targetKey]
+      if (!t) return
+      try {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(t.lon, t.lat, t.height),
+          orientation: {
+            heading: Cesium.Math.toRadians(t.heading),
+            pitch: Cesium.Math.toRadians(t.pitch),
+            roll: 0,
+          },
+          duration: 3.0,
+          easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
+        })
       } catch (_) {
         // ignore
       }
@@ -1846,7 +1884,8 @@ export default {
       clearHeritagePointCloud,
       setCinematicMode,
       loadWindScene,
-      clearWindScene
+      clearWindScene,
+      performDive
     }
   }
 }

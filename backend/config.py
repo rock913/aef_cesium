@@ -72,6 +72,7 @@ class Settings(BaseModel):
         "ch9_heritage_wind_risk": 30000,
         "ch9_heritage_aef_discovery": 90000,
         "ch9_heritage_change": 90000,
+        "ch9_heritage_master": 350000,
     }
 
     def get_viewport_buffer_m_for_mode(self, mode_id: str | None) -> int:
@@ -117,6 +118,8 @@ class Settings(BaseModel):
         "shaoxing_yuecheng": {"coords": [30.0023, 120.5810, 14], "name": "绍兴 · 越城历史城区", "code": "shaoxing_yuecheng"},
         # CH9-C：山西平遥 · 跨省泛化验证
         "shanxi_pingyao": {"coords": [37.2010, 112.1750, 13], "name": "山西 · 平遥古城（泛化验证）", "code": "shanxi_pingyao"},
+        # CH9 宏观入口：全国古建大盘（一镜到底起点）
+        "china_center": {"coords": [35.0, 105.0, 3], "name": "中国 · 全国古建大盘", "code": "china_center"},
     }
      
     # V6.6 高级算法模式注册
@@ -133,6 +136,7 @@ class Settings(BaseModel):
         "ch9_heritage_wind_risk": "ch9_heritage_wind_risk 古建风载荷风险研判 (工况知识库 + 累计概率)",
         "ch9_heritage_aef_discovery": "ch9_heritage_aef_discovery 古建聚落语义筛查 (AEF 零微调迁移)",
         "ch9_heritage_change": "ch9_heritage_change 古建周边年际变化检测 (AEF 语义差分)",
+        "ch9_heritage_master": "ch9_heritage_master 古建筑天地一体预防性保护 (宏观大盘 · 一镜到底)",
     }
 
     # V6 mission registry (ordered)
@@ -241,51 +245,19 @@ class Settings(BaseModel):
             "camera": {"lat": 23.115, "lon": 113.329, "height": 4500, "duration_s": 4.0}
         },
         {
-            "id": "卢宅风险",
+            "id": "古建大盘",
             "chapter": "CH9",
-            "name": "东阳卢宅",
-            "title": "东阳卢宅台风风险研判",
-            "location": "dongyang_luzhai",
-            "api_mode": "ch9_heritage_wind_risk",
-            "formula": "CMA 智能网格预报 × 风载荷工况知识库 (3000+) × 累计概率",
+            "name": "天地一体古建筑数字孪生",
+            "title": "从宏观发现到微观定损：双驱动时空档案",
+            "location": "china_center",
+            "api_mode": "ch9_heritage_master",
+            "formula": "InSAR(地下) ⊕ CFD(地上) ⊕ YOLO(微观)",
             "narrative": (
-                "台风逼近前 48 小时，One Earth 接入气象智能网格预报，逐小时提取卢宅所在格点的风速与风向序列。"
-                "系统将建筑群匹配到地区性基本型与变体，检索与东南大学共建的风载荷结构响应知识库——"
-                "40 余种基本型、3000 余种工况全部离线预计算，现场毫秒级查表。结合历史风向玫瑰图计算过境窗口内"
-                "各构件部位的累计受力概率，标定屋脊、檐口、翼角等构件级薄弱点，输出灾前专项巡检要点。"
+                "从全国 30.8 万处古建筑星火大盘出发，一镜到底下潜至绍兴/东阳/平遥三个靶场："
+                "地下 InSAR 检出不均匀沉降、地上 CFD 锁定风载薄弱点、YOLO 微观印证木构件开裂，"
+                "天上定宏观、地下做微观，两边对得上，结论才敢报。"
             ),
-            "camera": {"lat": 29.2790, "lon": 120.2410, "height": 900, "duration_s": 4.5},
-        },
-        {
-            "id": "越城体检",
-            "chapter": "CH9",
-            "name": "绍兴越城",
-            "title": "绍兴越城古建群形变体检",
-            "location": "shaoxing_yuecheng",
-            "api_mode": "ch9_heritage_deformation",
-            "formula": "NASA ISCE2 + MintPy (Sentinel-1) + 单体 3m 缓冲区五指标归因",
-            "narrative": (
-                "视角落到宁绍平原上的绍兴古城。系统载入经 ERA5 大气校正的 Sentinel-1 时序形变场，滤除相干性低于"
-                "0.75 的噪点。古建单体尺度常小于 30 米，系统对每栋建筑轮廓做 3 米缓冲区采集相干点，计算最大沉降速率、"
-                "沉降速率差、角变形、倾斜度与时序形变模式五项指标并打分，输出建筑单体相对风险排序。"
-                "角变形超过 1/300 的台门建筑被优先标出，与地面巡检台账中的墙体开裂记录相互印证。"
-            ),
-            "camera": {"lat": 29.9950, "lon": 120.5810, "height": 3200, "duration_s": 4.0},
-        },
-        {
-            "id": "跨省发现",
-            "chapter": "CH9",
-            "name": "平遥泛化",
-            "title": "古建聚落跨省零微调筛查",
-            "location": "shanxi_pingyao",
-            "api_mode": "ch9_heritage_aef_discovery",
-            "formula": "AEF Satellite Embedding V1 (64 维 · 10m) + 线性分类器",
-            "narrative": (
-                "以浙江省内已知国保与省保古建为正样本、随机非古建区域为负样本，直接在 64 维语义嵌入空间拟合轻量"
-                "线性分类器——不对基础模型做任何微调。将该分类器搬到一千公里外的山西盆地全域推理，系统在名录之外"
-                "浮现出大片高相似度的古建聚落候选。这些是需要文物部门实地核实的线索，不是认定结论。"
-            ),
-            "camera": {"lat": 37.1900, "lon": 112.1750, "height": 6000, "duration_s": 4.0},
+            "camera": {"lat": 35.0, "lon": 105.0, "height": 8000000, "duration_s": 2.0},
         },
     ]
     

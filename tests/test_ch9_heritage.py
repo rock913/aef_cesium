@@ -19,7 +19,8 @@ def _import_config():
 def test_ch9_modes_registered():
     settings = _import_config()
     for m in ("ch9_heritage_deformation", "ch9_heritage_wind_risk",
-              "ch9_heritage_aef_discovery", "ch9_heritage_change"):
+              "ch9_heritage_aef_discovery", "ch9_heritage_change",
+              "ch9_heritage_master"):
         assert m in settings.modes
 
 
@@ -28,29 +29,27 @@ def test_ch9_locations_registered():
     assert settings.locations["dongyang_luzhai"]["coords"] == [29.2832, 120.2410, 16]
     assert settings.locations["shaoxing_yuecheng"]["coords"] == [30.0023, 120.5810, 14]
     assert settings.locations["shanxi_pingyao"]["coords"] == [37.2010, 112.1750, 13]
+    assert settings.locations["china_center"]["coords"] == [35.0, 105.0, 3]
 
 
 def test_ch9_missions_registered():
     settings = _import_config()
     ids = {m["id"] for m in settings.missions}
-    assert "卢宅风险" in ids
-    assert "越城体检" in ids
-    assert "跨省发现" in ids
+    # 三合一重构：仅保留 1 个宏观入口卡片
+    assert "古建大盘" in ids
+    assert not ({"卢宅风险", "越城体检", "跨省发现"} & ids)
 
-    wind = next(m for m in settings.missions if m["id"] == "卢宅风险")
-    assert wind["api_mode"] == "ch9_heritage_wind_risk"
-    assert wind["location"] == "dongyang_luzhai"
-    assert wind["chapter"] == "CH9"
-
-    deform = next(m for m in settings.missions if m["id"] == "越城体检")
-    assert deform["api_mode"] == "ch9_heritage_deformation"
-    assert deform["location"] == "shaoxing_yuecheng"
+    master = next(m for m in settings.missions if m["id"] == "古建大盘")
+    assert master["api_mode"] == "ch9_heritage_master"
+    assert master["location"] == "china_center"
+    assert master["chapter"] == "CH9"
 
 
 def test_ch9_viewport_buffer():
     settings = _import_config()
     assert settings.get_viewport_buffer_m_for_mode("ch9_heritage_deformation") == 60000
     assert settings.get_viewport_buffer_m_for_mode("ch9_heritage_wind_risk") == 30000
+    assert settings.get_viewport_buffer_m_for_mode("ch9_heritage_master") == 350000
 
 
 # --- GEE stub tests (vis/suffix, no real EE) ---
@@ -106,7 +105,7 @@ def test_ch9_missions_endpoint(client):
     resp = client.get("/api/missions")
     assert resp.status_code == 200
     ids = {m["id"] for m in resp.json()}
-    assert {"卢宅风险", "越城体检", "跨省发现"} <= ids
+    assert "古建大盘" in ids
 
 
 from unittest.mock import Mock, patch

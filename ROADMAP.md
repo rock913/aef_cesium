@@ -1,8 +1,30 @@
 # ROADMAP — AlphaEarth Cesium 开发进度
 
-> 最后更新: 2026-09-07
+> 最后更新: 2026-09-08
 
-## 进行中 Sprint: CH9 视觉升维重构 (V2 UI/UX 增强版 · 暗黑电影 + 3D 荧光白模 + 风场)
+## 已完成 Sprint: CH9 三合一沉浸式重构 (V3 一镜到底 · 卡片归一 + 证据板) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| 卡片归一 (Single Entry) | ✅ | 3 张 CH9 卡合并为 1 张「古建大盘」，`api_mode: ch9_heritage_master`，`location: china_center` |
+| 电影级开场 | ✅ | 暗黑地球 + Bloom + 全国 5678 国保星火点云（EntityCluster）+ 30.8 万大数 |
+| 时空下潜 (Macro→Micro) | ✅ | `CesiumViewer.performDive` 三靶场相机调度（绍兴/东阳/平遥），CUBIC_IN_OUT 3s 平滑飞行 |
+| 视觉证据板 | ✅ | 新组件 `HeritageEvidenceBoard.vue`：多媒体画廊替代文字——YOLO 动态扫描框 / CFD 视频 / FEA 云图 / AEF 热力 |
+| 微观证据消耗真实物料 | ✅ | `072500002AAaa.jpg`+json（SVG 扫描动画）、`微信视频...mp4`（循环播放）、`FEA云图_薄弱点标注.png` |
+| 后端 master 模式 | ✅ | `ch9_heritage_master` 模式 + `china_center` 位置 + viewport 350km + 全国古建密度氛围场 |
+
+### V3 验证结果
+
+```
+pytest (237 tests)                          → 237 passed, 36 skipped ✅
+vitest (missionBrief + missionDeck 19)      → 19 passed ✅
+/api/missions (CH9)                         → 古建大盘 × 1 ✅
+vite build                                  → 编译通过 ✅
+```
+
+---
+
+## 已完成 Sprint: CH9 视觉升维重构 (V2 UI/UX 增强版 · 暗黑电影 + 3D 荧光白模 + 风场) ✅
 
 | 任务 | 状态 | 描述 |
 |------|:--:|------|

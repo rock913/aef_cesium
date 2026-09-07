@@ -491,6 +491,34 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         }
         suffix = "ch9_heritage_change"
 
+    elif ("ch9_heritage_master" in mode_s):
+        # CH9 宏观大盘：全国古建密度氛围场（暗黑底图上的暖色星火，点云为主要视觉）
+        lonlat = ee.Image.pixelLonLat()
+        lon = lonlat.select('longitude')
+        lat = lonlat.select('latitude')
+        centers = [
+            (120.58, 30.00, 1.0, 1.6),   # 江南（绍兴/东阳）
+            (112.17, 37.20, 0.85, 1.6),  # 山西（平遥）
+            (116.40, 39.90, 0.7, 1.8),   # 京津冀
+            (108.90, 34.30, 0.65, 1.8),  # 关中
+            (113.53, 22.72, 0.6, 1.8),   # 岭南
+        ]
+        terms = [
+            (lon.subtract(clon)).pow(2).add((lat.subtract(clat)).pow(2)).sqrt()
+            .multiply(-k).exp().multiply(amp)
+            for (clon, clat, amp, k) in centers
+        ]
+        density = terms[0]
+        for t in terms[1:]:
+            density = density.add(t)
+        img = density.rename('heritage_density')
+        vis = {
+            "min": 0.0, "max": 1.0,
+            "palette": ["0B1626", "3A3416", "8A6B1F", "F0C468"],
+            "format": "png",
+        }
+        suffix = "ch9_heritage_master"
+
     elif ("ch8_insar_subsidence" in mode_s) or ("沉降" in mode_s) or ("形变" in mode_s) or ("insar" in mode_s.lower()):
         # 1. 挂载预处理的 InSAR 时序结果 Asset (NASA ISCE2 + MintPy 产物)
         asset_id = os.getenv("CH8_INSAR_ASSET_ID", "projects/your_gee_project/assets/insar_gz_2020")
@@ -662,6 +690,15 @@ def get_mode_vis_and_suffix(mode: str) -> Tuple[Dict, str]:
                 "format": "png",
             },
             "ch9_heritage_change",
+        )
+    if ("ch9_heritage_master" in mode_s):
+        return (
+            {
+                "min": 0.0, "max": 1.0,
+                "palette": ["0B1626", "3A3416", "8A6B1F", "F0C468"],
+                "format": "png",
+            },
+            "ch9_heritage_master",
         )
     if ("ch8_insar_subsidence" in mode_s) or ("沉降" in mode_s) or ("形变" in mode_s) or ("insar" in mode_s.lower()):
         return (

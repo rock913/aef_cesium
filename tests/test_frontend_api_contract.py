@@ -151,6 +151,7 @@ class TestModesAPIContract:
             "ch9_heritage_wind_risk",
             "ch9_heritage_aef_discovery",
             "ch9_heritage_change",
+            "ch9_heritage_master",
         }
         
         for mode_id in data.keys():

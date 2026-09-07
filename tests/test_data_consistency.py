@@ -53,6 +53,7 @@ class TestDataConsistency:
             "ch9_heritage_wind_risk",
             "ch9_heritage_aef_discovery",
             "ch9_heritage_change",
+            "ch9_heritage_master",
         }
         actual_mode_ids = set(settings.modes.keys())
         

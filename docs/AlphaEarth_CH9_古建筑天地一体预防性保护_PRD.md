@@ -80,6 +80,13 @@ CH9 的技术命题就是：**把这两条物理链，锚定到同一栋建筑�
 - **后端就绪**：`heritage_catalog` 已含 `_get_sx_raster` / `sample_sx_raster` / `real_insar_available`，一旦 `data/insar_hyp3/sx_*` 落盘即自动用实测速度/相干性覆盖确定性五指标（`data_track: real_insar`），缺失时回退 `demo_sandbox`。
 - **唯一阻塞**：NASA Earthdata 账号（HyP3 需鉴权）。账号免费，获取后即可跑通真实数据链路。
 
+### 三合一沉浸式重构（2026-09-08 更新）
+
+- **卡片归一**：原 3 张 mission 卡（卢宅/越城/平遥）合并为 1 张「古建大盘」，`api_mode: ch9_heritage_master`、`location: china_center`，宏观俯瞰全国。
+- **一镜到底**：单一场景内通过 `HeritageEvidenceBoard` 靶向导航器 + `CesiumViewer.performDive` 依次下潜绍兴/东阳/平遥，避免反复进出地球。
+- **视觉证据板**：废弃大段原理说明，右侧面板升级为多媒体画廊，直接消耗 `data/` 真实物料——`072500002AAaa.jpg`+json（YOLO SVG 扫描）、`微信视频2026-08-21_153842_980.mp4`（CFD 视频）、`FEA云图_薄弱点标注.png`（FEA 定损）。
+- **渲染降载**：重度 CFD/病害定位放在 2D DOM 侧边栏，不占 WebGL 算力，Cesium 保持高帧率。
+
 所有对外口径以 §11.1 为准：形变标注 `LOS 向相对形变`、输出为「相对风险排序」而非「结构安全鉴定结论」。
 
 ---

@@ -228,7 +228,13 @@
         </div>
 
         <div class="ai-body">
-          <div class="commander-panel">
+          <HeritageEvidenceBoard
+            v-if="isHeritageMaster"
+            :current-dive="heritageDive"
+            :building="heritageBuilding"
+            @dive="onHeritageDive"
+          />
+          <div v-else class="commander-panel">
             <div class="ai-section-title">指挥官面板</div>
 
             <div class="cmd-block">
@@ -300,6 +306,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import CesiumViewer from './components/CesiumViewer.vue'
 import InsarTimeseriesChart from './components/InsarTimeseriesChart.vue'
 import HeritageArchivePanel from './components/HeritageArchivePanel.vue'
+import HeritageEvidenceBoard from './components/HeritageEvidenceBoard.vue'
 import { apiService } from './services/api.js'
 import { formatLatLon } from './utils/coords.js'
 import { buildAct2ChoreoHref, getChoreoFromSearch } from './utils/choreo.js'
@@ -321,7 +328,8 @@ export default {
   components: {
     CesiumViewer,
     InsarTimeseriesChart,
-    HeritageArchivePanel
+    HeritageArchivePanel,
+    HeritageEvidenceBoard
   },
   
   setup() {
@@ -519,6 +527,9 @@ export default {
     const heritageArchiveData = ref(null)
     const heritageBuildings = ref([])
     const globalHeritageVisible = ref(false)
+    // CH9 三合一沉浸式：下潜状态 + 证据板单体
+    const heritageDive = ref('overview')
+    const heritageBuilding = ref(null)
 
     async function fetchInsarTimeseries(lat, lon) {
       if (!lat || !lon) return
@@ -607,6 +618,36 @@ export default {
         }
       } catch (err) {
         console.warn('Failed to fetch wind scene:', err)
+      }
+    }
+
+    const isHeritageMaster = computed(() => selectedMode.value === 'ch9_heritage_master')
+
+    async function fetchHeritageBuildingForEvidence(buildingId) {
+      try {
+        const res = await apiService.getHeritageBuilding(buildingId)
+        if (res) heritageBuilding.value = res
+      } catch (err) {
+        console.warn('Failed to fetch heritage building for evidence:', err)
+      }
+    }
+
+    async function onHeritageDive(target) {
+      heritageDive.value = target
+      cesiumViewer.value?.performDive?.(target)
+      try {
+        if (target === 'shaoxing') {
+          await fetchHeritageBuildings('shaoxing_yuecheng')
+          await fetchHeritageBuildingForEvidence('SX-YC-ZP-08')
+        } else if (target === 'dongyang') {
+          await fetchHeritageBuildings('dongyang_luzhai')
+          await fetchWindScene('dongyang_luzhai')
+        } else if (target === 'pingyao') {
+          await fetchHeritageBuildings('shanxi_pingyao')
+          await fetchHeritagePoints('local', 'shanxi_pingyao')
+        }
+      } catch (err) {
+        console.warn('Heritage dive failed:', err)
       }
     }
 
@@ -873,6 +914,8 @@ export default {
       heritageArchiveData.value = null
       heritageBuildings.value = []
       globalHeritageVisible.value = false
+      heritageDive.value = 'overview'
+      heritageBuilding.value = null
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -923,7 +966,13 @@ export default {
           statusMsg.value = '情报展开：智能体接管中...'
           // Auto-load the default layer for the mission (agentic)
           runAgenticWorkflow(mission)
-          if (mission.api_mode?.startsWith('ch9_heritage')) {
+          if (mission.api_mode === 'ch9_heritage_master') {
+            cesiumViewer.value?.setCinematicMode?.(true)
+            heritageDive.value = 'overview'
+            heritageBuilding.value = null
+            fetchHeritagePoints('china')
+            insarTimeseriesData.value = null
+          } else if (mission.api_mode?.startsWith('ch9_heritage')) {
             cesiumViewer.value?.setCinematicMode?.(true)
             fetchHeritageBuildings(mission.location)
             fetchHeritagePoints('china')
@@ -974,6 +1023,8 @@ export default {
       heritageArchiveData.value = null
       heritageBuildings.value = []
       globalHeritageVisible.value = false
+      heritageDive.value = 'overview'
+      heritageBuilding.value = null
       aiLayerVisible.value = true
       holdingCompare.value = false
       splitCompareEnabled.value = false
@@ -1215,6 +1266,15 @@ export default {
 
       const modeId = selectedMode.value
       const modeName = modes.value?.[modeId] || modeId
+
+      // CH9 宏观大盘：不加载 GEE 图层，暗黑星火点云 + 证据板接管
+      if (modeId === 'ch9_heritage_master') {
+        loading.value = false
+        statusType.value = 'success'
+        statusMsg.value = '✅ 全国古建大盘就绪 · 选择下潜靶点'
+        return
+      }
+
       loading.value = true
       statusType.value = 'loading'
       statusMsg.value = `正在部署 [${modeName}] 图层…`
@@ -1577,7 +1637,11 @@ export default {
       heritageArchiveData,
       closeHeritageArchive,
       globalHeritageVisible,
-      toggleGlobalHeritage
+      toggleGlobalHeritage,
+      isHeritageMaster,
+      heritageDive,
+      heritageBuilding,
+      onHeritageDive
     }
   }
 }

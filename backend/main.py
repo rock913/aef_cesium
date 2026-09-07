@@ -2341,6 +2341,7 @@ async def get_layer(
                     "ch9_heritage_wind_risk": 0.88,
                     "ch9_heritage_aef_discovery": 0.88,
                     "ch9_heritage_change": 0.88,
+                    "ch9_heritage_master": 0.88,
                     # Yancheng optimization: reduce perceived "white film" for coastline audit.
                     "ch5_coastline_audit": 0.65,
                 }.get(mode, 0.88),

@@ -25,9 +25,7 @@ describe('missionDeck utilities', () => {
     { id: 'ch7_guangdong', name: '预警', title: '汛期山洪与滑坡预警', api_mode: 'ch7_disaster_warning' },
     { id: '填海区沉降', chapter: 'CH8', name: '南沙沉降', title: '南沙填海造陆区固结监测', api_mode: 'ch8_insar_subsidence' },
     { id: '核心区沉降', chapter: 'CH8', name: '天河形变', title: '天河地下空间形变监测', api_mode: 'ch8_insar_subsidence' },
-    { id: '卢宅风险', chapter: 'CH9', name: '东阳卢宅', title: '东阳卢宅台风风险研判', api_mode: 'ch9_heritage_wind_risk' },
-    { id: '越城体检', chapter: 'CH9', name: '绍兴越城', title: '绍兴越城古建群形变体检', api_mode: 'ch9_heritage_deformation' },
-    { id: '跨省发现', chapter: 'CH9', name: '平遥泛化', title: '古建聚落跨省零微调筛查', api_mode: 'ch9_heritage_aef_discovery' },
+    { id: '古建大盘', chapter: 'CH9', name: '天地一体古建筑数字孪生', title: '从宏观发现到微观定损', api_mode: 'ch9_heritage_master' },
   ]
 
   it('defines the 5 primary categories', () => {
@@ -47,23 +45,21 @@ describe('missionDeck utilities', () => {
     expect(getMissionCategory(mockMissions[7])).toBe('hazard') // ch7 guangdong 山洪
     expect(getMissionCategory(mockMissions[8])).toBe('urban') // ch8 nansha insar
     expect(getMissionCategory(mockMissions[9])).toBe('urban') // ch8 tianhe insar
-    expect(getMissionCategory(mockMissions[10])).toBe('heritage') // ch9 卢宅 wind
-    expect(getMissionCategory(mockMissions[11])).toBe('heritage') // ch9 越城 deformation
-    expect(getMissionCategory(mockMissions[12])).toBe('heritage') // ch9 平遥 discovery
+    expect(getMissionCategory(mockMissions[10])).toBe('heritage') // ch9 古建大盘 master
   })
 
   it('computes category counts accurately', () => {
     const counts = computeCategoryCounts(mockMissions)
-    expect(counts.all).toBe(13)
+    expect(counts.all).toBe(11)
     expect(counts.urban).toBe(3)
     expect(counts.ecology).toBe(4)
     expect(counts.hazard).toBe(3)
-    expect(counts.heritage).toBe(3)
+    expect(counts.heritage).toBe(1)
   })
 
   it('filters missions by category key', () => {
     const all = filterMissionsByCategory(mockMissions, 'all')
-    expect(all).toHaveLength(13)
+    expect(all).toHaveLength(11)
 
     const urban = filterMissionsByCategory(mockMissions, 'urban')
     expect(urban).toHaveLength(3)
@@ -78,7 +74,7 @@ describe('missionDeck utilities', () => {
     expect(hazard.every((m) => getMissionCategory(m) === 'hazard')).toBe(true)
 
     const heritage = filterMissionsByCategory(mockMissions, 'heritage')
-    expect(heritage).toHaveLength(3)
+    expect(heritage).toHaveLength(1)
     expect(heritage.every((m) => getMissionCategory(m) === 'heritage')).toBe(true)
   })
 
