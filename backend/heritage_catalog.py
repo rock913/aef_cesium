@@ -467,13 +467,28 @@ def get_buildings(location: str):
 
 
 def get_building(building_id: str):
-    """返回单体五层档案全量；不存在返回 None。"""
+    """返回单体五层档案全量；不存在返回 None。
+
+    若绍兴真实 InSAR 栅格已落盘，则用实测速度/相干性覆盖确定性五指标。
+    """
     b = BUILDINGS.get(building_id)
     if not b:
         return None
     out = dict(b)
     out["disclaimer"] = _DISCLAIMER
     out["data_track"] = "demo_sandbox"
+
+    l3 = (out.get("layers") or {}).get("L3_deformation")
+    if out.get("location") == "shaoxing_yuecheng" and l3:
+        sample = sample_sx_raster(out["centroid"][0], out["centroid"][1])
+        if sample is not None:
+            v_real, c_real = sample
+            l3["v_max_mm_yr"] = round(v_real, 2)
+            l3["coherence_mean"] = round(c_real, 2)
+            l3["data_track"] = "real_insar"
+            l3["note"] = "真实 Sentinel-1 SBAS-InSAR (ASF HyP3)"
+            av = abs(v_real)
+            l3["risk_level"] = "unstable" if av > 8 else ("moderate" if av > 5 else "stable")
     return out
 
 
@@ -593,3 +608,73 @@ def wind_scene(location: str):
             })
 
     return {"trails": trails, "anchors": anchors}
+
+
+# ═══════════ 真实绍兴 InSAR 数据就绪加载器 ═══════════
+# 数据由 scripts/ch9_fetch_insar_shaoxing.py 获取后落盘：
+#   data/insar_hyp3/sx_velocity_real.raw / sx_coherence_real.raw / sx_raster_meta.json
+# 存在时覆盖确定性仿真五指标；缺失时回退 demo_sandbox。
+
+_SX_RASTER_CACHE = None
+
+
+def _get_sx_raster():
+    global _SX_RASTER_CACHE
+    if _SX_RASTER_CACHE is not None:
+        return _SX_RASTER_CACHE
+    import struct
+    candidates = [
+        Path("/app/data/insar_hyp3"),
+        Path("/mnt/data/hyf/aef_cesium/data/insar_hyp3"),
+        Path("data/insar_hyp3"),
+    ]
+    for d in candidates:
+        meta = d / "sx_raster_meta.json"
+        vfile = d / "sx_velocity_real.raw"
+        cfile = d / "sx_coherence_real.raw"
+        if meta.exists() and vfile.exists() and cfile.exists():
+            try:
+                m = json.loads(meta.read_text(encoding="utf-8"))
+                w, h = m["width"], m["height"]
+                left, bottom, right, top = m["bounds"]
+                _SX_RASTER_CACHE = {
+                    "width": w, "height": h,
+                    "bounds": (left, bottom, right, top),
+                    "d_lon": (right - left) / w,
+                    "d_lat": (top - bottom) / h,
+                    "raw_v": vfile.read_bytes(),
+                    "raw_c": cfile.read_bytes(),
+                }
+                return _SX_RASTER_CACHE
+            except Exception as e:
+                print(f"⚠️ 绍兴 InSAR 栅格加载失败: {e}")
+                return None
+    return None
+
+
+def real_insar_available():
+    """返回 True 当且仅当真实绍兴 InSAR 栅格已落盘。"""
+    return _get_sx_raster() is not None
+
+
+def sample_sx_raster(lon, lat):
+    """采样绍兴真实 InSAR 年均速度(mm/yr)与相干性(0~1)；无数据返回 None。"""
+    import struct
+    import math
+    rc = _get_sx_raster()
+    if not rc:
+        return None
+    left, bottom, right, top = rc["bounds"]
+    if not (left <= lon <= right and bottom <= lat <= top):
+        return None
+    w, h = rc["width"], rc["height"]
+    col = int((lon - left) / rc["d_lon"])
+    row = int((top - lat) / rc["d_lat"])
+    if not (0 <= row < h and 0 <= col < w):
+        return None
+    off = (row * w + col) * 4
+    v = struct.unpack("<f", rc["raw_v"][off:off + 4])[0]
+    c = struct.unpack("<f", rc["raw_c"][off:off + 4])[0]
+    if math.isfinite(v) and math.isfinite(c):
+        return float(v), float(c)
+    return None

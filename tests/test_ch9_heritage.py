@@ -277,6 +277,23 @@ def test_heritage_wind_scene_invalid_location(client):
     assert resp.status_code == 400
 
 
+# --- 真实绍兴 InSAR 数据就绪加载器 ---
+
+def test_heritage_buildings_real_insar_flag(client):
+    resp = client.get("/api/heritage/buildings/shaoxing_yuecheng")
+    data = resp.json()
+    assert "real_insar_available" in data
+    assert data["real_insar_available"] in (True, False)
+
+
+def test_sx_raster_loader_without_data():
+    sys.path.insert(0, BACKEND_DIR)
+    import heritage_catalog
+    # 未落盘真实数据时，采样返回 None，availability 为 False
+    assert heritage_catalog.sample_sx_raster(120.58, 30.0) is None
+    assert heritage_catalog.real_insar_available() is False
+
+
 @pytest.fixture
 def client():
     """Create a FastAPI TestClient with GEE stubs active."""

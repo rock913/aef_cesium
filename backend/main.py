@@ -1675,6 +1675,7 @@ async def get_heritage_buildings(location: str):
         "location": location,
         "count": len(buildings),
         "buildings": buildings,
+        "real_insar_available": heritage_catalog.real_insar_available(),
         "data_track": "demo_sandbox",
     }
 

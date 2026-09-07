@@ -71,7 +71,14 @@ CH9 的技术命题就是：**把这两条物理链，锚定到同一栋建筑�
 
 - L3 三体过境卫星轨迹（依赖 TLE + 轨道计算）
 - 四普/三普政府名录全量 30.8 万点位（需省文物局正式申请，审批周期不可控）
-- 真实绍兴 InSAR（依赖 LiCSAR 取数或自跑 HPC）、真实风载荷知识库接口、CMA 台风预报 API
+- 真实风载荷知识库接口、CMA 台风预报 API
+
+### 真实绍兴 InSAR：管线已建，待凭据（2026-09-08 更新）
+
+- **已实测确认**：COMET LiCSAR 公共归档（JASMIN）**不含浙江帧**（track 40/84/170/143 帧 bbox 均覆盖中南美洲与日本）；绍兴真实 Sentinel-1 SLC 由 **升轨 track 96**（relativeOrbit 96, ASCENDING, frame 618）覆盖，ASF 匿名检索可确认存在。
+- **已建管线**：`scripts/ch9_fetch_insar_shaoxing.py`（ASF HyP3 途径，含鉴权校验 + SLC 检索 + INSAR_GAMMA 提交/下载 + 转 `sx_*` raw 格式）。
+- **后端就绪**：`heritage_catalog` 已含 `_get_sx_raster` / `sample_sx_raster` / `real_insar_available`，一旦 `data/insar_hyp3/sx_*` 落盘即自动用实测速度/相干性覆盖确定性五指标（`data_track: real_insar`），缺失时回退 `demo_sandbox`。
+- **唯一阻塞**：NASA Earthdata 账号（HyP3 需鉴权）。账号免费，获取后即可跑通真实数据链路。
 
 所有对外口径以 §11.1 为准：形变标注 `LOS 向相对形变`、输出为「相对风险排序」而非「结构安全鉴定结论」。
 
