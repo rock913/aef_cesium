@@ -48,11 +48,13 @@
               v-for="(poly, i) in defectPolygons"
               :key="i"
               :points="polyPoints(poly)"
-              fill="rgba(255,60,60,0.22)"
-              stroke="#ff5a5a"
-              stroke-width="6"
+              class="animated-bounding-box"
+              fill="rgba(0,255,136,0.08)"
+              stroke="#00ff88"
+              stroke-width="8"
             />
           </svg>
+          <div class="hp-ai-label"><span class="hp-ai-cursor"></span>{{ aiLabelText }}</div>
           <div class="hp-defect-info">
             <div class="hp-defect-type">{{ defectType }}</div>
             <div class="hp-defect-rule">{{ defectRule }}</div>
@@ -94,12 +96,24 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 const props = defineProps({
   building: { type: Object, default: null }
 })
 defineEmits(['close'])
+
+const aiLabelText = ref('')
+onMounted(() => {
+  const d = l4.value?.surveys?.[0]?.defects?.[0]
+  if (!d?.type) return
+  const full = `AI 检出：${d.type} | 危害等级 Ⅱ`
+  let i = 0
+  const t = setInterval(() => {
+    aiLabelText.value = full.slice(0, ++i)
+    if (i >= full.length) clearInterval(t)
+  }, 28)
+})
 
 const layers = computed(() => props.building?.layers || {})
 const l1 = computed(() => layers.value.L1_satellite)
@@ -215,6 +229,23 @@ function polyPoints(poly) {
 .hp-cell .v.danger { color: #ff5a5a; }
 .hp-defect { display: flex; flex-direction: column; gap: 8px; }
 .hp-defect-svg { width: 100%; border-radius: 6px; background: #000; }
+.animated-bounding-box {
+  stroke-dasharray: 2200;
+  stroke-dashoffset: 2200;
+  animation: drawBox 1.6s ease-out forwards;
+  filter: drop-shadow(0 0 6px rgba(0, 255, 136, 0.85));
+}
+@keyframes drawBox { to { stroke-dashoffset: 0; } }
+.hp-ai-label {
+  font-size: 12px; font-weight: 700; color: #00ff88;
+  background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.25);
+  border-radius: 4px; padding: 5px 8px; white-space: nowrap; overflow: hidden;
+}
+.hp-ai-cursor {
+  display: inline-block; width: 8px; height: 14px; background: #00ff88;
+  margin-right: 4px; vertical-align: -2px; animation: blink 0.8s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
 .hp-defect-info { font-size: 11px; }
 .hp-defect-type { color: #ffb84d; font-weight: 700; margin-bottom: 3px; }
 .hp-defect-rule { color: #8aa4b8; line-height: 1.4; }

@@ -598,6 +598,18 @@ export default {
       }
     }
 
+    async function fetchWindScene(location) {
+      if (!location) return
+      try {
+        const res = await apiService.getWindScene(location)
+        if (res && res.status === 'success') {
+          cesiumViewer.value?.loadWindScene?.({ trails: res.trails, anchors: res.anchors })
+        }
+      } catch (err) {
+        console.warn('Failed to fetch wind scene:', err)
+      }
+    }
+
     async function toggleGlobalHeritage() {
       if (globalHeritageVisible.value) {
         globalHeritageVisible.value = false
@@ -885,6 +897,8 @@ export default {
         cesiumViewer.value?.clearInsarPoints?.()
         cesiumViewer.value?.clearHeritageBuildings?.()
         cesiumViewer.value?.clearHeritagePointCloud?.()
+        cesiumViewer.value?.clearWindScene?.()
+        cesiumViewer.value?.setCinematicMode?.(false)
       } catch (_) {
         // ignore
       }
@@ -910,9 +924,11 @@ export default {
           // Auto-load the default layer for the mission (agentic)
           runAgenticWorkflow(mission)
           if (mission.api_mode?.startsWith('ch9_heritage')) {
+            cesiumViewer.value?.setCinematicMode?.(true)
             fetchHeritageBuildings(mission.location)
             fetchHeritagePoints('china')
             fetchHeritagePoints('local', mission.location)
+            fetchWindScene(mission.location)
             insarTimeseriesData.value = null
           } else if (mission.api_mode?.includes('insar')) {
             fetchInsarTimeseries(lat, lon)
@@ -938,6 +954,8 @@ export default {
         cesiumViewer.value?.clearInsarPoints?.()
         cesiumViewer.value?.clearHeritageBuildings?.()
         cesiumViewer.value?.clearHeritagePointCloud?.()
+        cesiumViewer.value?.clearWindScene?.()
+        cesiumViewer.value?.setCinematicMode?.(false)
       } catch (_) {
         // ignore
       }

@@ -250,6 +250,33 @@ def test_heritage_points_local_requires_location(client):
     assert resp.status_code == 400
 
 
+# --- CH9-A 风载场景 (风场流线 + FEA 薄弱点锚标) ---
+
+def test_heritage_wind_scene(client):
+    resp = client.get("/api/heritage/wind_scene/dongyang_luzhai")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["data_track"] == "demo_sandbox"
+    assert len(data["trails"]) == 4
+    assert len(data["anchors"]) >= 4
+    assert data["anchors"][0]["pressure_kpa"] < 0
+    assert {"part", "lon", "lat", "height", "note"} <= set(data["anchors"][0].keys())
+
+
+def test_heritage_wind_scene_non_wind_location(client):
+    resp = client.get("/api/heritage/wind_scene/shaoxing_yuecheng")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["trails"] == []
+    assert data["anchors"] == []
+
+
+def test_heritage_wind_scene_invalid_location(client):
+    resp = client.get("/api/heritage/wind_scene/nope")
+    assert resp.status_code == 400
+
+
 @pytest.fixture
 def client():
     """Create a FastAPI TestClient with GEE stubs active."""

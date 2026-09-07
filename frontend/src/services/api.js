@@ -222,5 +222,13 @@ export const apiService = {
     if (location) params.location = location
     const { data } = await api.get('/api/heritage/points', { params })
     return data
+  },
+
+  /**
+   * CH9：风载场景（风场流线 + FEA 薄弱点锚标）
+   */
+  async getWindScene(location) {
+    const { data } = await api.get(`/api/heritage/wind_scene/${location}`)
+    return data
   }
 }

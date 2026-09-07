@@ -543,3 +543,53 @@ def wind_assessment(building_ids, typhoon=None):
         "disclaimer": _DISCLAIMER,
         "data_track": "demo_sandbox",
     }
+
+
+# 风载场景（CH9-A 卢宅）：确定性风场流线 + FEA 薄弱点锚标
+_PART_OFFSET = {
+    "屋脊": (0.0, 0.0005, 24.0),    # (dlon, dlat, height_m)
+    "檐口": (0.0007, -0.0002, 12.0),
+    "翼角": (-0.0005, 0.0005, 18.0),
+    "山墙": (0.0, -0.0005, 14.0),
+}
+_PRESSURE_BY_RANK = {1: -3.697, 2: -2.415, 3: -1.986, 4: -1.204}
+
+
+def wind_scene(location: str):
+    """返回 CH9-A 卢宅风载场景的确定性风场流线与 FEA 薄弱点锚标（演示沙箱轨）。"""
+    if location != "dongyang_luzhai":
+        return {"trails": [], "anchors": []}
+
+    trails = [
+        {"id": "trail-1", "points": [[120.2360, 29.2850, 70], [120.2470, 29.2828, 70]], "speed": 5.0},
+        {"id": "trail-2", "points": [[120.2355, 29.2842, 55], [120.2465, 29.2820, 55]], "speed": 4.2},
+        {"id": "trail-3", "points": [[120.2362, 29.2834, 40], [120.2472, 29.2812, 40]], "speed": 3.6},
+        {"id": "trail-4", "points": [[120.2368, 29.2826, 26], [120.2478, 29.2804, 26]], "speed": 3.0},
+    ]
+
+    anchors = []
+    for bid in ("JH-DY-LZ-001", "JH-DY-LZ-002"):
+        b = BUILDINGS.get(bid)
+        if not b:
+            continue
+        l5 = b.get("layers", {}).get("L5_structural") or {}
+        for wp in l5.get("weak_points", []):
+            part = wp.get("part", "")
+            dlon, dlat, h = _PART_OFFSET.get(part, (0.0, 0.0003, 16.0))
+            lon = b["centroid"][0] + dlon
+            lat = b["centroid"][1] + dlat
+            pressure = _PRESSURE_BY_RANK.get(wp.get("rank"), -2.0)
+            note = ("极易掀揭" if wp.get("level") == "severe"
+                    else ("风吸薄弱" if wp.get("level") == "moderate" else "一般关注"))
+            anchors.append({
+                "building_id": bid,
+                "part": part,
+                "lon": round(lon, 6),
+                "lat": round(lat, 6),
+                "height": h,
+                "pressure_kpa": pressure,
+                "level": wp.get("level"),
+                "note": note,
+            })
+
+    return {"trails": trails, "anchors": anchors}

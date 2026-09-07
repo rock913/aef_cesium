@@ -61,6 +61,11 @@ export default {
     let insarPointEntities = []
     let heritageBuildingEntities = []
     let heritagePointDataSource = null
+    let heritagePulseTimer = null
+    let windTrailEntities = []
+    let feaAnchorEntities = []
+    let feaPulseTimer = null
+    let cinematicBloomStage = null
     
     onMounted(() => {
       Promise.resolve()
@@ -1526,8 +1531,22 @@ export default {
       }
     }
 
+    function _makeFootprint(lon, lat, wMeters, dMeters) {
+      const dlat = dMeters / 110540
+      const dlon = wMeters / (111320 * Math.max(0.2, Math.cos(lat * Math.PI / 180)))
+      const hw = dlon / 2
+      const hd = dlat / 2
+      return [
+        lon - hw, lat - hd,
+        lon + hw, lat - hd,
+        lon + hw, lat + hd,
+        lon - hw, lat + hd,
+      ]
+    }
+
     /**
-     * 加载 CH9 古建单体标记图层（🏯 语义色：unstable=红 / moderate=橙 / stable=青 / candidate=金）
+     * 加载 CH9 古建单体 3D 白模（程序化挤出 polygon，按 risk_level 荧光染色）。
+     * unstable=红呼吸光 / moderate=橙 / stable=青半透明 / candidate=金。
      */
     function loadHeritageBuildings(points = []) {
       clearHeritageBuildings()
@@ -1537,21 +1556,27 @@ export default {
           const lon = Number(pt.centroid?.[0])
           const lat = Number(pt.centroid?.[1])
           if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
-          const h = Number(pt.height || 24)
           const risk = String(pt.risk_level || '')
           const isCandidate = !!pt.is_candidate
-          const color = isCandidate
-            ? Cesium.Color.GOLD
-            : (risk === 'unstable' ? Cesium.Color.RED : (risk === 'moderate' ? Cesium.Color.ORANGE : Cesium.Color.CYAN))
+          const baseColor = isCandidate ? Cesium.Color.GOLD
+            : risk === 'unstable' ? Cesium.Color.RED
+            : risk === 'moderate' ? Cesium.Color.ORANGE
+            : Cesium.Color.CYAN
+          const alpha = isCandidate ? 0.9
+            : risk === 'unstable' ? 0.85
+            : risk === 'moderate' ? 0.6
+            : 0.22
+          const height = isCandidate ? 6 : (risk === 'unstable' ? 16 : risk === 'moderate' ? 12 : 9)
 
+          const footprint = _makeFootprint(lon, lat, isCandidate ? 22 : 18, isCandidate ? 16 : 12)
           const ent = viewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees(lon, lat, h),
-            point: {
-              pixelSize: isCandidate ? 7 : 9,
-              color: color,
-              outlineColor: Cesium.Color.WHITE,
-              outlineWidth: 1.5,
-              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+            polygon: {
+              hierarchy: Cesium.Cartesian3.fromDegreesArray(footprint),
+              extrudedHeight: height,
+              material: baseColor.withAlpha(alpha),
+              outline: true,
+              outlineColor: Cesium.Color.WHITE.withAlpha(0.45),
             },
             label: {
               text: `🏯 ${pt.name || ''}`,
@@ -1567,12 +1592,36 @@ export default {
           ent._heritageData = pt
           heritageBuildingEntities.push(ent)
         }
+        _startHeritagePulse()
       } catch (err) {
         console.warn('Failed to load heritage building layer:', err)
       }
     }
 
+    function _startHeritagePulse() {
+      if (heritagePulseTimer) return
+      let phase = 0
+      heritagePulseTimer = setInterval(() => {
+        phase += 0.14
+        const pulse = 0.5 + 0.5 * Math.sin(phase)
+        try {
+          for (const ent of heritageBuildingEntities) {
+            if (ent?._heritageData?.risk_level !== 'unstable') continue
+            if (ent.polygon?.material?.color) {
+              ent.polygon.material.color = Cesium.Color.RED.withAlpha(0.35 + 0.55 * pulse)
+            }
+          }
+        } catch (_) {
+          // ignore
+        }
+      }, 80)
+    }
+
     function clearHeritageBuildings() {
+      if (heritagePulseTimer) {
+        clearInterval(heritagePulseTimer)
+        heritagePulseTimer = null
+      }
       if (viewer && heritageBuildingEntities.length) {
         try {
           for (const ent of heritageBuildingEntities) {
@@ -1645,6 +1694,130 @@ export default {
       }
     }
 
+    /**
+     * 暗黑电影模式：压暗底图（baseColor）+ Bloom 泛光后处理，让预警锚点如霓虹发光。
+     */
+    function setCinematicMode(enabled) {
+      if (!viewer) return
+      try {
+        viewer.scene.globe.baseColor = enabled
+          ? Cesium.Color.fromCssColorString('#0b1626')
+          : Cesium.Color.WHITE
+      } catch (_) {
+        // ignore
+      }
+      try {
+        if (enabled && !cinematicBloomStage) {
+          cinematicBloomStage = viewer.scene.postProcessStages.add(
+            Cesium.PostProcessStageLibrary.createBloomStage()
+          )
+          cinematicBloomStage.uniforms.glowOnly = false
+          cinematicBloomStage.uniforms.contrast = 140
+          cinematicBloomStage.uniforms.brightness = -0.2
+          cinematicBloomStage.uniforms.delta = 0.9
+          cinematicBloomStage.uniforms.sigma = 3.8
+          cinematicBloomStage.uniforms.stepSize = 4
+        } else if (!enabled && cinematicBloomStage) {
+          viewer.scene.postProcessStages.remove(cinematicBloomStage)
+          cinematicBloomStage = null
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    /**
+     * 加载 CH9-A 风载场景：风场动态流线 + FEA 薄弱点闪烁锚标。
+     */
+    function loadWindScene(scene = {}) {
+      clearWindScene()
+      if (!viewer || disposed) return
+      const trails = Array.isArray(scene.trails) ? scene.trails : []
+      const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
+      try {
+        for (const t of trails) {
+          const pts = (Array.isArray(t.points) ? t.points : []).map(
+            (p) => Cesium.Cartesian3.fromDegrees(Number(p[0]), Number(p[1]), Number(p[2] || 40))
+          )
+          if (pts.length < 2) continue
+          const ent = viewer.entities.add({
+            polyline: {
+              positions: pts,
+              width: 2.5,
+              material: new Cesium.PolylineTrailLinkMaterialProperty({
+                color: Cesium.Color.CYAN.withAlpha(0.75),
+                trailLength: 0.4,
+                period: 2.0 / (Number(t.speed) || 3),
+              }),
+            },
+          })
+          windTrailEntities.push(ent)
+        }
+        for (const a of anchors) {
+          const lon = Number(a.lon)
+          const lat = Number(a.lat)
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
+          const severe = a.level === 'severe'
+          const ent = viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(lon, lat, Number(a.height || 16)),
+            point: {
+              pixelSize: severe ? 10 : 7,
+              color: severe ? Cesium.Color.RED : Cesium.Color.ORANGE,
+              outlineColor: Cesium.Color.WHITE,
+              outlineWidth: 1.5,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+            label: {
+              text: `⚠️ ${a.part} | ${a.pressure_kpa} kPa | ${a.note}`,
+              font: '12px ui-monospace, SFMono-Regular, monospace, sans-serif',
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.BLACK,
+              outlineWidth: 3,
+              pixelOffset: new Cesium.Cartesian2(0, -30),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          })
+          feaAnchorEntities.push(ent)
+        }
+        _startFeaPulse()
+      } catch (err) {
+        console.warn('Failed to load wind scene:', err)
+      }
+    }
+
+    function _startFeaPulse() {
+      if (feaPulseTimer || !feaAnchorEntities.length) return
+      let on = true
+      feaPulseTimer = setInterval(() => {
+        on = !on
+        try {
+          for (const ent of feaAnchorEntities) {
+            if (ent.point) ent.point.pixelSize = on ? (ent.point.pixelSize >= 9 ? 11 : 9) : 5
+          }
+        } catch (_) {
+          // ignore
+        }
+      }, 500)
+    }
+
+    function clearWindScene() {
+      if (feaPulseTimer) {
+        clearInterval(feaPulseTimer)
+        feaPulseTimer = null
+      }
+      if (viewer) {
+        try {
+          for (const ent of windTrailEntities) viewer.entities.remove(ent)
+          for (const ent of feaAnchorEntities) viewer.entities.remove(ent)
+        } catch (_) {
+          // ignore
+        }
+      }
+      windTrailEntities = []
+      feaAnchorEntities = []
+    }
+
     return {
       cesiumContainer,
       creditContainer,
@@ -1670,7 +1843,10 @@ export default {
       loadHeritageBuildings,
       clearHeritageBuildings,
       loadHeritagePointCloud,
-      clearHeritagePointCloud
+      clearHeritagePointCloud,
+      setCinematicMode,
+      loadWindScene,
+      clearWindScene
     }
   }
 }

@@ -1739,6 +1739,21 @@ async def get_heritage_points(
     return heritage_catalog.heritage_points(scope, location)
 
 
+@app.get("/api/heritage/wind_scene/{location}")
+async def get_heritage_wind_scene(location: str):
+    """CH9-A 风载场景（卢宅）：风场流线 + FEA 薄弱点锚标（确定性演示沙箱轨）。"""
+    if location not in settings.locations:
+        raise HTTPException(status_code=400, detail=f"Invalid location: {location}")
+    scene = heritage_catalog.wind_scene(location)
+    return {
+        "status": "success",
+        "location": location,
+        "trails": scene["trails"],
+        "anchors": scene["anchors"],
+        "data_track": "demo_sandbox",
+    }
+
+
 @app.get("/api/astro-gis/catalog/simbad")
 async def astro_gis_catalog_simbad(
     ra: float = Query(..., description="Right ascension (deg), will be normalized into [0,360)"),

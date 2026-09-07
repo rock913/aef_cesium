@@ -2,6 +2,28 @@
 
 > 最后更新: 2026-09-07
 
+## 进行中 Sprint: CH9 视觉升维重构 (V2 UI/UX 增强版 · 暗黑电影 + 3D 荧光白模 + 风场)
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| 暗黑电影模式 | ✅ | `globe.baseColor` 暗色 + `PostProcessStageLibrary` Bloom 泛光，预警锚点如霓虹发光 |
+| 3D 建筑白模荧光染色 | ✅ | 程序化挤出 `polygon`（`extrudedHeight`），按 `risk_level` 染色：unstable 红呼吸光 / moderate 橙 / stable 青半透明 / candidate 金，替代扁平点标记 |
+| 风场动态流线 | ✅ | `PolylineTrailLinkMaterial` 动态流线模拟台风过境（卢宅） |
+| FEA 薄弱点锚标 | ✅ | 屋脊/檐口/翼角闪烁锚点 + 固定标签（⚠️ 高危·屋檐角 \| 风压 -3.697 kPa \| 极易掀揭） |
+| 病害 SVG 扫描动画 | ✅ | `HeritageArchivePanel` 检测框 stroke-dasharray 渐现 + typewriter AI 检出标签 |
+| 演示剧本重编排 | ✅ | 暗黑开场 → 30.8 万微光 → 宏观下潜 → 3D 荧光白模 → 点击红光建筑 → 病害照片扫描印证 → 台风过境锚点 |
+
+### V2 验证结果
+
+```
+pytest (235 tests)                          → 235 passed, 36 skipped ✅
+tests/test_ch9_heritage.py (28 tests)       → 28 passed ✅
+/api/heritage/wind_scene/dongyang_luzhai    → 4 trails + 7 anchors ✅
+vite build                                  → 编译通过 ✅
+```
+
+---
+
 ## 已完成 Sprint: CH9 古建筑天地一体预防性保护 —— 核心叙事 + 单体五层档案 (V4.0 演示沙箱轨) ✅
 
 | 任务 | 状态 | 描述 |
