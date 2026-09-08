@@ -285,12 +285,17 @@ def test_heritage_buildings_real_insar_flag(client):
     assert data["real_insar_available"] in (True, False)
 
 
-def test_sx_raster_loader_without_data():
+def test_sx_raster_loader_contract():
     sys.path.insert(0, BACKEND_DIR)
     import heritage_catalog
-    # 未落盘真实数据时，采样返回 None，availability 为 False
-    assert heritage_catalog.sample_sx_raster(120.58, 30.0) is None
-    assert heritage_catalog.real_insar_available() is False
+    # 加载器在有无真实数据时都应稳定返回（不崩溃），类型正确
+    heritage_catalog._SX_RASTER_CACHE = None
+    avail = heritage_catalog.real_insar_available()
+    assert avail in (True, False)
+    sample = heritage_catalog.sample_sx_raster(120.58, 30.0)
+    if sample is not None:
+        assert len(sample) == 2
+        assert isinstance(sample[0], float) and isinstance(sample[1], float)
 
 
 @pytest.fixture

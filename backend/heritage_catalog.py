@@ -481,7 +481,8 @@ def get_building(building_id: str):
     l3 = (out.get("layers") or {}).get("L3_deformation")
     if out.get("location") == "shaoxing_yuecheng" and l3:
         sample = sample_sx_raster(out["centroid"][0], out["centroid"][1])
-        if sample is not None:
+        # 相干性门限：仅当真实数据高相干（γ>0.5）时才覆盖仿真，避免单对干涉大气/解缠噪声误报
+        if sample is not None and sample[1] > 0.5:
             v_real, c_real = sample
             l3["v_max_mm_yr"] = round(v_real, 2)
             l3["coherence_mean"] = round(c_real, 2)

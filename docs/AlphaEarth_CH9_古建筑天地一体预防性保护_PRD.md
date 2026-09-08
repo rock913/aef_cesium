@@ -73,12 +73,13 @@ CH9 的技术命题就是：**把这两条物理链，锚定到同一栋建筑�
 - 四普/三普政府名录全量 30.8 万点位（需省文物局正式申请，审批周期不可控）
 - 真实风载荷知识库接口、CMA 台风预报 API
 
-### 真实绍兴 InSAR：管线已建，待凭据（2026-09-08 更新）
+### 真实绍兴 InSAR：已获取（2026-09-08 更新）
 
-- **已实测确认**：COMET LiCSAR 公共归档（JASMIN）**不含浙江帧**（track 40/84/170/143 帧 bbox 均覆盖中南美洲与日本）；绍兴真实 Sentinel-1 SLC 由 **升轨 track 96**（relativeOrbit 96, ASCENDING, frame 618）覆盖，ASF 匿名检索可确认存在。
-- **已建管线**：`scripts/ch9_fetch_insar_shaoxing.py`（ASF HyP3 途径，含鉴权校验 + SLC 检索 + INSAR_GAMMA 提交/下载 + 转 `sx_*` raw 格式）。
-- **后端就绪**：`heritage_catalog` 已含 `_get_sx_raster` / `sample_sx_raster` / `real_insar_available`，一旦 `data/insar_hyp3/sx_*` 落盘即自动用实测速度/相干性覆盖确定性五指标（`data_track: real_insar`），缺失时回退 `demo_sandbox`。
-- **唯一阻塞**：NASA Earthdata 账号（HyP3 需鉴权）。账号免费，获取后即可跑通真实数据链路。
+- **已实测确认**：COMET LiCSAR 公共归档（JASMIN）**不含浙江帧**（track 40/84/170/143 帧 bbox 均覆盖中南美洲与日本）；绍兴真实 Sentinel-1 SLC 由 **升轨 relativeOrbit 171**（ASCENDING, frame 96）覆盖。
+- **数据已获取**：ASF HyP3 OAuth2 鉴权通过，提交 21 个 `INSAR_GAMMA` 干涉对（~24 天基线，2023-01~2024-05）全部 SUCCEEDED，下载 ~3GB 成果（`los_disp.tif`/`corr.tif`/`vert_disp.tif`，地理编码 GeoTIFF）。
+- **速度场合成**：`scripts/ch9_convert_insar_shaoxing.py`（重投影 EPSG:4326 + 相干性加权平均 + 平滑 + 限幅）→ `data/insar_hyp3/sx_*`。
+- **后端就绪**：`heritage_catalog` 的 `sample_sx_raster` / `real_insar_available` 已就绪，**相干性门限 γ>0.5** 时以真实值覆盖五指标（`data_track: real_insar`），否则回退 `demo_sandbox`。
+- **诚实口径**：原始单对干涉相干性偏低（均值 0.20），未经 SBAS/PS + ERA5 大气校正的速率噪声较大，demo 以确定性仿真为主；完整毫米级速率需后续接入 MintPy SBAS + 大气校正。
 
 ### 三合一沉浸式重构（2026-09-08 更新）
 

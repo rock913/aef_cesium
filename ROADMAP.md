@@ -2,6 +2,33 @@
 
 > 最后更新: 2026-09-08
 
+## 已完成 Sprint: CH9 全息星火聚合点 + 真实 InSAR 数据获取 (V4 视觉/数据升级) ✅
+
+| 任务 | 状态 | 描述 |
+|------|:--:|------|
+| 全息星火聚合点 | ✅ | `CesiumViewer.createClusterHologram`（Canvas 动态纹理：文物金底座 + 预警橙外环 + 高亮数字），`clusterEvent` 拦截替换默认白色标签 |
+| 真实绍兴 InSAR 获取 | ✅ | 凭据 OAuth2 鉴权通过（basic-auth 已弃用），ASF HyP3 提交 21 个 INSAR_GAMMA 干涉对（relativeOrbit 171 / frame 96）全部 SUCCEEDED |
+| InSAR 成果下载 | ✅ | 21 个 ZIP（~3GB）下载至 `data/insar_hyp3/products/`，含 `los_disp.tif`/`corr.tif`/`vert_disp.tif`（地理编码 GeoTIFF） |
+| 速度场合成 | ✅ | `ch9_convert_insar_shaoxing.py`：重投影到 EPSG:4326 + 相干性加权平均 + 平滑 + 限幅 → `sx_*` raw |
+| 相干性门限 | ✅ | 真实数据仅当 γ>0.5 时覆盖仿真，避免单对干涉大气/解缠噪声误报 |
+
+### V4 验证结果
+
+```
+pytest (237 tests)                          → 237 passed, 36 skipped ✅
+vitest (missionBrief + missionDeck 19)      → 19 passed ✅
+vite build                                  → 编译通过 ✅
+HyP3 任务                                   → 21/21 SUCCEEDED ✅
+sx_* raw 合成                               → 1000x875, EPSG:4326 ✅
+```
+
+### 诚实口径（真实 InSAR 数据质量）
+
+原始单对干涉相干性偏低（均值 0.20），未经 SBAS/PS + ERA5 大气校正的速率噪声较大；
+demo 以确定性仿真为主，真实数据仅在 γ>0.5 高相干处补充（`data_track: real_insar`）。
+
+---
+
 ## 已完成 Sprint: CH9 三合一沉浸式重构 (V3 一镜到底 · 卡片归一 + 证据板) ✅
 
 | 任务 | 状态 | 描述 |

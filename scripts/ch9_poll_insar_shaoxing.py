@@ -51,14 +51,11 @@ def main():
     if args.download and succeeded:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         for j, job in succeeded:
-            for f in job.files:
-                if any(k in f["filename"] for k in ("unw_phase", "corr", "los_displacement", "dem")):
-                    url = f["url"]
-                    dest = OUT_DIR / f"{j['name']}_{f['filename']}"
-                    if dest.exists():
-                        continue
-                    hyp3.download_file(url, dest)
-                    print(f"  ⬇️ {dest.name}")
+            try:
+                job.download_files(OUT_DIR)
+                print(f"  ⬇️ {j['name']}")
+            except Exception as e:
+                print(f"  ❌ {j['name']} 下载失败: {e}")
         print(f"✅ 已下载 {len(succeeded)} 个任务成果 → {OUT_DIR}")
     elif not args.download:
         print("📌 加 --download 可在任务完成后下载成果。")

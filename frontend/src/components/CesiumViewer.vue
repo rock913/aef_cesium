@@ -1642,6 +1642,48 @@ export default {
     }
 
     /**
+     * 动态生成全息质感的聚合点 Canvas 纹理（文物金底座 + 呼吸外环 + 高亮数字）。
+     */
+    function createClusterHologram(count) {
+      const size = count > 1000 ? 90 : (count > 100 ? 75 : 60)
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      const center = size / 2
+      const radius = center - 8
+
+      // 外圈文物金发光光晕
+      ctx.shadowBlur = 15
+      ctx.shadowColor = 'rgba(240, 196, 104, 0.8)'
+      // 半透明暗色底座（屏蔽底图穿透）
+      ctx.beginPath()
+      ctx.arc(center, center, radius, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(10, 15, 25, 0.78)'
+      ctx.fill()
+      // 科技感主圆环
+      ctx.lineWidth = 2.5
+      ctx.strokeStyle = 'rgba(240, 196, 104, 0.9)'
+      ctx.stroke()
+      // 预警橙外环
+      ctx.beginPath()
+      ctx.arc(center, center, radius + 3, 0, Math.PI * 2)
+      ctx.lineWidth = 1.5
+      ctx.strokeStyle = 'rgba(226, 61, 40, 0.6)'
+      ctx.stroke()
+
+      ctx.shadowBlur = 0
+      ctx.font = `bold ${count > 100 ? 18 : 20}px "DIN Alternate", "Rajdhani", "Oswald", sans-serif`
+      ctx.fillStyle = '#FFFFFF'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      const displayCount = count >= 10000 ? (count / 10000).toFixed(1) + 'w' : String(count)
+      ctx.fillText(displayCount, center, center + 1)
+
+      return canvas.toDataURL()
+    }
+
+    /**
      * 加载 CH9 真实开放数据点云（L1 世界遗产 / L2 国保 / 本地 OSM）。
      * 使用独立 CustomDataSource + EntityCluster 做 LOD 聚合，避免万级点位卡顿。
      * 颜色分级：world_heritage=金 / national=橙红 / 其他=青。
@@ -1676,6 +1718,18 @@ export default {
         ds.clustering.enabled = true
         ds.clustering.pixelRange = 38
         ds.clustering.minimumClusterSize = 3
+        // 全息星火聚合：拦截 clusterEvent，用动态 Canvas 徽章替换默认白色文本标签
+        ds.clustering.clusterEvent.addEventListener((clusteredEntities, cluster) => {
+          try {
+            cluster.label.show = false
+            cluster.billboard.show = true
+            cluster.billboard.image = createClusterHologram(clusteredEntities.length)
+            cluster.billboard.verticalOrigin = Cesium.VerticalOrigin.CENTER
+            cluster.billboard.scaleByDistance = new Cesium.NearFarScalar(1.5e2, 1.2, 1.5e7, 0.6)
+          } catch (_) {
+            // ignore
+          }
+        })
         viewer.dataSources.add(ds)
         heritagePointDataSource = ds
       } catch (err) {
