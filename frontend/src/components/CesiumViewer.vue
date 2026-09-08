@@ -1944,19 +1944,20 @@ export default {
       const trails = Array.isArray(scene.trails) ? scene.trails : []
       const anchors = Array.isArray(scene.anchors) ? scene.anchors : []
       try {
-        for (const t of trails) {
-          const pts = (Array.isArray(t.points) ? t.points : []).map(
-            (p) => Cesium.Cartesian3.fromDegrees(Number(p[0]), Number(p[1]), Number(p[2] || 40))
-          )
-          if (pts.length < 2) continue
-          const ent = viewer.entities.add({
-            polyline: {
-              positions: pts,
-              width: 2.5,
-              material: _windTrailMaterial(Number(t.speed) || 3),
-            },
+        // 屋面风场流线（素材包 addWindStreamlines：沿风向流动 + 屋面拱起，物理正确替代地面热力图）
+        try {
+          const windEntities = addWindStreamlines(viewer, {
+            buildingId: 'dongyang_luzhai',
+            position: [120.241, 29.283],
+            windDirectionDeg: 120,
+            lines: 9,
+            span: 42,
+            height: 13,
+            speed: 0.55,
           })
-          windTrailEntities.push(ent)
+          if (Array.isArray(windEntities)) windTrailEntities.push(...windEntities)
+        } catch (e) {
+          console.warn('风场流线生成失败，回退简单拖尾线:', e)
         }
         for (const a of anchors) {
           const lon = Number(a.lon)
