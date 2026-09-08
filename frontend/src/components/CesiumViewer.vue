@@ -1818,6 +1818,31 @@ export default {
       }
     }
 
+    function _windTrailMaterial(speed) {
+      const color = Cesium.Color.CYAN.withAlpha(0.75)
+      // Cesium 1.90+ 的移动拖尾材质为 PolylineTrailMaterialProperty；
+      // 旧版 PolylineTrailLinkMaterialProperty 已移除，这里做多重回退。
+      try {
+        if (Cesium.PolylineTrailMaterialProperty) {
+          return new Cesium.PolylineTrailMaterialProperty({
+            color,
+            trailLength: 0.4,
+            period: 2.0 / (Number(speed) || 3),
+          })
+        }
+      } catch (_) {
+        // fall through
+      }
+      try {
+        if (Cesium.PolylineGlowMaterialProperty) {
+          return new Cesium.PolylineGlowMaterialProperty({ color, glowPower: 0.25 })
+        }
+      } catch (_) {
+        // fall through
+      }
+      return color
+    }
+
     /**
      * 加载 CH9-A 风载场景：风场动态流线 + FEA 薄弱点闪烁锚标。
      */
@@ -1836,11 +1861,7 @@ export default {
             polyline: {
               positions: pts,
               width: 2.5,
-              material: new Cesium.PolylineTrailLinkMaterialProperty({
-                color: Cesium.Color.CYAN.withAlpha(0.75),
-                trailLength: 0.4,
-                period: 2.0 / (Number(t.speed) || 3),
-              }),
+              material: _windTrailMaterial(Number(t.speed) || 3),
             },
           })
           windTrailEntities.push(ent)

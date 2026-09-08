@@ -632,9 +632,32 @@ export default {
       }
     }
 
+    const DIVE_TARGETS = {
+      shaoxing: { mode: 'ch9_heritage_deformation', location: 'shaoxing_yuecheng' },
+      dongyang: { mode: 'ch9_heritage_wind_risk', location: 'dongyang_luzhai' },
+      pingyao: { mode: 'ch9_heritage_aef_discovery', location: 'shanxi_pingyao' },
+    }
+
+    async function loadDiveLayer(target) {
+      const t = DIVE_TARGETS[target]
+      if (!t) return
+      try {
+        const layerData = await apiService.getLayer(t.mode, t.location)
+        const url = normalizeTileUrl(layerData.tile_url)
+        const opacity = Number(layerData?.render_hints?.ai_opacity)
+        lastAiTileUrl.value = url
+        lastAiOpacity.value = Number.isFinite(opacity) ? opacity : 0.88
+        lastAiBounds.value = layerData?.bounds || null
+        cesiumViewer.value?.loadAILayer(url, lastAiOpacity.value, { fadeIn: true, bounds: layerData?.bounds })
+      } catch (err) {
+        console.warn('Failed to load dive layer:', err)
+      }
+    }
+
     async function onHeritageDive(target) {
       heritageDive.value = target
       cesiumViewer.value?.performDive?.(target)
+      loadDiveLayer(target)
       try {
         if (target === 'shaoxing') {
           await fetchHeritageBuildings('shaoxing_yuecheng')
