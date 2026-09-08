@@ -15,6 +15,13 @@
 
 <script>
 import * as Cesium from 'cesium'
+import {
+  applyCinematicLighting,
+  addHeritageModel,
+  bindAnchorLabels,
+  addWindStreamlines,
+  clearCh9Scene,
+} from '../scenes/ch9_cesium_l5.js'
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 export default {
@@ -1544,9 +1551,39 @@ export default {
       ]
     }
 
+    // 旗舰单体 → 通用古建 .glb 模型（台门/多进院落/厅堂），替代平顶方块
+    const HERITAGE_MODELS = {
+      'SX-YC-ZP-08': { modelKey: 'taimen', anchors: 'heritage_taimen_courtyard_anchors.json', heading: 18, prefix: '正厅_' },
+      'JH-DY-LZ-001': { modelKey: 'complex', anchors: 'heritage_complex_multicourt_anchors.json', heading: 90, prefix: '正厅_' },
+      'JH-DY-LZ-002': { modelKey: 'hall', anchors: 'heritage_hall_xieshan_anchors.json', heading: 90, prefix: '厅堂_' },
+    }
+
+    function _anchorItemsFor(conf, pt) {
+      const weak = pt?.weak_points || []
+      const items = []
+      const seen = new Set()
+      for (const wp of weak) {
+        const part = wp.part
+        const key = part === '屋脊' ? `${conf.prefix}屋脊`
+          : part === '檐口' ? `${conf.prefix}檐口`
+          : part === '翼角' ? `${conf.prefix}翼角_东南`
+          : part === '山墙' ? `${conf.prefix}山墙_东`
+          : null
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        items.push({
+          key,
+          label: part,
+          value: `${wp.level === 'severe' ? '−3.70' : wp.level === 'moderate' ? '−2.85' : '+1.42'} kPa`,
+          level: wp.level === 'severe' ? 'severe' : wp.level === 'moderate' ? 'moderate' : 'watch',
+        })
+      }
+      return items
+    }
+
     /**
-     * 加载 CH9 古建单体 3D 白模（程序化挤出 polygon，按 risk_level 荧光染色）。
-     * unstable=红呼吸光 / moderate=橙 / stable=青半透明 / candidate=金。
+     * 加载 CH9 古建单体 3D 白模：旗舰单体用通用 .glb 模型，其余用挤出白模，
+     * 按 risk_level 荧光染色。
      */
     function loadHeritageBuildings(points = []) {
       clearHeritageBuildings()
@@ -1558,6 +1595,51 @@ export default {
           if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
           const risk = String(pt.risk_level || '')
           const isCandidate = !!pt.is_candidate
+          const conf = HERITAGE_MODELS[pt.building_id]
+
+          if (conf) {
+            // 旗舰单体：加载 .glb 模型 + MIX 风险染色 + 呼吸灯
+            const riskLevel = risk === 'unstable' ? 'unstable' : risk === 'moderate' ? 'moderate' : 'stable'
+            let ent = null
+            try {
+              ent = addHeritageModel(viewer, {
+                buildingId: pt.building_id,
+                name: pt.name,
+                position: [lon, lat, 0],
+                modelKey: conf.modelKey,
+                heading: conf.heading,
+                scale: 1.0,
+                riskLevel,
+                breathing: riskLevel === 'unstable' || riskLevel === 'moderate',
+                blendAmount: 0.5,
+              })
+            } catch (e) {
+              console.warn('模型加载失败，回退挤出白模:', e)
+              ent = null
+            }
+            if (ent) {
+              ent._heritageData = pt
+              heritageBuildingEntities.push(ent)
+              // 异步挂载部位锚点
+              fetch(`/assets/models/${conf.anchors}`)
+                .then((r) => r.json())
+                .then((a) => {
+                  try {
+                    bindAnchorLabels(viewer, {
+                      buildingId: pt.building_id,
+                      position: [lon, lat, 0],
+                      heading: conf.heading,
+                      scale: 1.0,
+                      anchors: a.anchors_local_m,
+                      anchorItems: _anchorItemsFor(conf, pt),
+                    })
+                  } catch (e) { console.warn('锚点绑定失败:', e) }
+                })
+                .catch(() => {})
+              continue
+            }
+          }
+
           const baseColor = isCandidate ? Cesium.Color.GOLD
             : risk === 'unstable' ? Cesium.Color.RED
             : risk === 'moderate' ? Cesium.Color.ORANGE
@@ -1753,12 +1835,17 @@ export default {
      */
     function setCinematicMode(enabled) {
       if (!viewer) return
-      try {
-        viewer.scene.globe.baseColor = enabled
-          ? Cesium.Color.fromCssColorString('#1a2a3a')
-          : Cesium.Color.WHITE
-      } catch (_) {
-        // ignore
+      if (enabled) {
+        // 电影级打光：定向光 + 雾 + HDR + 暗环境（侧边栏暗黑 vs 地图大白天不再割裂）
+        try { applyCinematicLighting(viewer) } catch (_) { /* ignore */ }
+      } else {
+        try {
+          viewer.scene.globe.baseColor = Cesium.Color.WHITE
+          viewer.scene.light = new Cesium.SunLight()
+          viewer.scene.fog.enabled = false
+          viewer.scene.highDynamicRange = false
+          viewer.scene.globe.enableLighting = false
+        } catch (_) { /* ignore */ }
       }
       // 适度压暗底图（不过暗，保证图层可读），凸显发光点位
       try {

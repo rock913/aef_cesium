@@ -453,6 +453,7 @@ def get_buildings(location: str):
         if b.get("location") != location:
             continue
         l3 = b.get("layers", {}).get("L3_deformation") or {}
+        l5 = b.get("layers", {}).get("L5_structural") or {}
         fusion = b.get("fusion", {}) or {}
         items.append({
             "building_id": b["building_id"],
@@ -462,6 +463,7 @@ def get_buildings(location: str):
             "risk_level": l3.get("risk_level", "data_insufficient"),
             "coupled_risk_level": fusion.get("coupled_risk_level", ""),
             "is_candidate": bool(b.get("is_candidate", False)),
+            "weak_points": l5.get("weak_points", []),
         })
     return items
 

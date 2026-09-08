@@ -511,7 +511,8 @@ def get_layer_logic(mode: str, region: Any) -> Tuple[Any, Dict, str]:
         density = terms[0]
         for t in terms[1:]:
             density = density.add(t)
-        img = density.rename('heritage_density')
+        # 必须 updateMask：密度氛围场只保留高值区，避免整屏糊住底图（白屏/黄色巨块根源）
+        img = density.rename('heritage_density').updateMask(density.gt(0.25))
         vis = {
             "min": 0.0, "max": 1.0,
             "palette": ["0B1626", "3A3416", "8A6B1F", "F0C468"],
