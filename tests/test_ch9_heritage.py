@@ -129,7 +129,8 @@ def test_ch9_layers_endpoint(mock_get_tile, mock_smart_load, mock_point, client)
     data = resp.json()
     assert "tile_url" in data
     assert data.get("mode") == "ch9_heritage_deformation"
-    assert data["render_hints"]["ai_opacity"] == 0.88
+    # 真实 InSAR 本地瓦片存在时 opacity=0.9；否则走 GEE 仿真 0.88
+    assert data["render_hints"]["ai_opacity"] in (0.88, 0.9)
 
 
 # --- CH9 heritage endpoints (pure Python, no GEE) ---

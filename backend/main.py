@@ -2264,6 +2264,34 @@ async def get_layer(
                 "mode": mode
             }
 
+        # CH9 绍兴真实 InSAR 本地瓦片（ASF HyP3 真实数据，替代 GEE 仿真）
+        is_ch9_deformation = ("ch9_heritage_deformation" in mode)
+        local_ch9_tiles = Path("/app/data/tiles/ch9_insar")
+        if not local_ch9_tiles.exists():
+            local_ch9_tiles = Path("/mnt/data/hyf/aef_cesium/data/tiles/ch9_insar")
+
+        if is_ch9_deformation and local_ch9_tiles.exists():
+            tile_url = "/api/tiles/local_ch9_insar/{z}/{x}/{y}?v=1.0"
+            status_html = "<span class='status-badge status-live'>🛰️ 绍兴真实 InSAR (ASF HyP3 · LOS)</span>"
+            return {
+                "tile_url": tile_url,
+                "bounds": [120.30, 29.70, 121.10, 30.40],
+                "is_cached": True,
+                "status": status_html,
+                "asset_id": "data/tiles/ch9_insar (Sentinel-1 Real InSAR Shaoxing)",
+                "title": "绍兴真实 LOS 形变速率场 (mm/yr)",
+                "layer_type": "annual_velocity_field",
+                "unit": "mm/yr",
+                "vis_params": vis_for_tiles,
+                "variant": var or "heatmap",
+                "threshold": effective_threshold,
+                "render_hints": {
+                    "ai_opacity": 0.9
+                },
+                "location": loc_data,
+                "mode": mode
+            }
+
         # 获取上游 Tile URL (ee.getMapId) 并注册到本地代理。
         # 为避免前端 prefetch/多客户端导致的重复 getMapId 调用，这里使用 TTL cache。
         # Cache key must include effective visualization + variant, otherwise a prior

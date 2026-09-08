@@ -1755,17 +1755,17 @@ export default {
       if (!viewer) return
       try {
         viewer.scene.globe.baseColor = enabled
-          ? Cesium.Color.fromCssColorString('#0b1626')
+          ? Cesium.Color.fromCssColorString('#1a2a3a')
           : Cesium.Color.WHITE
       } catch (_) {
         // ignore
       }
-      // 压暗底图影像，凸显发光点位（暗黑电影场）
+      // 适度压暗底图（不过暗，保证图层可读），凸显发光点位
       try {
         const base = viewer.imageryLayers.get(0)
         if (base) {
-          base.brightness = enabled ? 0.22 : 1.0
-          base.contrast = enabled ? 1.35 : 1.0
+          base.brightness = enabled ? 0.55 : 1.0
+          base.contrast = enabled ? 1.2 : 1.0
         }
       } catch (_) {
         // ignore
@@ -1803,13 +1803,18 @@ export default {
       const t = microTargets[targetKey]
       if (!t) return
       try {
+        // 使目标坐标居中：从目标点沿 heading/pitch/range 反推相机位置，而非把相机放在目标点
+        const center = Cesium.Cartesian3.fromDegrees(t.lon, t.lat, 0)
+        const heading = Cesium.Math.toRadians(t.heading)
+        const pitch = Cesium.Math.toRadians(t.pitch)
+        const hpr = new Cesium.HeadingPitchRange(heading, pitch, t.height)
+        const cameraPos = Cesium.Matrix4.getTranslation(
+          Cesium.Transforms.headingPitchRollToFixedFrame(center, hpr),
+          new Cesium.Cartesian3()
+        )
         viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(t.lon, t.lat, t.height),
-          orientation: {
-            heading: Cesium.Math.toRadians(t.heading),
-            pitch: Cesium.Math.toRadians(t.pitch),
-            roll: 0,
-          },
+          destination: cameraPos,
+          orientation: { heading, pitch, roll: 0 },
           duration: 3.0,
           easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
         })
